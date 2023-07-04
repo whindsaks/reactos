@@ -7,6 +7,9 @@ REM for more explanation.
 REM Precisely needed for configuring Visual Studio Environment.
 setlocal enabledelayedexpansion
 
+REM Set the directory changed to at the end (MUST be set before any "goto help" jumps!)
+set ROSCONF_ENDDIR=.
+
 REM Does the user need help?
 if /I "%1" == "help" goto help
 if /I "%1" == "/?" (
@@ -203,6 +206,7 @@ if %ERRORLEVEL% NEQ 0 (
 
 if "%CD_SAME_AS_SOURCE%" == "1" (
     set ENDV= from %REACTOS_OUTPUT_PATH%
+    set ROSCONF_ENDDIR=%REACTOS_OUTPUT_PATH%
 )
 
 if "%VS_SOLUTION%" == "1" (
@@ -219,5 +223,5 @@ goto quit
 echo Unable to find cmake, if it is installed, check your PATH variable.
 
 :quit
-endlocal
+endlocal&cd %ROSCONF_ENDDIR%
 exit /b
