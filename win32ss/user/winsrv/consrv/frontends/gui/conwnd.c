@@ -2450,6 +2450,9 @@ ConWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
             /* Do nothing if the window is hidden */
             if (!GuiData->IsWindowVisible) break;
 
+            /* Don't display the menu if QuickEdit is active */
+            if (GuiData->Console->QuickEdit) break;
+
             if (DefWindowProcW(hWnd /*GuiData->hWindow*/, WM_NCHITTEST, 0, lParam) == HTCLIENT)
             {
                 HMENU hMenu = CreatePopupMenu();
