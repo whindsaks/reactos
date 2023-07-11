@@ -1602,6 +1602,24 @@ OnMouse(PGUI_CONSOLE_DATA GuiData, UINT msg, WPARAM wParam, LPARAM lParam)
     BOOL DoDefault = FALSE;
     PCONSRV_CONSOLE Console = GuiData->Console;
 
+    const UINT mousebtns = MK_LBUTTON|MK_MBUTTON|MK_RBUTTON|MK_XBUTTON1|MK_XBUTTON2;
+    /* Ignore a specific mouse button message, one time.
+     * Other messages cancels the request unless it is a 
+     * mouse move with a button held down.
+     */
+    if (GuiData->IgnoreNextMouseMsg)
+    {
+        if (GuiData->IgnoreNextMouseMsg == msg)
+        {
+            GuiData->IgnoreNextMouseMsg = FALSE;
+            goto Quit;
+        }
+        if (msg != WM_MOUSEMOVE || !(wParam & mousebtns))
+        {
+            GuiData->IgnoreNextMouseMsg = FALSE;
+        }
+    }
+
     /*
      * HACK FOR CORE-8394 (Part 2):
      *
@@ -1761,6 +1779,8 @@ OnMouse(PGUI_CONSOLE_DATA GuiData, UINT msg, WPARAM wParam, LPARAM lParam)
 
                 /* Ignore the next mouse move signal */
                 GuiData->IgnoreNextMouseSignal = TRUE;
+                /* Ignore the upcoming RBUTTONUP to prevent generating WM_CONTEXTMENU */
+                GuiData->IgnoreNextMouseMsg = WM_RBUTTONUP;
                 break;
             }
 
