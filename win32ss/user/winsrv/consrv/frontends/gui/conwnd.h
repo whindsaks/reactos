@@ -3,7 +3,7 @@
  * PROJECT:         ReactOS Console Server DLL
  * FILE:            win32ss/user/winsrv/consrv/frontends/gui/conwnd.h
  * PURPOSE:         GUI Console Window Class
- * PROGRAMMERS:     Gé van Geldorp
+ * PROGRAMMERS:     GÃ© van Geldorp
  *                  Johannes Anderwald
  *                  Jeffrey Morlan
  *                  Hermes Belusca-Maito (hermes.belusca@sfr.fr)
@@ -71,7 +71,8 @@ typedef struct _GUI_CONSOLE_DATA
     INT  MouseCursorRefCount;   /* The reference counter associated with the mouse cursor. >= 0 and the cursor is shown; < 0 and the cursor is hidden. */
     BOOL IgnoreNextMouseSignal; /* Used when we need to not process a mouse signal */
 
-    BOOL HackCORE8394IgnoreNextMove; /* HACK FOR CORE-8394. See conwnd.c!OnMouse for more details. */
+    WORD HackCORE8394IgnoreNextMove; /* HACK FOR CORE-8394. See conwnd.c!OnMouse for more details. */
+    WORD IgnoreNextMouseMsg;         /* HACK FOR Github PR 5406 */
 
     HMENU hSysMenu;             /* Handle to the console window system menu */
     BOOL IsCloseButtonEnabled;  /* TRUE if the Close button and the corresponding system menu item are enabled (default), FALSE otherwise */
