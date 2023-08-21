@@ -42,8 +42,10 @@ INT_PTR CALLBACK FolderOptionsFileTypesDlg(HWND hwndDlg, UINT uMsg, WPARAM wPara
 
 HRESULT STDMETHODCALLTYPE CFolderOptions::AddPages(LPFNSVADDPROPSHEETPAGE pfnAddPage, LPARAM lParam)
 {
-    HPROPSHEETPAGE hPage = SH_CreatePropertySheetPage(IDD_FOLDER_OPTIONS_GENERAL, FolderOptionsGeneralDlg, 0, NULL);
+    HPROPSHEETPAGE hPage;
+    LPARAM sheetparam = (LPARAM)static_cast<CFolderOptions*>(this);
 
+    hPage = SH_CreatePropertySheetPage(IDD_FOLDER_OPTIONS_GENERAL, FolderOptionsGeneralDlg, sheetparam, NULL);
     if (hPage == NULL)
     {
         ERR("Failed to create property sheet page FolderOptionsGeneral\n");
@@ -52,7 +54,7 @@ HRESULT STDMETHODCALLTYPE CFolderOptions::AddPages(LPFNSVADDPROPSHEETPAGE pfnAdd
     if (!pfnAddPage(hPage, lParam))
         return E_FAIL;
 
-    hPage = SH_CreatePropertySheetPage(IDD_FOLDER_OPTIONS_VIEW, FolderOptionsViewDlg, 0, NULL);
+    hPage = SH_CreatePropertySheetPage(IDD_FOLDER_OPTIONS_VIEW, FolderOptionsViewDlg, sheetparam, NULL);
     if (hPage == NULL)
     {
         ERR("Failed to create property sheet page FolderOptionsView\n");
@@ -61,7 +63,7 @@ HRESULT STDMETHODCALLTYPE CFolderOptions::AddPages(LPFNSVADDPROPSHEETPAGE pfnAdd
     if (!pfnAddPage(hPage, lParam))
         return E_FAIL;
 
-    hPage = SH_CreatePropertySheetPage(IDD_FOLDER_OPTIONS_FILETYPES, FolderOptionsFileTypesDlg, 0, NULL);
+    hPage = SH_CreatePropertySheetPage(IDD_FOLDER_OPTIONS_FILETYPES, FolderOptionsFileTypesDlg, sheetparam, NULL);
     if (hPage == NULL)
     {
         ERR("Failed to create property sheet page FolderOptionsFileTypes\n");
@@ -100,6 +102,37 @@ HRESULT STDMETHODCALLTYPE CFolderOptions::SetSite(IUnknown *pUnkSite)
 
 HRESULT STDMETHODCALLTYPE CFolderOptions::GetSite(REFIID riid, void **ppvSite)
 {
-    return m_pSite->QueryInterface(riid, ppvSite);
+    return m_pSite ? m_pSite->QueryInterface(riid, ppvSite) : E_FAIL;
 }
 
+
+/*************************************************************************
+ * FolderOptions helper methods
+ */
+
+#include <shdeprecated.h>
+
+HRESULT CFolderOptions::HandleDefFolderSettings(int Action)
+{
+    IBrowserService2*bs2;
+    HRESULT hr = IUnknown_QueryService(m_pSite, SID_SShellBrowser, IID_IBrowserService2, (void**)&bs2);
+    if (SUCCEEDED(hr))
+    {
+        if (Action > 0)
+        {
+            FIXME("Unable to reset folder settings!\n");
+            // FIXME: How does Windows tell CShellBrowser to reset the settings?
+            hr = E_NOTIMPL;
+        }
+        else if (Action == 0)
+        {
+            hr = bs2->SetAsDefFolderSettings();
+        }
+        else
+        {
+            // Just a query, hr is already correct
+        }
+        bs2->Release();
+    }
+    return hr;
+}

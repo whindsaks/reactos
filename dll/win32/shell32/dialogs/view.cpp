@@ -23,6 +23,17 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL (fprop);
 
+
+static void ErrorBox(HWND hOwner, DWORD Error)
+{
+    if (!IsWindowVisible(hOwner)) hOwner = 0;
+    if (!Error) Error = E_UNEXPECTED;
+
+    TCHAR buf[400];
+    UINT cch = FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM|FORMAT_MESSAGE_IGNORE_INSERTS, 0, Error, 0, buf, _countof(buf), 0);
+    MessageBox(hOwner, cch ? buf : TEXT("Unknown error!"), 0, MB_ICONSTOP);
+}
+
 /////////////////////////////////////////////////////////////////////////////
 // View Tree
 
@@ -618,7 +629,7 @@ ViewDlg_CreateTreeImageList(VOID)
 }
 
 static BOOL
-ViewDlg_OnInitDialog(HWND hwndDlg)
+ViewDlg_OnInitDialog(HWND hwndDlg, PROPSHEETPAGE*psp)
 {
     HWND hwndTreeView = GetDlgItem(hwndDlg, IDC_VIEW_TREEVIEW);
 
@@ -628,6 +639,16 @@ ViewDlg_OnInitDialog(HWND hwndDlg)
     ViewTree_LoadAll();
     ViewTree_SortAll();
     ViewTree_InsertAll(hwndTreeView);
+
+    SetWindowLongPtr(hwndDlg, GWL_USERDATA, psp->lParam);
+    CFolderOptions *pFO = (CFolderOptions*)psp->lParam;
+
+    if (!pFO || !pFO->CanSetDefFolderSettings())
+    {
+        // The global options (started from rundll32 or control panel) 
+        // has no browser to copy the settings from.
+        EnableWindow(GetDlgItem(hwndDlg, IDC_VIEW_APPLY_TO_ALL), FALSE);
+    }
 
     return TRUE;    // set focus
 }
@@ -941,13 +962,29 @@ FolderOptionsViewDlg(
     switch (uMsg)
     {
         case WM_INITDIALOG:
-            return ViewDlg_OnInitDialog(hwndDlg);
+            return ViewDlg_OnInitDialog(hwndDlg, (PROPSHEETPAGE*)lParam);
 
         case WM_COMMAND:
             switch (LOWORD(wParam))
             {
                 case IDC_VIEW_RESTORE_DEFAULTS: // Restore Defaults
                     ViewDlg_RestoreDefaults(hwndDlg);
+                    break;
+
+                case IDC_VIEW_APPLY_TO_ALL:
+                case IDC_VIEW_RESET_ALL:
+                    {
+                        HRESULT hr = E_NOTIMPL;
+                        CFolderOptions *pFO = (CFolderOptions*)GetWindowLongPtr(hwndDlg, GWL_USERDATA);
+                        if (pFO)
+                        {
+                            hr = pFO->ApplyDefFolderSettings(LOWORD(wParam) == IDC_VIEW_RESET_ALL);
+                        }
+                        if (FAILED(hr))
+                        {
+                            ErrorBox(hwndDlg, hr);
+                        }
+                    }
                     break;
             }
             break;

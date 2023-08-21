@@ -53,6 +53,15 @@ class CFolderOptions :
         virtual HRESULT STDMETHODCALLTYPE SetSite(IUnknown *pUnkSite);
         virtual HRESULT STDMETHODCALLTYPE GetSite(REFIID riid, void **ppvSite);
 
+        bool CanSetDefFolderSettings()
+        {
+            return SUCCEEDED(HandleDefFolderSettings(-1));
+        }
+        HRESULT ApplyDefFolderSettings(bool ResetToDefault)
+        {
+            return HandleDefFolderSettings(ResetToDefault);
+        }
+
         DECLARE_REGISTRY_RESOURCEID(IDR_FOLDEROPTIONS)
         DECLARE_NOT_AGGREGATABLE(CFolderOptions)
 
@@ -63,6 +72,9 @@ class CFolderOptions :
         COM_INTERFACE_ENTRY_IID(IID_IShellExtInit, IShellExtInit)
         COM_INTERFACE_ENTRY_IID(IID_IObjectWithSite, IObjectWithSite)
         END_COM_MAP()
+
+    protected:
+        HRESULT HandleDefFolderSettings(int Action);
 };
 
 #endif /* _CFOLDEROPTIONS_H_ */
