@@ -32,4 +32,7 @@ class CAppDB
 
     BOOL
     RemoveInstalledAppFromRegistry(const CAppInfo *Info);
+
+    static CInstalledApplicationInfo *
+    Duplicate(const CInstalledApplicationInfo&Src);
 };

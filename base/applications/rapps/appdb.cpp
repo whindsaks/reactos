@@ -211,6 +211,19 @@ CAppDB::UpdateInstalled()
     }
 }
 
+CInstalledApplicationInfo *
+CAppDB::Duplicate(const CInstalledApplicationInfo&Src)
+{
+    int keyIndex = Src.iKeyIndex;
+    CStringW regpath = CStringW(UNINSTALL_SUBKEY) + CStringW(L"\\") + Src.szIdentifier;
+    CRegKey hKey;
+    if (hKey.Open(g_RootKeyEnum[keyIndex], regpath, KEY_READ | g_RegSamEnum[keyIndex]) == ERROR_SUCCESS)
+    {
+        return new CInstalledApplicationInfo(hKey.Detach(), Src.szIdentifier, Src.iCategory, keyIndex);
+    }
+    return NULL;
+}
+
 static void
 DeleteWithWildcard(const CPathW &Dir, const CStringW &Filter)
 {

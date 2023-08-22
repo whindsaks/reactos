@@ -8,8 +8,10 @@
 
 #include "rapps.h"
 #include "appview.h"
+#include "appdb.h"
 #include "gui.h"
 #include <windowsx.h>
+#include <process.h>
 
 using namespace Gdiplus;
 
@@ -972,6 +974,7 @@ CAppInfoDisplay::~CAppInfoDisplay()
 
 CAppsListView::CAppsListView()
 {
+    InitializeSListHead(&GuessUninstallIconList);
 }
 
 CAppsListView::~CAppsListView()
@@ -1103,6 +1106,19 @@ CAppsListView::AddItem(INT ItemIndex, INT IconIndex, LPCWSTR lpText, LPARAM lPar
         Item.mask |= LVIF_IMAGE;
     }
     return InsertItem(&Item);
+}
+
+BOOL
+CAppsListView::SetItemIcon(INT ItemIndex, HICON hIcon)
+{
+    LVITEMW Item;
+    Item.mask = LVIF_IMAGE;
+    Item.iItem = ItemIndex, Item.iSubItem = 0;
+    if (GetItem(&Item) && -1 != ImageList_ReplaceIcon(m_hImageListView, Item.iImage, hIcon))
+    {
+        return Update(ItemIndex);
+    }
+    return FALSE;
 }
 
 HIMAGELIST
@@ -1281,6 +1297,66 @@ CAppsListView::SetViewMode(DWORD ViewMode)
     return SendMessage(LVM_SETVIEW, (WPARAM)ViewMode, 0) == 1;
 }
 
+WORD g_BackgroundId = 0;
+
+struct BackgroundGuessUninstallIconData
+{
+    SLIST_ENTRY Next;
+    CAppInfo *AppInfo;
+    const CAppInfo *Item;
+    HWND hNotify;
+    WORD BackgroundId;
+    ~BackgroundGuessUninstallIconData() { delete AppInfo; }
+};
+
+static unsigned int CALLBACK 
+BackgroundGuessUninstallIcons(LPVOID List)
+{
+    for (PSLIST_ENTRY p; (p = InterlockedPopEntrySList((PSLIST_HEADER)List)) != 0 ;)
+    {
+        BackgroundGuessUninstallIconData *data = CONTAINING_RECORD(p, BackgroundGuessUninstallIconData, Next);
+        CStringW path;
+        if (data->AppInfo && data->AppInfo->GuessUninstallIcon(path))
+        {
+            HICON hIcon;
+            if (ExtractIconExW(path.GetString(), 0, &hIcon, 0, 1))
+            {
+                SetItemIconData icodata = { hIcon, (LPARAM) data->Item };
+                SendMessage(data->hNotify, WM_RAPPS_APPVIEW_SETITEMICON,
+                    data->BackgroundId, (LPARAM) &icodata);
+                DestroyIcon(hIcon);
+            }
+        }
+        delete data;
+    }
+    return 0;
+}
+
+void
+CAppsListView::StartBackgroundGuessUninstallIcon(const CInstalledApplicationInfo &AppInfo)
+{
+    BackgroundGuessUninstallIconData *data = new BackgroundGuessUninstallIconData;
+    data->AppInfo = CAppDB::Duplicate(AppInfo);
+    data->Item = &AppInfo; // Store the item so it can be compared. Do not dereference it!
+    data->hNotify = ::GetParent(m_hWnd);
+    data->BackgroundId = g_BackgroundId;
+
+    if (data->AppInfo)
+    {
+        if (!InterlockedPushEntrySList(&GuessUninstallIconList, &data->Next))
+        {
+            HANDLE hThread = (HANDLE)_beginthreadex(NULL, 0, BackgroundGuessUninstallIcons, &GuessUninstallIconList, 0, NULL);
+            if (hThread)
+            {
+                SetThreadPriority(hThread, THREAD_PRIORITY_LOWEST);
+                CloseHandle(hThread);
+            }
+        }
+        return;
+    }
+    delete data;
+}
+
 BOOL
 CAppsListView::AddApplication(CAppInfo *AppInfo, BOOL InitialCheckState)
 {
@@ -1289,28 +1365,34 @@ CAppsListView::AddApplication(CAppInfo *AppInfo, BOOL InitialCheckState)
         /* Load icon from registry */
         HICON hIcon = NULL;
         CStringW szIconPath;
+        int GuessIcon = 0, IconIndex;
         if (AppInfo->RetrieveIcon(szIconPath))
         {
-            PathParseIconLocationW((LPWSTR)szIconPath.GetString());
+            IconIndex = PathParseIconLocationW(szIconPath.GetBuffer());
+            szIconPath.ReleaseBuffer();
 
-            /* Load only the 1st icon from the application executable,
-             * because all apps provide the executables which have the main icon
-             * as 1st in the index , so we don't need other icons here */
-            hIcon = ExtractIconW(hInst, szIconPath.GetString(), 0);
+            if (!ExtractIconExW(szIconPath.GetString(), IconIndex, &hIcon, 0, 1)) hIcon = 0;
         }
 
         if (!hIcon)
         {
             /* Load default icon */
             hIcon = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_MAIN));
+            GuessIcon++;
         }
 
-        int IconIndex = ImageList_AddIcon(m_hImageListView, hIcon);
+        IconIndex = ImageList_AddIcon(m_hImageListView, hIcon);
         DestroyIcon(hIcon);
 
         int Index = AddItem(ItemCount, IconIndex, AppInfo->szDisplayName, (LPARAM)AppInfo);
         SetItemText(Index, 1, AppInfo->szDisplayVersion.IsEmpty() ? L"---" : AppInfo->szDisplayVersion);
         SetItemText(Index, 2, AppInfo->szComments.IsEmpty() ? L"---" : AppInfo->szComments);
+
+        if (GuessIcon)
+        {
+            /* Search for a better icon on a background thread */
+            StartBackgroundGuessUninstallIcon(*static_cast<CInstalledApplicationInfo*>(AppInfo));
+        }
 
         ItemCount++;
         return TRUE;
@@ -1523,6 +1605,19 @@ CApplicationView::ProcessWindowMessage(
         case WM_COMMAND:
         {
             OnCommand(wParam, lParam);
+        }
+        break;
+
+        case WM_RAPPS_APPVIEW_SETITEMICON:
+        {
+            if (g_BackgroundId == wParam && lParam && m_ListView)
+            {
+                SetItemIconData *icodata = (SetItemIconData*) lParam;
+                LVFINDINFOW fi;
+                fi.flags = LVFI_PARAM;
+                fi.lParam = icodata->Item;
+                m_ListView->SetItemIcon(m_ListView->FindItem(-1, &fi), icodata->hIcon);
+            }
         }
         break;
     }

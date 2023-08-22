@@ -95,6 +95,8 @@ class CAppInfo
     GetDisplayInfo(CStringW &License, CStringW &Size, CStringW &UrlSite, CStringW &UrlDownload) = 0;
     virtual BOOL
     UninstallApplication(BOOL bModify) = 0;
+    virtual BOOL
+    GuessUninstallIcon(CStringW &Path) { return FALSE; }
 };
 
 class CAvailableApplicationInfo : public CAppInfo
@@ -183,4 +185,6 @@ class CInstalledApplicationInfo : public CAppInfo
     GetDisplayInfo(CStringW &License, CStringW &Size, CStringW &UrlSite, CStringW &UrlDownload) override;
     virtual BOOL
     UninstallApplication(BOOL bModify) override;
+    virtual BOOL
+    GuessUninstallIcon(CStringW &Path) override;
 };

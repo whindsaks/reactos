@@ -536,7 +536,7 @@ CMainWindow::OnCommand(WPARAM wParam, LPARAM lParam)
                 break;
 
             case ID_REFRESH:
-                UpdateApplicationsList(SelectedEnumType);
+                UpdateApplicationsList(SelectedEnumType, TRUE);
                 break;
 
             case ID_RESETDB:
@@ -601,7 +601,10 @@ CMainWindow::UpdateApplicationsList(AppsCategories EnumType, BOOL bReload)
         SelectedEnumType = EnumType;
 
     if (bReload)
+    {
+        g_BackgroundId++; // Invalidate all background work
         m_Selected.RemoveAll();
+    }
 
     m_ApplicationView->SetRedraw(FALSE);
     if (IsInstalledEnum(EnumType))

@@ -234,6 +234,8 @@ class CAppsListView : public CUiWindow<CWindowImpl<CAppsListView, CListView>>
 
     INT
     AddItem(INT ItemIndex, INT IconIndex, LPCWSTR lpText, LPARAM lParam);
+    BOOL
+    SetItemIcon(INT ItemIndex, HICON hIcon);
 
     HIMAGELIST
     GetImageList(int iImageList);
@@ -268,6 +270,9 @@ class CAppsListView : public CUiWindow<CWindowImpl<CAppsListView, CListView>>
     // this function is called when parent window receiving an notification about checkstate changing
     VOID
     ItemCheckStateNotify(int iItem, BOOL bCheck);
+
+    SLIST_HEADER GuessUninstallIconList;
+    void StartBackgroundGuessUninstallIcon(const CInstalledApplicationInfo& AppInfo);
 };
 
 class CMainToolbar : public CUiWindow<CToolbar<>>
@@ -412,4 +417,15 @@ class CApplicationView : public CUiWindow<CWindowImpl<CApplicationView>>
     // CallbackParam is the param passed to listview when adding the item (the one getting focus now).
     VOID
     ItemCheckStateChanged(BOOL bChecked, LPVOID CallbackParam);
+};
+
+extern WORD g_BackgroundId;
+
+struct SetItemIconData {
+    HICON hIcon;
+    LPARAM Item;
+};
+
+enum {
+    WM_RAPPS_APPVIEW_SETITEMICON = WM_APP
 };

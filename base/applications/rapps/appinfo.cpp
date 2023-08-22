@@ -536,6 +536,89 @@ CInstalledApplicationInfo::RetrieveIcon(CStringW &Path) const
     return !Path.IsEmpty();
 }
 
+BOOL 
+CInstalledApplicationInfo::GuessUninstallIcon(CStringW &Path)
+{
+    // * If UninstallString is "msiexec" and there is no InstallLocation, just give up.
+    // * If there is only one .exe in the directory, use that.
+    // * If there are multiple .exe files, use the 
+    //   largest file that is not in UninstallString.
+    // * The first character of the display name must appear in the filename, 
+    //   the earlier the better.
+    // * If there are too many .exe files, chicken out.
+
+    CStringW appdir, unappfile;
+    UINT count = 0, matchCount = 0, maxCount = 5;
+    bool verifyDir = false;
+
+    if (!GetApplicationRegString(L"InstallLocation", appdir)
+     || appdir.IsEmpty() || !PathIsDirectoryW(appdir.GetString()))
+    {
+        verifyDir = true, appdir = L"";
+
+        CStringW uncmd;
+        GetApplicationRegString(L"UninstallString", uncmd);
+        if (uncmd[0] == L'\"')
+        {
+            PathRemoveArgsW(uncmd.GetBuffer());
+            PathUnquoteSpacesW(uncmd.GetBuffer());
+            uncmd.ReleaseBuffer();
+        }
+
+        LPCWSTR name = PathFindFileNameW(uncmd.GetString());
+        if (StrCmpIW(L"msiexec", name) && !uncmd.IsEmpty())
+        {
+            WCHAR baddir[MAX_PATH];
+            UINT dirlen = GetWindowsDirectory(baddir, MAX_PATH);
+            if (StrCmpNIW(baddir, uncmd.GetString(), dirlen))
+            {
+                unappfile = name;
+                PathRemoveFileSpecW(uncmd.GetBuffer()), uncmd.ReleaseBuffer();
+                appdir = uncmd;
+            }
+        }
+    }
+
+    if (!verifyDir || PathIsDirectoryW(appdir.GetString()))
+    {
+        PathRemoveBackslashW(appdir.GetBuffer()), appdir.ReleaseBuffer();
+        appdir += L"\\*.exe";
+        UINT bslashlen = appdir.GetLength() - (sizeof("*.exe") - 1);
+
+        WIN32_FIND_DATAW wfd;
+        HANDLE hFind = FindFirstFileW(appdir.GetString(), &wfd);
+        if (INVALID_HANDLE_VALUE != hFind)
+        {
+            UINT size = 0, bestpos = (UINT)-1;
+            WCHAR dispnamechar[] = { szDisplayName[0], L'\0' };
+            do
+            {
+                if (!size || StrCmpIW(wfd.cFileName, unappfile.GetString()))
+                {
+                    if (wfd.nFileSizeLow > size)
+                    {
+                        PCWSTR pos = StrStrIW(wfd.cFileName, dispnamechar);
+                        UINT ofs = (UINT)(pos - wfd.cFileName);
+                        if (pos && ofs <= bestpos) // <= instead of < because the file size is larger (better match)
+                        {
+                            CStringW fullpath = appdir.Mid(0, bslashlen) + wfd.cFileName;
+                            if (ExtractIconExW(fullpath.GetString(), -1, NULL, NULL, 0))
+                            {
+                                Path = fullpath;
+                                size = wfd.nFileSizeLow;
+                                bestpos = ofs;
+                                ++matchCount;
+                            }
+                        }
+                    }
+                }
+            } while(++count <= maxCount && FindNextFileW(hFind, &wfd));
+            FindClose(hFind);
+        }
+    }
+    return matchCount && count <= maxCount;
+}
+
 BOOL
 CInstalledApplicationInfo::RetrieveScreenshot(CStringW & /*Path*/)
 {
