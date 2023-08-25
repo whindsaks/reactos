@@ -1204,7 +1204,7 @@ CAppsListView::CheckAll()
 PVOID
 CAppsListView::GetFocusedItemData()
 {
-    INT item = GetSelectionMark();
+    INT item = ListView_GetNextItem(m_hWnd, -1, LVNI_SELECTED);
     if (item == -1)
     {
         return (PVOID)0;
@@ -1814,6 +1814,38 @@ CApplicationView::Create(HWND hwndParent)
     return CWindowImpl::Create(hwndParent, r, L"", WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, 0, menu);
 }
 
+VOID
+CApplicationView::UpdateToolbarCommandState(BOOL CanModify)
+{
+    m_Toolbar->SendMessageW(TB_ENABLEBUTTON, ID_MODIFY, CanModify);
+}
+
+VOID
+CApplicationView::UpdateMenuCommandState(HMENU hMenu, BOOL CanModify)
+{
+    if (!hMenu)
+    {
+        hMenu = ::GetMenu(m_hWnd);
+        if (hMenu) UpdateMenuCommandState(hMenu, CanModify);
+
+        hMenu = GetSubMenu(::GetMenu(m_MainWindow->m_hWnd), 1);
+        if (hMenu) UpdateMenuCommandState(hMenu, CanModify);
+
+        return ;
+    }
+    EnableMenuItem(hMenu, ID_MODIFY, CanModify ? MF_ENABLED : MF_GRAYED);
+}
+
+static VOID
+UpdateAppViewMenuCommandState(HMENU hMenu, APPLICATION_VIEW_TYPE AppType)
+{
+    BOOL Installed = AppType == AppViewTypeInstalledApps;
+    EnableMenuItem(hMenu, ID_REGREMOVE, Installed ? MF_ENABLED : MF_GRAYED);
+    EnableMenuItem(hMenu, ID_INSTALL, Installed ? MF_GRAYED : MF_ENABLED);
+    EnableMenuItem(hMenu, ID_UNINSTALL, Installed ? MF_ENABLED : MF_GRAYED);
+    EnableMenuItem(hMenu, ID_MODIFY, MF_GRAYED);
+}
+
 BOOL
 CApplicationView::SetDisplayAppType(APPLICATION_VIEW_TYPE AppType)
 {
@@ -1824,31 +1856,23 @@ CApplicationView::SetDisplayAppType(APPLICATION_VIEW_TYPE AppType)
     ApplicationViewType = AppType;
     m_AppsInfo->SetWelcomeText();
 
-    HMENU hMenu = ::GetMenu(m_hWnd);
     switch (AppType)
     {
         case AppViewTypeInstalledApps:
-            EnableMenuItem(hMenu, ID_REGREMOVE, MF_ENABLED);
-            EnableMenuItem(hMenu, ID_INSTALL, MF_GRAYED);
-            EnableMenuItem(hMenu, ID_UNINSTALL, MF_ENABLED);
-            EnableMenuItem(hMenu, ID_MODIFY, MF_ENABLED);
-
             m_Toolbar->SendMessageW(TB_ENABLEBUTTON, ID_INSTALL, FALSE);
             m_Toolbar->SendMessageW(TB_ENABLEBUTTON, ID_UNINSTALL, TRUE);
-            m_Toolbar->SendMessageW(TB_ENABLEBUTTON, ID_MODIFY, TRUE);
+            m_Toolbar->SendMessageW(TB_ENABLEBUTTON, ID_CHECK_ALL, FALSE);
             break;
 
         case AppViewTypeAvailableApps:
-            EnableMenuItem(hMenu, ID_REGREMOVE, MF_GRAYED);
-            EnableMenuItem(hMenu, ID_INSTALL, MF_ENABLED);
-            EnableMenuItem(hMenu, ID_UNINSTALL, MF_GRAYED);
-            EnableMenuItem(hMenu, ID_MODIFY, MF_GRAYED);
-
             m_Toolbar->SendMessageW(TB_ENABLEBUTTON, ID_INSTALL, TRUE);
             m_Toolbar->SendMessageW(TB_ENABLEBUTTON, ID_UNINSTALL, FALSE);
-            m_Toolbar->SendMessageW(TB_ENABLEBUTTON, ID_MODIFY, FALSE);
+            m_Toolbar->SendMessageW(TB_ENABLEBUTTON, ID_CHECK_ALL, TRUE);
             break;
     }
+    UpdateAppViewMenuCommandState(::GetMenu(m_hWnd), AppType);
+    UpdateAppViewMenuCommandState(GetSubMenu(::GetMenu(m_MainWindow->m_hWnd), 1), AppType);
+    UpdateToolbarCommandState();
     return TRUE;
 }
 
@@ -1904,12 +1928,10 @@ CApplicationView::ItemGetFocus(LPVOID CallbackParam)
 
         if (ApplicationViewType == AppViewTypeInstalledApps)
         {
-            HMENU hMenu = ::GetMenu(m_hWnd);
-
             BOOL CanModify = Info->CanModify();
 
-            EnableMenuItem(hMenu, ID_MODIFY, CanModify ? MF_ENABLED : MF_GRAYED);
-            m_Toolbar->SendMessageW(TB_ENABLEBUTTON, ID_MODIFY, CanModify);
+            UpdateMenuCommandState(NULL, CanModify);
+            UpdateToolbarCommandState(CanModify);
         }
     }
 }

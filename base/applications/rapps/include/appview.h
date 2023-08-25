@@ -403,6 +403,11 @@ class CApplicationView : public CUiWindow<CWindowImpl<CApplicationView>>
     VOID
     AppendTabOrderWindow(int Direction, ATL::CSimpleArray<HWND> &TabOrderList);
 
+    VOID
+    UpdateToolbarCommandState(BOOL CanModify = FALSE);
+    VOID
+    UpdateMenuCommandState(HMENU hMenu, BOOL CanModify = FALSE);
+
     // this function is called when a item of listview get focus.
     // CallbackParam is the param passed to listview when adding the item (the one getting focus now).
     VOID
