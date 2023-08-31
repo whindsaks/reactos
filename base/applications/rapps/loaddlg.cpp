@@ -85,16 +85,24 @@ struct DownloadInfo
     DownloadInfo()
     {
     }
-    DownloadInfo(const CAppInfo &AppInfo) : DLType(DLTYPE_APPLICATION)
+    DownloadInfo(const CAppInfo &AppInfo, UINT DAF = 0) : DLType(DLTYPE_APPLICATION), Flags(DAF)
     {
         AppInfo.GetDownloadInfo(szUrl, szSHA1, SizeInBytes);
         szName = AppInfo.szDisplayName;
+
+        if (Flags & DAF_SILENTINSTALL)
+        {
+            AppInfo.GetInstallInfo(InstType, szSilentInstallParam);
+        }
     }
 
     DownloadType DLType;
+    InstallerType InstType;
+    UINT Flags;
     CStringW szUrl;
     CStringW szName;
     CStringW szSHA1;
+    CStringW szSilentInstallParam;
     ULONG SizeInBytes;
 };
 
@@ -990,6 +998,30 @@ CDownloadManager::ThreadFunc(LPVOID param)
             shExInfo.lpParameters = L"";
             shExInfo.nShow = SW_SHOW;
 
+            WCHAR params[42+MAX_PATH];
+            if (InfoArray[iAppId].Flags & DAF_SILENTINSTALL)
+            {
+                if (!InfoArray[iAppId].szSilentInstallParam.IsEmpty())
+                {
+                    shExInfo.lpParameters = InfoArray[iAppId].szSilentInstallParam.GetString();
+                }
+                else
+                {
+                    UINT extrainfo = 0;
+                    InstallerType it = InfoArray[iAppId].InstType;
+                    if (it == IT_UNKNOWN)
+                    {
+                        it = GuessInstallerType(shExInfo.lpFile, extrainfo);
+                    }
+
+                    if (GetSilentInstallParameters(it, extrainfo, shExInfo.lpFile, params))
+                    {
+                        shExInfo.lpParameters = params;
+                        if (it == IT_MSI) shExInfo.lpFile = L"msiexec.exe"; // params contains the .msi path
+                    }
+                }
+            }
+
             /* FIXME: Do we want to log installer status? */
             WriteLogMessage(EVENTLOG_SUCCESS, MSG_SUCCESS_INSTALL, InfoArray[iAppId].szName);
 
@@ -1057,7 +1089,7 @@ CDownloadManager::LaunchDownloadDialog(BOOL bIsModal)
 // CDownloadManager
 
 BOOL
-DownloadListOfApplications(const CAtlList<CAppInfo *> &AppsList, BOOL bIsModal)
+DownloadListOfApplications(const CAtlList<CAppInfo *> &AppsList, UINT Flags)
 {
     if (AppsList.IsEmpty())
         return FALSE;
@@ -1066,11 +1098,11 @@ DownloadListOfApplications(const CAtlList<CAppInfo *> &AppsList, BOOL bIsModal)
     while (CurrentListPosition)
     {
         const CAppInfo *Info = AppsList.GetNext(CurrentListPosition);
-        CDownloadManager::Add(DownloadInfo(*Info));
+        CDownloadManager::Add(DownloadInfo(*Info, Flags));
     }
 
     // Create a dialog and issue a download process
-    CDownloadManager::LaunchDownloadDialog(bIsModal);
+    CDownloadManager::LaunchDownloadDialog(Flags & DAF_MODAL);
 
     return TRUE;
 }

@@ -45,6 +45,13 @@ InitRappsConsole()
 static BOOL
 HandleInstallCommand(CAppDB *db, LPWSTR szCommand, int argcLeft, LPWSTR *argvLeft)
 {
+    UINT flags = DAF_MODAL;
+    if (argcLeft >= 1 && !StrCmpIW(L"/SILENT", argvLeft[0]))
+    {
+        flags |= DAF_SILENTINSTALL;
+        argvLeft = &argvLeft[1], --argcLeft;
+    }
+
     if (argcLeft < 1)
     {
         InitRappsConsole();
@@ -63,12 +70,19 @@ HandleInstallCommand(CAppDB *db, LPWSTR szCommand, int argcLeft, LPWSTR *argvLef
         }
     }
 
-    return DownloadListOfApplications(Applications, TRUE);
+    return DownloadListOfApplications(Applications, flags);
 }
 
 static BOOL
 HandleSetupCommand(CAppDB *db, LPWSTR szCommand, int argcLeft, LPWSTR *argvLeft)
 {
+    UINT flags = DAF_MODAL;
+    if (argcLeft >= 1 && !StrCmpIW(L"/SILENT", argvLeft[0]))
+    {
+        flags |= DAF_SILENTINSTALL;
+        argvLeft = &argvLeft[1], --argcLeft;
+    }
+
     if (argcLeft != 1)
     {
         InitRappsConsole();
@@ -101,7 +115,7 @@ HandleSetupCommand(CAppDB *db, LPWSTR szCommand, int argcLeft, LPWSTR *argvLeft)
     }
     SetupCloseInfFile(InfHandle);
 
-    return DownloadListOfApplications(Applications, TRUE);
+    return DownloadListOfApplications(Applications, flags);
 }
 
 static BOOL

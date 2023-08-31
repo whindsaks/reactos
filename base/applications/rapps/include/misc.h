@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atlstr.h>
+#include "appinfo.h"
 
 #ifdef _M_IX86
 #define CurrentArchitecture L"x86"
@@ -52,3 +53,9 @@ SearchPatternMatch(LPCWSTR szHaystack, LPCWSTR szNeedle);
 template <class T> class CLocalPtr : public CHeapPtr<T, CLocalAllocator>
 {
 };
+
+InstallerType
+GuessInstallerType(LPCWSTR Installer, UINT &ExtraInfo);
+
+BOOL
+GetSilentInstallParameters(InstallerType InstallerType, UINT ExtraInfo, LPCWSTR Installer, LPWSTR Parameters);

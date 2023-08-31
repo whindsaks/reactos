@@ -4,6 +4,13 @@
 #include <atlpath.h>
 #include <atlsimpcoll.h>
 
+enum InstallerType
+{
+    IT_UNKNOWN,
+    IT_MSI,
+    IT_INNO,
+    IT_NSIS,
+};
 
 enum LicenseType
 {
@@ -92,6 +99,8 @@ class CAppInfo
     virtual VOID
     GetDownloadInfo(CStringW &Url, CStringW &Sha1, ULONG &SizeInBytes) const = 0;
     virtual VOID
+    GetInstallInfo(InstallerType &InstType, CStringW &SilentParameters) const { InstType = IT_UNKNOWN; }
+    virtual VOID
     GetDisplayInfo(CStringW &License, CStringW &Size, CStringW &UrlSite, CStringW &UrlDownload) = 0;
     virtual BOOL
     UninstallApplication(BOOL bModify) = 0;
@@ -137,6 +146,8 @@ class CAvailableApplicationInfo : public CAppInfo
     ShowAppInfo(CAppRichEdit *RichEdit) override;
     virtual VOID
     GetDownloadInfo(CStringW &Url, CStringW &Sha1, ULONG &SizeInBytes) const override;
+    virtual VOID
+    GetInstallInfo(InstallerType &InstType, CStringW &SilentParameters) const override;
     virtual VOID
     GetDisplayInfo(CStringW &License, CStringW &Size, CStringW &UrlSite, CStringW &UrlDownload) override;
     virtual BOOL

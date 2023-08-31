@@ -349,6 +349,22 @@ CAvailableApplicationInfo::GetDownloadInfo(CStringW &Url, CStringW &Sha1, ULONG 
 }
 
 VOID
+CAvailableApplicationInfo::GetInstallInfo(InstallerType &InstType, CStringW &SilentParameters) const
+{
+    CStringW typestring;
+    m_Parser->GetString(L"InstallerType", typestring);
+    LPCWSTR type = typestring.GetString();
+    if (!StrCmpIW(L"Inno", type))
+        InstType = IT_INNO;
+    else if (!StrCmpIW(L"NSIS", type))
+        InstType = IT_NSIS;
+    else
+        InstType = IT_UNKNOWN;
+
+    m_Parser->GetString(L"SilentParameters", SilentParameters);
+}
+
+VOID
 CAvailableApplicationInfo::GetDisplayInfo(CStringW &License, CStringW &Size, CStringW &UrlSite, CStringW &UrlDownload)
 {
     License = LicenseString();
