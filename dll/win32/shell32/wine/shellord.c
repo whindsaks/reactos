@@ -1968,13 +1968,14 @@ static BOOL CALLBACK PsxaCall(HPROPSHEETPAGE hpage, LPARAM lParam)
 }
 
 /*************************************************************************
- *      SHAddFromPropSheetExtArray	[SHELL32.167]
+ *      SHAddFromPropSheetExtArrayInternal [Internal]
  */
-UINT WINAPI SHAddFromPropSheetExtArray(HPSXA hpsxa, LPFNADDPROPSHEETPAGE lpfnAddPage, LPARAM lParam)
+UINT WINAPI SHAddFromPropSheetExtArrayInternal(HPSXA hpsxa, LPFNADDPROPSHEETPAGE lpfnAddPage, LPARAM lParam, HRESULT *presult)
 {
     PSXA_CALL Call;
     UINT i;
     PPSXA psxa = (PPSXA)hpsxa;
+    HRESULT hr;
 
     TRACE("(%p,%p,%08lx)\n", hpsxa, lpfnAddPage, lParam);
 
@@ -1988,13 +1989,22 @@ UINT WINAPI SHAddFromPropSheetExtArray(HPSXA hpsxa, LPFNADDPROPSHEETPAGE lpfnAdd
         /* Call the AddPage method of all registered IShellPropSheetExt interfaces */
         for (i = 0; i != psxa->uiCount; i++)
         {
-            psxa->pspsx[i]->lpVtbl->AddPages(psxa->pspsx[i], PsxaCall, (LPARAM)&Call);
+            hr = psxa->pspsx[i]->lpVtbl->AddPages(psxa->pspsx[i], PsxaCall, (LPARAM)&Call);
+            if (SUCCEEDED(hr) && hr && presult) *presult = hr;
         }
 
         return Call.uiCount;
     }
 
     return 0;
+}
+
+/*************************************************************************
+ *      SHAddFromPropSheetExtArray	[SHELL32.167]
+ */
+UINT WINAPI SHAddFromPropSheetExtArray(HPSXA hpsxa, LPFNADDPROPSHEETPAGE lpfnAddPage, LPARAM lParam)
+{
+    return SHAddFromPropSheetExtArrayInternal(hpsxa, lpfnAddPage, lParam, NULL);
 }
 
 /*************************************************************************

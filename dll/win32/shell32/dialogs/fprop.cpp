@@ -25,12 +25,13 @@
 WINE_DEFAULT_DEBUG_CHANNEL(shell);
 
 EXTERN_C HPSXA WINAPI SHCreatePropSheetExtArrayEx(HKEY hKey, LPCWSTR pszSubKey, UINT max_iface, IDataObject *pDataObj);
+EXTERN_C UINT WINAPI SHAddFromPropSheetExtArrayInternal(HPSXA hpsxa, LPFNADDPROPSHEETPAGE lpfnAddPage, LPARAM lParam, HRESULT *presult);
 
 static UINT
 LoadPropSheetHandlers(LPCWSTR pwszPath, PROPSHEETHEADERW *pHeader, UINT cMaxPages, HPSXA *phpsxa, IDataObject *pDataObj)
 {
     WCHAR wszBuf[MAX_PATH];
-    UINT cPages = 0, i = 0;
+    UINT cPages = 0, i = 0, initialCount = pHeader->nPages;
 
     LPWSTR pwszFilename = PathFindFileNameW(pwszPath);
     BOOL bDir = PathIsDirectoryW(pwszPath);
@@ -54,16 +55,22 @@ LoadPropSheetHandlers(LPCWSTR pwszPath, PROPSHEETHEADERW *pHeader, UINT cMaxPage
         DWORD cbBuf = sizeof(wszBuf);
         if (RegGetValueW(HKEY_CLASSES_ROOT, pwszExt, L"", RRF_RT_REG_SZ, NULL, wszBuf, &cbBuf) == ERROR_SUCCESS)
         {
+            HRESULT hrStart = 0;
+            UINT pageIndex = cPages + initialCount;
+
             TRACE("EnumPropSheetExt wszBuf %s, pwszExt %s\n", debugstr_w(wszBuf), debugstr_w(pwszExt));
             phpsxa[i] = SHCreatePropSheetExtArrayEx(HKEY_CLASSES_ROOT, wszBuf, cMaxPages - cPages, pDataObj);
-            cPages += SHAddFromPropSheetExtArray(phpsxa[i++], AddPropSheetPageCallback, (LPARAM)pHeader);
+            cPages += SHAddFromPropSheetExtArrayInternal(phpsxa[i++], AddPropSheetPageCallback, (LPARAM)pHeader, &hrStart);
+
+            /* Override the initial page (used by the Shortcut page) */
+            if (SUCCEEDED(hrStart) && hrStart)
+                pHeader->nStartPage = pageIndex;
         }
 
         /* Add property sheet handlers from "*" key */
         phpsxa[i] = SHCreatePropSheetExtArrayEx(HKEY_CLASSES_ROOT, L"*", cMaxPages - cPages, pDataObj);
         cPages += SHAddFromPropSheetExtArray(phpsxa[i++], AddPropSheetPageCallback, (LPARAM)pHeader);
     }
-
     return cPages;
 }
 

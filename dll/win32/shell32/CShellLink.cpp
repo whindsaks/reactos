@@ -2998,7 +2998,7 @@ HRESULT STDMETHODCALLTYPE CShellLink::AddPages(LPFNADDPROPSHEETPAGE pfnAddPage, 
     if (!pfnAddPage(hPage, lParam))
         return E_FAIL;
 
-    return S_OK;
+    return 1; // We want to be the initial page
 }
 
 HRESULT STDMETHODCALLTYPE CShellLink::ReplacePage(UINT uPageID, LPFNADDPROPSHEETPAGE pfnReplacePage, LPARAM lParam)
