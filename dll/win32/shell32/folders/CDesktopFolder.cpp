@@ -172,17 +172,6 @@ class CDesktopFolderEnum :
 
 int SHELL_ConfirmMsgBox(HWND hWnd, LPWSTR lpszText, LPWSTR lpszCaption, HICON hIcon, BOOL bYesToAll);
 
-static const shvheader DesktopSFHeader[] = {
-    {IDS_SHV_COLUMN_NAME, SHCOLSTATE_TYPE_STR | SHCOLSTATE_ONBYDEFAULT, LVCFMT_LEFT, 15},
-    {IDS_SHV_COLUMN_COMMENTS, SHCOLSTATE_TYPE_STR, LVCFMT_LEFT, 10},
-    {IDS_SHV_COLUMN_TYPE, SHCOLSTATE_TYPE_STR | SHCOLSTATE_ONBYDEFAULT, LVCFMT_LEFT, 10},
-    {IDS_SHV_COLUMN_SIZE, SHCOLSTATE_TYPE_STR | SHCOLSTATE_ONBYDEFAULT, LVCFMT_RIGHT, 10},
-    {IDS_SHV_COLUMN_MODIFIED, SHCOLSTATE_TYPE_DATE | SHCOLSTATE_ONBYDEFAULT, LVCFMT_LEFT, 12},
-    {IDS_SHV_COLUMN_ATTRIBUTES, SHCOLSTATE_TYPE_STR | SHCOLSTATE_ONBYDEFAULT, LVCFMT_LEFT, 10}
-};
-
-#define DESKTOPSHELLVIEWCOLUMNS 6
-
 static const DWORD dwDesktopAttributes =
     SFGAO_HASSUBFOLDER | SFGAO_FILESYSTEM | SFGAO_FOLDER | SFGAO_FILESYSANCESTOR |
     SFGAO_STORAGEANCESTOR | SFGAO_HASPROPSHEET | SFGAO_STORAGE;
@@ -742,30 +731,6 @@ HRESULT WINAPI CDesktopFolder::EnumSearches(IEnumExtraSearch **ppenum)
     return E_NOTIMPL;
 }
 
-HRESULT WINAPI CDesktopFolder::GetDefaultColumn(DWORD dwRes, ULONG *pSort, ULONG *pDisplay)
-{
-    TRACE ("(%p)\n", this);
-
-    if (pSort)
-        *pSort = 0;
-    if (pDisplay)
-        *pDisplay = 0;
-
-    return S_OK;
-}
-
-HRESULT WINAPI CDesktopFolder::GetDefaultColumnState(UINT iColumn, DWORD *pcsFlags)
-{
-    TRACE ("(%p)\n", this);
-
-    if (!pcsFlags || iColumn >= DESKTOPSHELLVIEWCOLUMNS)
-        return E_INVALIDARG;
-
-    *pcsFlags = DesktopSFHeader[iColumn].pcsFlags;
-
-    return S_OK;
-}
-
 HRESULT WINAPI CDesktopFolder::GetDetailsEx(
     PCUITEMID_CHILD pidl,
     const SHCOLUMNID *pscid,
@@ -781,14 +746,12 @@ HRESULT WINAPI CDesktopFolder::GetDetailsOf(
     UINT iColumn,
     SHELLDETAILS *psd)
 {
-    if (!psd || iColumn >= DESKTOPSHELLVIEWCOLUMNS)
+    if (!psd)
         return E_INVALIDARG;
 
     if (!pidl)
     {
-        psd->fmt = DesktopSFHeader[iColumn].fmt;
-        psd->cxChar = DesktopSFHeader[iColumn].cxChar;
-        return SHSetStrRet(&psd->str, DesktopSFHeader[iColumn].colnameid);
+        return GetColumnDetails(iColumn, *psd);
     }
 
     CComPtr<IShellFolder2> psf;
@@ -890,4 +853,47 @@ HRESULT WINAPI SHGetDesktopFolder(IShellFolder **psf)
 
     TRACE("-- %p->(%p)\n",psf, *psf);
     return hres;
+}
+
+/*************************************************************************
+ * Column info functions.
+ * CFSFolder.h provides defaults for us.
+ */
+#include "CFSFolder.h"
+HRESULT CDesktopFolder::GetColumnDetails(UINT iColumn, SHELLDETAILS &sd)
+{
+    /* CDesktopFolder may override the flags and/or name if desired */
+    return CFSFolder::GetFSColumnDetails(iColumn, sd);
+}
+
+HRESULT WINAPI CDesktopFolder::GetDefaultColumn(DWORD dwRes, ULONG *pSort, ULONG *pDisplay)
+{
+    TRACE ("(%p)\n", this);
+
+    if (pSort)
+        *pSort = 0;
+    if (pDisplay)
+        *pDisplay = 0;
+
+    return S_OK;
+}
+
+HRESULT WINAPI CDesktopFolder::GetDefaultColumnState(UINT iColumn, SHCOLSTATEF *pcsFlags)
+{
+    TRACE ("(%p)\n", this);
+
+    if (!pcsFlags)
+        return E_INVALIDARG;
+
+    HRESULT hr = CFSFolder::GetDefaultFSColumnState(iColumn, *pcsFlags);
+    /*
+    // CDesktopFolder may override the flags if desired
+    switch(iColumn)
+    {
+    case SHFSF_COL_FATTS:
+        *pcsFlags &= ~SHCOLSTATE_ONBYDEFAULT;
+        break;
+    }
+    */
+    return hr;
 }
