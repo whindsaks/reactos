@@ -3675,6 +3675,152 @@ ConvertSidToStringSidA(PSID Sid,
     return TRUE;
 }
 
+static
+PSID
+LookupAccountNameSID(LPCWSTR User, LPCWSTR Domain)
+{
+    PSID sid;
+    SID_NAME_USE snu;
+    DWORD cbsid = 0, cchref = 0, success = FALSE;
+    WCHAR buf[MAX_PATH * 2], *ref;
+    if (Domain && Domain[0])
+    {
+        UINT dlen = lstrlenW(Domain);
+        if (lstrlenW(User) + 1 + dlen + 1 >= _countof(buf))
+            return NULL;
+        lstrcpyW(buf, Domain);
+        buf[dlen] = L'\\';
+        lstrcpyW(buf + dlen + 1, User);
+        User = buf;
+    }
+    LookupAccountNameW(NULL, User, NULL, &cbsid, NULL, &cchref, &snu);
+    ref = LocalAlloc(LPTR, cchref * sizeof(WCHAR));
+    if (!ref)
+        return NULL;
+
+    sid = LocalAlloc(LPTR, cbsid);
+    if (sid)
+    {
+        success = LookupAccountNameW(NULL, User, sid, &cbsid, ref, &cchref, &snu);
+        if (!success)
+            LocalFree(sid);
+    }
+    LocalFree(ref);
+    return success ? sid : NULL;
+}
+
+static
+HRESULT
+ChangeUserObjectAllowAce(HANDLE Handle, PSID Sid, BOOL Add, UINT Access)
+{
+    SECURITY_INFORMATION sir = DACL_SECURITY_INFORMATION;
+    SECURITY_DESCRIPTOR *sd = NULL;
+    for (UINT grow = 100;; grow *= 2)
+    {
+        PACL pacl;
+        ACL_SIZE_INFORMATION aclsize;
+        BOOL update = FALSE, present = FALSE, dacld;
+        DWORD size, i;
+        if (sd)
+        {
+            LocalFree(sd);
+            sd = NULL;
+        }
+        GetUserObjectSecurity(Handle, &sir, sd, 0, &size);
+        sd = LocalAlloc(LPTR, size + grow);
+        if (!sd)
+            break;
+OutputDebugStringA("dbg acl 2\n");
+        if (!GetUserObjectSecurity(Handle, &sir, sd, size, &size))
+            break;
+OutputDebugStringA("dbg acl 3\n");
+        if (!GetSecurityDescriptorDacl(sd, &present, &pacl, &dacld))
+        {
+            break;
+        }
+        else if (!present || !pacl) // No DACL, pretend the ACE was present
+        {
+            present = TRUE;
+done:
+OutputDebugStringA("dbg acl try SetUserObjectSecurity (gen3)\n");
+//if (sd) sd->Control &= ~SE_DACL_PRESENT;
+//if (sd) /*sd->Dacl = NULL,*/ present = TRUE, update = TRUE; // HACK set to nul dacl for testing
+            if (update && !SetUserObjectSecurity(Handle, &sir, sd))
+                break;
+
+{
+    WCHAR*sds; char *b=LocalAlloc(LPTR,9999);
+    ConvertSecurityDescriptorToStringSecurityDescriptorW(sd,SDDL_REVISION_1, DACL_SECURITY_INFORMATION,&sds,NULL);
+    wsprintfA(b, "sddl=|%ls| sd=%p u=%d\n", sds, sd, update),OutputDebugStringA(b);
+    LocalFree(b);
+}
+
+
+OutputDebugStringA("dbg acl SUCC\n");
+            LocalFree(sd);
+OutputDebugStringA(present ? "ret S_F\n": "ret S_O\n");
+            return present ? S_FALSE : S_OK;
+        }
+OutputDebugStringA("dbg acl got DACL, now get acl info\n");
+{char b[99];wsprintfA(b, "pacl=%p sd->Dacl=%p sdControl=%x\n", pacl, sd ? (INT_PTR)(sd->Dacl) : (INT_PTR)-1, sd ? sd->Control : -1),OutputDebugStringA(b);}
+
+        if (!GetAclInformation(pacl, &aclsize, sizeof(aclsize), AclSizeInformation))
+            break;
+OutputDebugStringA("dbg acl 4\n");
+
+        pacl->AclSize += grow;
+        present = FALSE;
+//TODO: Enum these in reverse order to increase the chance of removing the thing we added
+        for (i = 0; i < aclsize.AceCount; ++i)
+        {
+            ACCESS_ALLOWED_ACE *ace;
+            if (!GetAce(pacl, i, (LPVOID*)&ace))
+                goto die;
+            //OutputDebugStringA("dbg acl 5\n");
+            if (EqualSid(Sid, (PSID)(&(ace->SidStart))))
+            {
+                present = Add ? (ace->Mask & Access) == Access : ace->Mask == Access;
+                if (present)
+                    break;
+            }
+        }
+        update = Add ? !present : present;
+//OutputDebugStringA("dbg acl 6\n");
+        if (Add)
+        {
+            OutputDebugStringA(present ? "ace already\n" : "adding ace\n");
+            if (present || AddAccessAllowedAce(pacl, ACL_REVISION, Access, Sid))
+                goto done;
+{char b[99];wsprintfA(b,"dbg acl fail gle=%d\n",GetLastError()),OutputDebugStringA(b);}
+            break;
+        }
+        else
+        {
+            if (present && !DeleteAce(pacl, i))
+                break;
+            present = !present;
+            goto done;
+        }
+    }
+die:
+    if (sd)
+        LocalFree(sd);
+    return E_FAIL;
+}
+
+static
+HRESULT
+AddUserObjectAllowAce(HANDLE Handle, PSID Sid, UINT Access)
+{
+    return ChangeUserObjectAllowAce(Handle, Sid, TRUE, Access);
+}
+
+static
+HRESULT
+RemoveUserObjectAllowAce(HANDLE Handle, PSID Sid, UINT Access)
+{
+    return ChangeUserObjectAllowAce(Handle, Sid, FALSE, Access);
+}
 
 static
 DWORD
@@ -3745,6 +3891,17 @@ CreateProcessWithLogonW(
     SECL_REQUEST Request;
     SECL_RESPONSE Response;
     RPC_STATUS Status;
+    PSID sid = NULL;
+    HWINSTA hWins = NULL;
+    HDESK hDesk = NULL;
+    UINT suspend = FALSE;
+    WCHAR DesktopPath[MAX_PATH + 1 + MAX_PATH];
+    BYTE ChangedAcl = 0;
+    STARTUPINFOW startup;BOOL bug1=TRUE;
+    //UINT accessWinsta = -1, accessDesk = -1;
+    //UINT accessWinsta = GENERIC_ALL | READ_CONTROL | DELETE, accessDesk = GENERIC_ALL | READ_CONTROL | DELETE;
+    #define DESKTOP_ALL_ACCESS 0x01ff
+    UINT accessWinsta = WINSTA_ALL_ACCESS, accessDesk = DESKTOP_ALL_ACCESS;
 
     TRACE("CreateProcessWithLogonW(%s %s %s 0x%08x %s %s 0x%08x %p %s %p %p)\n", debugstr_w(lpUsername), debugstr_w(lpDomain),
     debugstr_w(lpPassword), dwLogonFlags, debugstr_w(lpApplicationName),
@@ -3777,6 +3934,103 @@ CreateProcessWithLogonW(
     {
         WARN("RpcStringFree returned 0x%x\n", Status);
     }
+OutputDebugStringA("CreateProcessWithLogonW--------\n");bug1;
+    ZeroMemory(&startup, sizeof(startup));
+    CopyMemory(&startup, lpStartupInfo, min(sizeof(startup), lpStartupInfo->cb));
+#ifdef EXTENDED_STARTUPINFO_PRESENT
+    if (dwCreationFlags & EXTENDED_STARTUPINFO_PRESENT)
+    {
+        FIXME("Ignoring EXTENDED_STARTUPINFO_PRESENT\n");
+        dwCreationFlags &= ~EXTENDED_STARTUPINFO_PRESENT;
+        startup.cb = sizeof(startup);
+    }
+#endif
+    if (startup.dwFlags & (STARTF_TITLEISAPPID|STARTF_TITLEISLINKNAME|STARTF_USESTDHANDLES))
+    {
+        UINT flags = startup.dwFlags;
+        startup.dwFlags & ~(STARTF_TITLEISAPPID|STARTF_TITLEISLINKNAME|STARTF_USESTDHANDLES);
+        FIXME("Ignoring flags %#u\n", startup.dwFlags ^ flags);
+    }
+    if (startup.lpReserved)
+    {
+        FIXME("Ignoring lpReserved\n");
+        startup.lpReserved = NULL;
+    }
+    if (startup.lpTitle)
+    {
+        FIXME("Ignoring lpTitle\n");
+        startup.lpTitle = NULL;
+    }
+    if (startup.cbReserved2)
+    {
+        FIXME("Ignoring lpReserved2\n");
+        startup.cbReserved2 = 0;
+    }
+    if (!startup.lpDesktop || !startup.lpDesktop[0])
+    {
+        hWins = GetProcessWindowStation();
+        hDesk = GetThreadDesktop(GetCurrentThreadId());
+        DWORD cb;
+        if (GetUserObjectInformationW(hWins, UOI_NAME, DesktopPath,
+                                      MAX_PATH * sizeof(WCHAR), &cb))
+        {
+            LPWSTR p = DesktopPath + (cb / sizeof(WCHAR)) - 1;
+
+
+//hWins = OpenWindowStationW(DesktopPath, bug1, MAXIMUM_ALLOWED);
+
+            p[0] = L'\\';
+
+OutputDebugStringW(DesktopPath);OutputDebugStringW(L"\n");
+
+            if (hWins && GetUserObjectInformationW(hDesk, UOI_NAME, p + 1,
+                                                   MAX_PATH * sizeof(WCHAR), &cb))
+            {OutputDebugStringA("DBG 2\n");
+
+
+//hDesk = OpenDesktopW(p + 1, 0, bug1, MAXIMUM_ALLOWED);
+
+                sid = LookupAccountNameSID(lpUsername, lpDomain);
+
+                {
+//CreateWellKnownSid(WinWorldSid, NULL, &sid, );
+//SID_IDENTIFIER_AUTHORITY sia = {SECURITY_WORLD_SID_AUTHORITY};
+//AllocateAndInitializeSid(&sia, 1, 0, 0, 0, 0, 0, 0, 0, 0, &sid);
+                }
+
+
+                if (sid)
+                {
+OutputDebugStringA("DBG 3\n");
+
+{
+    char*sidstra;
+ConvertSidToStringSidA(sid,&sidstra);
+OutputDebugStringA(sidstra);OutputDebugStringA("|\n");
+
+}
+                    HRESULT hr = AddUserObjectAllowAce(hWins, sid, accessWinsta);
+                    if (SUCCEEDED(hr))
+                    {OutputDebugStringA("DBG 4 (gen3)\n");
+                        if (!hr)
+                            ChangedAcl |= 1;
+                        hr = AddUserObjectAllowAce(hDesk, sid, accessDesk);
+                        if (SUCCEEDED(hr))
+                        {OutputDebugStringA("DBG 5\n");
+                            if (!hr)
+                                ChangedAcl |= 2;
+                            startup.lpDesktop = DesktopPath;
+                            if (SUCCEEDED(hr))OutputDebugStringA("all good acl end\n");
+                        }
+                    }
+                }
+            }
+        }
+        if (ChangedAcl != 3)
+        {
+            WARN("Failed to modify desktop ACL!\n");
+        }
+    }
 
     Request.Username = (LPWSTR)lpUsername;
     Request.Domain = (LPWSTR)lpDomain;
@@ -3784,6 +4038,13 @@ CreateProcessWithLogonW(
     Request.ApplicationName = (LPWSTR)lpApplicationName;
     Request.CommandLine = (LPWSTR)lpCommandLine;
     Request.CurrentDirectory = (LPWSTR)lpCurrentDirectory;
+    Request.Startup = (BYTE*) &startup;
+    Request.dwStartupSize = startup.cb;
+    Request.Desktop = startup.lpDesktop ? startup.lpDesktop : L"";
+{
+char b[99];
+wsprintfA(b, "A32 startup %d |%ls| w=%p d=%p\n", startup.cb, Request.Desktop, hWins, hDesk), OutputDebugStringA(b);
+}/**/
 
     if (dwCreationFlags & CREATE_UNICODE_ENVIRONMENT)
         Request.dwEnvironmentSize = GetUnicodeEnvironmentSize(lpEnvironment);
@@ -3795,7 +4056,8 @@ CreateProcessWithLogonW(
     TRACE("Request.Environment %p\n", Request.Environment);
 
     Request.dwLogonFlags = dwLogonFlags;
-    Request.dwCreationFlags = dwCreationFlags;
+    suspend = dwCreationFlags & CREATE_SUSPENDED;
+    Request.dwCreationFlags = dwCreationFlags | CREATE_SUSPENDED;
 
     Request.dwProcessId = GetCurrentProcessId();
     TRACE("Request.dwProcessId %lu\n", Request.dwProcessId);
@@ -3826,14 +4088,35 @@ CreateProcessWithLogonW(
 
         hBinding = NULL;
     }
-
+{
+char b[99];
+wsprintfA(b, "A32 ret=%d\n", Response.dwError), OutputDebugStringA(b);
+}
     TRACE("Response.hProcess %p\n", Response.hProcess);
     TRACE("Response.hThread %p\n", Response.hThread);
     TRACE("Response.dwProcessId %lu\n", Response.dwProcessId);
     TRACE("Response.dwThreadId %lu\n", Response.dwThreadId);
     TRACE("Response.dwError %lu\n", Response.dwError);
     if (Response.dwError != ERROR_SUCCESS)
+    {
+        if (ChangedAcl & 1)
+            RemoveUserObjectAllowAce(hWins, sid, accessWinsta);
+        if (ChangedAcl & 2)
+            RemoveUserObjectAllowAce(hDesk, sid, accessDesk);
+        if (sid)
+            LocalFree(sid);
+
         SetLastError(Response.dwError);
+    }
+    else
+    {
+        //SetProcessWindowStation();
+        if (!suspend)
+            ResumeThread(Response.hThread);
+
+        if (sid)
+            LocalFree(sid);
+    }
 
     TRACE("CreateProcessWithLogonW() done\n");
 

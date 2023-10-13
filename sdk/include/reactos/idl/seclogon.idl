@@ -12,8 +12,11 @@ typedef struct _SECL_REQUEST
     [string] WCHAR *ApplicationName;
     [string] WCHAR *CommandLine;
     [string] WCHAR *CurrentDirectory;
+    [string] WCHAR *Desktop;
     [size_is(dwEnvironmentSize)] BYTE *Environment;
+    [size_is(dwStartupSize)] BYTE *Startup;
     DWORD dwEnvironmentSize;
+    DWORD dwStartupSize;
     DWORD dwLogonFlags;
     DWORD dwCreationFlags;
     DWORD dwProcessId;

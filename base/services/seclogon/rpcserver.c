@@ -59,16 +59,16 @@ SeclCreateProcessWithLogonW(
     _In_ SECL_REQUEST *pRequest,
     _Out_ SECL_RESPONSE *pResponse)
 {
-    STARTUPINFOW StartupInfo;
+    STARTUPINFOW *pSI, Startup;
     PROCESS_INFORMATION ProcessInfo;
 
     PROFILEINFOW ProfileInfo;
     HANDLE hToken = NULL;
     HANDLE hTargetProcessHandle = NULL;
 
-    ULONG dwError = ERROR_SUCCESS;
+    ULONG dwError = ERROR_SUCCESS, CreationFlags;
     BOOL rc;
-
+OutputDebugStringA("DBG SeclCreateProcessWithLogonW\n");
     TRACE("SeclCreateProcessWithLogonW(%p %p %p)\n", hBinding, pRequest, pResponse);
 
     if (pRequest != NULL)
@@ -95,7 +95,7 @@ SeclCreateProcessWithLogonW(
     }
 
     ZeroMemory(&ProfileInfo, sizeof(ProfileInfo));
-
+//TODO: LsaLogonUser instead so we can specify extra stuff?
     /* Logon */
     rc = LogonUser(pRequest->Username,
                    pRequest->Domain,
@@ -125,15 +125,51 @@ SeclCreateProcessWithLogonW(
             goto done;
         }
     }
+OutputDebugStringA("pRequest->Startup (gen9)\n");
+    ZeroMemory(&Startup, sizeof(Startup));
+    //CopyMemory(&Startup, pRequest->Startup, min(sizeof(Startup), pRequest->dwStartupSize));
+    Startup.cb = min(sizeof(Startup), pRequest->dwStartupSize);
+    /*if (Startup.lpDesktop)
+    {
+        Startup.lpDesktop = pRequest->Desktop;
+        OutputDebugStringW(Startup.lpDesktop);OutputDebugStringW(L"\n");
+    }*/
 
-    /* Initialize the startup information */
-    ZeroMemory(&StartupInfo, sizeof(StartupInfo));
-    StartupInfo.cb = sizeof(StartupInfo);
+    {
+        //static int dbgit=0;
+        //if (dbgit++)
+        {
+            WCHAR*p = LocalAlloc(LPTR, 111); // LEAKYmcLEAK
+            lstrcpyW(p, L"WinSta0\\Default");
+            Startup.lpDesktop = p;
+            Startup.cb = sizeof(Startup);
+            //#define STARTF_INHERITDESKTOP   0x40000000
+            //Startup.dwFlags |= STARTF_INHERITDESKTOP;
+        }
+    
+    }
+    
+pSI;    /*Startup.cb = sizeof(Startup);
+OutputDebugStringA("pRequest->Startup (gen3)\n");
+    pSI = &Startup;* /
+    pSI = (STARTUPINFO*) pRequest->Startup;
+    if (pSI->lpDesktop)
+    {
+        OutputDebugStringA("setting desk to rpc string\n");
+        pSI->lpDesktop = pRequest->Desktop;
+        OutputDebugStringW(pSI->lpDesktop);OutputDebugStringW(L"\n");
+    }/ *  */
 
-    /* FIXME: Get startup info from the caller */
+    CreationFlags = pRequest->dwCreationFlags;
+    //CreationFlags &= ~DETACHED_PROCESS;
+    CreationFlags |= CREATE_DEFAULT_ERROR_MODE | //CREATE_BREAKAWAY_FROM_JOB |
+                     CREATE_NEW_PROCESS_GROUP ;//| CREATE_NEW_CONSOLE;
 
     /* Initialize the process information */
     ZeroMemory(&ProcessInfo, sizeof(ProcessInfo));
+
+    //TODO: ? SetTokenInformation(hToken, TokenSessionId
+    //TODO: ? ImpersonateLoggedOnUser(hToken)
 
     /* Create Process */
     rc = CreateProcessAsUserW(hToken,
@@ -142,10 +178,10 @@ SeclCreateProcessWithLogonW(
                               NULL,  // lpProcessAttributes,
                               NULL,  // lpThreadAttributes,
                               FALSE, // bInheritHandles,
-                              pRequest->dwCreationFlags,
+                              CreationFlags,
                               pRequest->Environment,  // lpEnvironment,
                               pRequest->CurrentDirectory,
-                              &StartupInfo,
+                              &Startup,
                               &ProcessInfo);
     if (rc == FALSE)
     {
