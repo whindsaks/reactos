@@ -3722,15 +3722,14 @@ GetAnsiEnvironmentSize(
 }
 
 
-/*
- * @unimplemented
- */
+/* @internal */
 BOOL
 WINAPI
-CreateProcessWithLogonW(
-    _In_ LPCWSTR lpUsername,
+CreateProcessWith(
+    _In_opt_ HANDLE hToken,
+    _In_opt_ LPCWSTR lpUsername,
     _In_opt_ LPCWSTR lpDomain,
-    _In_ LPCWSTR lpPassword,
+    _In_opt_ LPCWSTR lpPassword,
     _In_ DWORD dwLogonFlags,
     _In_opt_ LPCWSTR lpApplicationName,
     _Inout_opt_ LPWSTR lpCommandLine,
@@ -3745,17 +3744,84 @@ CreateProcessWithLogonW(
     SECL_REQUEST Request;
     SECL_RESPONSE Response;
     RPC_STATUS Status;
+    STARTUPINFOW startup;
+    WCHAR DesktopPath[MAX_PATH + MAX_PATH];
 
     TRACE("CreateProcessWithLogonW(%s %s %s 0x%08x %s %s 0x%08x %p %s %p %p)\n", debugstr_w(lpUsername), debugstr_w(lpDomain),
     debugstr_w(lpPassword), dwLogonFlags, debugstr_w(lpApplicationName),
     debugstr_w(lpCommandLine), dwCreationFlags, lpEnvironment, debugstr_w(lpCurrentDirectory),
     lpStartupInfo, lpProcessInformation);
 
+    ZeroMemory(&startup, sizeof(startup));
+    CopyMemory(&startup, lpStartupInfo, min(sizeof(startup), lpStartupInfo->cb));
+    if (startup.cb < sizeof(startup)) /* ROS runas.exe is broken and passes 0 */
+        startup.cb = sizeof(startup);
+{char b[99];wsprintfA(b,"dwStartupSize=%d %d\n", lpStartupInfo->cb, startup.cb),OutputDebugStringA(b);}
+    dwLogonFlags &= ~0x80000000;
+
+#ifdef EXTENDED_STARTUPINFO_PRESENT
+    if (dwCreationFlags & EXTENDED_STARTUPINFO_PRESENT)
+    {
+        FIXME("Ignoring EXTENDED_STARTUPINFO_PRESENT\n");
+        dwCreationFlags &= ~EXTENDED_STARTUPINFO_PRESENT;
+        startup.cb = sizeof(startup);
+    }
+#endif
+    if (startup.dwFlags & (STARTF_TITLEISAPPID|STARTF_TITLEISLINKNAME|STARTF_USESTDHANDLES))
+    {
+        UINT flags = startup.dwFlags;
+        startup.dwFlags & ~(STARTF_TITLEISAPPID|STARTF_TITLEISLINKNAME|STARTF_USESTDHANDLES);
+        FIXME("Ignoring flags %#u\n", startup.dwFlags ^ flags);
+    }
+    if (startup.lpReserved)
+    {
+        FIXME("Ignoring lpReserved\n");
+        startup.lpReserved = NULL;
+    }
+    if (startup.lpTitle)
+    {
+        FIXME("Ignoring lpTitle\n");
+        startup.lpTitle = NULL;
+    }
+    if (startup.cbReserved2)
+    {
+        FIXME("Ignoring lpReserved2\n");
+        startup.cbReserved2 = 0;
+    }
+    if (!startup.lpDesktop || !startup.lpDesktop[0])
+    {
+        HWINSTA hWins = GetProcessWindowStation();
+        HDESK hDesk = GetThreadDesktop(GetCurrentThreadId());
+        DWORD cb;
+        if (GetUserObjectInformationW(hWins, UOI_NAME, DesktopPath,
+                                      MAX_PATH * sizeof(WCHAR), &cb))
+        {
+            LPWSTR p = DesktopPath + (cb / sizeof(WCHAR)) - 1;
+            p[0] = L'\\';
+            if (GetUserObjectInformationW(hDesk, UOI_NAME, p + 1,
+                                          MAX_PATH * sizeof(WCHAR), &cb))
+            {
+                startup.lpDesktop = DesktopPath;
+                dwLogonFlags |= 0x80000000; /* SecLogon needs to know */
+                OutputDebugStringW(L"Got desk path:");OutputDebugStringW(startup.lpDesktop);OutputDebugStringW(L"\n");
+            }
+        }
+        if (!(dwLogonFlags & 0x80000000))
+        {
+#if DBG
+            UINT e = GetLastError();
+            ERR("Failed to get desktop path, error %d\n", e);
+            SetLastError(e);
+#endif
+            return FALSE;
+        }
+    }
+
     Status = RpcStringBindingComposeW(NULL,
                                       L"ncacn_np",
                                       NULL,
                                       L"\\pipe\\seclogon",
-                                      NULL,
+                                      L"Security=impersonation static false",
                                       &pszStringBinding);
     if (Status != RPC_S_OK)
     {
@@ -3778,12 +3844,17 @@ CreateProcessWithLogonW(
         WARN("RpcStringFree returned 0x%x\n", Status);
     }
 
+    Request.Token = (INT64)(INT_PTR) hToken;
     Request.Username = (LPWSTR)lpUsername;
     Request.Domain = (LPWSTR)lpDomain;
     Request.Password = (LPWSTR)lpPassword;
     Request.ApplicationName = (LPWSTR)lpApplicationName;
     Request.CommandLine = (LPWSTR)lpCommandLine;
     Request.CurrentDirectory = (LPWSTR)lpCurrentDirectory;
+    Request.Startup = (BYTE*) &startup;
+    Request.dwStartupSize = startup.cb;
+    Request.Desktop = startup.lpDesktop;
+{char b[99];wsprintfA(b,"dwStartupSize=%d dwLogonFlags=%#x\n", Request.dwStartupSize, dwLogonFlags),OutputDebugStringA(b);}
 
     if (dwCreationFlags & CREATE_UNICODE_ENVIRONMENT)
         Request.dwEnvironmentSize = GetUnicodeEnvironmentSize(lpEnvironment);
@@ -3840,6 +3911,30 @@ CreateProcessWithLogonW(
     return (Response.dwError == ERROR_SUCCESS);
 }
 
+/*
+ * @unimplemented
+ */
+BOOL
+WINAPI
+CreateProcessWithLogonW(
+    _In_ LPCWSTR lpUsername,
+    _In_opt_ LPCWSTR lpDomain,
+    _In_ LPCWSTR lpPassword,
+    _In_ DWORD dwLogonFlags,
+    _In_opt_ LPCWSTR lpApplicationName,
+    _Inout_opt_ LPWSTR lpCommandLine,
+    _In_ DWORD dwCreationFlags,
+    _In_opt_ LPVOID lpEnvironment,
+    _In_opt_ LPCWSTR lpCurrentDirectory,
+    _In_ LPSTARTUPINFOW lpStartupInfo,
+    _Out_ LPPROCESS_INFORMATION lpProcessInformation)
+{
+    return CreateProcessWith(NULL, lpUsername, lpDomain, lpPassword,
+                             dwLogonFlags, lpApplicationName, lpCommandLine,
+                             dwCreationFlags, lpEnvironment, lpCurrentDirectory,
+                             lpStartupInfo, lpProcessInformation);
+}
+
 BOOL WINAPI CreateProcessWithTokenW(HANDLE token, DWORD logon_flags, LPCWSTR application_name, LPWSTR command_line,
         DWORD creation_flags, void *environment, LPCWSTR current_directory, STARTUPINFOW *startup_info,
         PROCESS_INFORMATION *process_information )
@@ -3848,6 +3943,14 @@ BOOL WINAPI CreateProcessWithTokenW(HANDLE token, DWORD logon_flags, LPCWSTR app
           logon_flags, debugstr_w(application_name), debugstr_w(command_line),
           creation_flags, environment, debugstr_w(current_directory),
           startup_info, process_information);
+
+    if (token)
+    {
+        return CreateProcessWith(token, NULL, NULL, NULL,
+                             logon_flags, application_name, command_line,
+                             creation_flags, environment, current_directory,
+                             startup_info, process_information);
+    }
 
     /* FIXME: check if handles should be inherited */
     return CreateProcessW( application_name, command_line, NULL, NULL, FALSE, creation_flags, environment,
