@@ -1,6 +1,7 @@
 #pragma once
 
 #define CMD_KEY_APPWIZ L"APPWIZ"
+#define CMD_KEY_GENINST L"GENINST"
 #define CMD_KEY_INSTALL L"INSTALL"
 #define CMD_KEY_SETUP L"SETUP"
 #define CMD_KEY_FIND L"FIND"

@@ -34,8 +34,8 @@ CAppDB::CAppDB(const CStringW &path) : m_BasePath(path)
     m_BasePath.Canonicalize();
 }
 
-CAppInfo *
-CAppDB::FindByPackageName(const CStringW &name)
+CAvailableApplicationInfo *
+CAppDB::FindAvailableByPackageName(const CStringW &name)
 {
     POSITION CurrentListPosition = m_Available.GetHeadPosition();
     while (CurrentListPosition)
@@ -43,7 +43,7 @@ CAppDB::FindByPackageName(const CStringW &name)
         CAppInfo *Info = m_Available.GetNext(CurrentListPosition);
         if (Info->szIdentifier == name)
         {
-            return Info;
+            return (CAvailableApplicationInfo *)Info;
         }
     }
     return NULL;

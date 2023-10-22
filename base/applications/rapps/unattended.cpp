@@ -105,6 +105,22 @@ HandleSetupCommand(CAppDB *db, LPWSTR szCommand, int argcLeft, LPWSTR *argvLeft)
 }
 
 static BOOL
+HandleGenerateInstallerCommand(CAppDB &db, int argcLeft, LPWSTR *argvLeft)
+{
+    extern BOOL
+    ExtractAndRunGeneratedInstaller(const CAvailableApplicationInfo &AppInfo, LPCWSTR Archive);
+
+    if (argcLeft != 2)
+        return FALSE;
+
+    CAvailableApplicationInfo *pAI = db.FindAvailableByPackageName(argvLeft[0]);
+    if (!pAI)
+        return FALSE;
+
+    return ExtractAndRunGeneratedInstaller(*pAI, argvLeft[1]);
+}
+
+static BOOL
 HandleFindCommand(CAppDB *db, LPWSTR szCommand, int argcLeft, LPWSTR *argvLeft)
 {
     if (argcLeft < 1)
@@ -280,6 +296,10 @@ ParseCmdAndExecute(LPWSTR lpCmdLine, BOOL bIsFirstLaunch, int nCmdShow)
     else if (MatchCmdOption(argv[1], CMD_KEY_SETUP))
     {
         return HandleSetupCommand(&db, argv[1], argc - 2, argv + 2);
+    }
+    else if (MatchCmdOption(argv[1], CMD_KEY_GENINST))
+    {
+        return HandleGenerateInstallerCommand(db, argc - 2, argv + 2);
     }
 
     InitRappsConsole();

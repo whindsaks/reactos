@@ -20,8 +20,10 @@ class CAppDB
 
     VOID
     GetApps(CAtlList<CAppInfo *> &List, AppsCategories Type) const;
+    CAvailableApplicationInfo *
+    FindAvailableByPackageName(const CStringW &name);
     CAppInfo *
-    FindByPackageName(const CStringW &name);
+    FindByPackageName(const CStringW &name) { return FindAvailableByPackageName(name); }
 
     VOID
     UpdateAvailable();

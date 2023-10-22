@@ -117,8 +117,12 @@ CAvailableApplicationInfo::InsertVersionInfo(CAppRichEdit *RichEdit)
 {
     CStringW szRegName;
     m_Parser->GetString(L"RegName", szRegName);
+    bool selfgen = GetInstallerType() == INSTALLER_GENERATE;
 
-    BOOL bIsInstalled = ::GetInstalledVersion(NULL, szRegName) || ::GetInstalledVersion(NULL, szDisplayName);
+    BOOL bIsInstalled = ::GetInstalledVersion(NULL, szRegName) ||
+                        ::GetInstalledVersion(NULL, szDisplayName) ||
+                        (selfgen && ::GetInstalledVersion(NULL, szRegName = szDisplayName + GENERATE_ARPSUFFIX));
+
     if (bIsInstalled)
     {
         CStringW szInstalledVersion;
@@ -131,11 +135,14 @@ CAvailableApplicationInfo::InsertVersionInfo(CAppRichEdit *RichEdit)
         {
             BOOL bHasUpdate = CompareVersion(szInstalledVersion, szDisplayVersion) < 0;
             if (bHasUpdate)
+            {
                 RichEdit->LoadAndInsertText(IDS_STATUS_UPDATE_AVAILABLE, CFE_ITALIC);
+                RichEdit->LoadAndInsertText(IDS_AINFO_VERSION, szInstalledVersion, 0);
+            }
             else
+            {
                 RichEdit->LoadAndInsertText(IDS_STATUS_INSTALLED, CFE_ITALIC);
-
-            RichEdit->LoadAndInsertText(IDS_AINFO_VERSION, szInstalledVersion, 0);
+            }
         }
         else
         {
@@ -355,6 +362,17 @@ CAvailableApplicationInfo::GetDisplayInfo(CStringW &License, CStringW &Size, CSt
     Size = m_szSize;
     UrlSite = m_szUrlSite;
     UrlDownload = m_szUrlDownload;
+}
+
+InstallerType
+CAvailableApplicationInfo::GetInstallerType() const
+{
+    CStringW str;
+    m_Parser->GetString(L"Installer", str);
+    if (!str.CompareNoCase(L"Generate"))
+        return INSTALLER_GENERATE;
+    else
+        return INSTALLER_GENERIC;
 }
 
 BOOL

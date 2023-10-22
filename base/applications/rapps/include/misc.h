@@ -34,8 +34,28 @@ WriteLogMessage(WORD wType, DWORD dwEventID, LPCWSTR lpMsg);
 BOOL
 GetInstalledVersion(CStringW *pszVersion, const CStringW &szRegName);
 
+typedef struct
+{
+    const CStringW &ItemPath;
+    UINT64 UncompressedSize;
+    UINT FileAttributes;
+} EXTRACTCALLBACKINFO;
+typedef BOOL (CALLBACK*EXTRACTCALLBACK)(const EXTRACTCALLBACKINFO &Info, void *Cookie);
+
+static inline BOOL
+NotifyFileExtractCallback(const CStringW &ItemPath, UINT64 UncompressedSize, UINT FileAttributes,
+                          EXTRACTCALLBACK Callback, void *Cookie)
+{
+    EXTRACTCALLBACKINFO eci = { ItemPath, UncompressedSize, FileAttributes };
+    return Callback ? Callback(eci, Cookie) : TRUE;
+}
+
 BOOL
-ExtractFilesFromCab(const CStringW &szCabName, const CStringW &szCabDir, const CStringW &szOutputDir);
+ExtractFilesFromCab(const CStringW &szCabName, const CStringW &szCabDir, const CStringW &szOutputDir,
+                    EXTRACTCALLBACK Callback = NULL, void *Cookie = NULL);
+BOOL
+ExtractFilesFromCab(LPCWSTR FullCabPath, const CStringW &szOutputDir,
+                    EXTRACTCALLBACK Callback = NULL, void *Cookie = NULL);
 
 BOOL
 IsSystem64Bit();
@@ -48,6 +68,21 @@ UnixTimeToFileTime(DWORD dwUnixTime, LPFILETIME pFileTime);
 
 BOOL
 SearchPatternMatch(LPCWSTR szHaystack, LPCWSTR szNeedle);
+
+CStringW
+SplitFileAndDirectory(LPCWSTR FullPath, CStringW *pDir = NULL);
+
+template <class T> static CStringW
+BuildPath(const T &Base, LPCWSTR Append)
+{
+    CStringW path = Base;
+    SIZE_T len = path.GetLength();
+    if (len && path[len - 1] != L'\\' && path[len - 1] != L'/')
+        path += L'\\';
+    while (*Append == L'\\' || *Append == L'/')
+        ++Append;
+    return path + Append;
+}
 
 template <class T> class CLocalPtr : public CHeapPtr<T, CLocalAllocator>
 {

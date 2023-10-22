@@ -63,6 +63,15 @@ IsInstalledEnum(INT x)
     return (x >= ENUM_INSTALLED_MIN && x <= ENUM_INSTALLED_MAX);
 }
 
+enum InstallerType
+{
+    INSTALLER_UNKNOWN,
+    INSTALLER_GENERIC,
+    INSTALLER_GENERATE, // .zip file automatically converted to installer by rapps
+};
+
+#define GENERATE_ARPSUFFIX L"_RApps"
+
 class CAppRichEdit;
 
 class CAppInfo
@@ -93,6 +102,8 @@ class CAppInfo
     GetDownloadInfo(CStringW &Url, CStringW &Sha1, ULONG &SizeInBytes) const = 0;
     virtual VOID
     GetDisplayInfo(CStringW &License, CStringW &Size, CStringW &UrlSite, CStringW &UrlDownload) = 0;
+    virtual InstallerType
+    GetInstallerType() const { return INSTALLER_UNKNOWN; }
     virtual BOOL
     UninstallApplication(BOOL bModify) = 0;
 };
@@ -125,6 +136,9 @@ class CAvailableApplicationInfo : public CAppInfo
         const CPathW &BasePath);
     ~CAvailableApplicationInfo();
 
+    class CConfigParser *
+    GetConfigParserInstance() const { return m_Parser; }
+
     virtual BOOL
     Valid() const override;
     virtual BOOL
@@ -139,6 +153,8 @@ class CAvailableApplicationInfo : public CAppInfo
     GetDownloadInfo(CStringW &Url, CStringW &Sha1, ULONG &SizeInBytes) const override;
     virtual VOID
     GetDisplayInfo(CStringW &License, CStringW &Size, CStringW &UrlSite, CStringW &UrlDownload) override;
+    virtual InstallerType
+    GetInstallerType() const override;
     virtual BOOL
     UninstallApplication(BOOL bModify) override;
 };

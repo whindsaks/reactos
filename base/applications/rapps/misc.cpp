@@ -376,3 +376,14 @@ SearchPatternMatch(LPCWSTR szHaystack, LPCWSTR szNeedle)
     /* TODO: Improve pattern search beyond a simple case-insensitive substring search. */
     return StrStrIW(szHaystack, szNeedle) != NULL;
 }
+
+CStringW
+SplitFileAndDirectory(LPCWSTR FullPath, CStringW *pDir)
+{
+    CStringW dir = FullPath, file;
+    int win = dir.ReverseFind(L'\\'), nix = dir.ReverseFind(L'/'), sep = max(win, nix);
+    file = dir.Mid(sep + 1);
+    if (pDir)
+        *pDir = sep == -1 ? L"" : dir.Left(sep);
+    return file;
+}
