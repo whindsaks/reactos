@@ -412,4 +412,11 @@ class CApplicationView : public CUiWindow<CWindowImpl<CApplicationView>>
     // CallbackParam is the param passed to listview when adding the item (the one getting focus now).
     VOID
     ItemCheckStateChanged(BOOL bChecked, LPVOID CallbackParam);
+
+    inline VOID
+    NotifyCategoryChanged()
+    {
+        // Reset vertical scroll position
+        m_ListView->EnsureVisible(0, FALSE);
+    }
 };

@@ -596,9 +596,13 @@ VOID
 CMainWindow::UpdateApplicationsList(AppsCategories EnumType, BOOL bReload)
 {
     bUpdating = TRUE;
+    UINT CategoryChanged = 0;
 
     if (SelectedEnumType != EnumType)
+    {
         SelectedEnumType = EnumType;
+        CategoryChanged++;
+    }
 
     if (bReload)
         m_Selected.RemoveAll();
@@ -639,6 +643,10 @@ CMainWindow::UpdateApplicationsList(AppsCategories EnumType, BOOL bReload)
     else
     {
         ATLASSERT(0 && "This should be unreachable!");
+    }
+    if (CategoryChanged)
+    {
+        m_ApplicationView->NotifyCategoryChanged();
     }
     m_ApplicationView->SetRedraw(TRUE);
     m_ApplicationView->RedrawWindow(0, 0, RDW_INVALIDATE | RDW_ALLCHILDREN); // force the child window to repaint
