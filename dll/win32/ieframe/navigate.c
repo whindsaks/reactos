@@ -99,6 +99,138 @@ static void dump_BINDINFO(BINDINFO *bi)
             );
 }
 
+#ifdef __REACTOS__
+#include <strsafe.h>
+
+#define NOHTMLINFOMSGPROP L"ieframe.nohtml_info_message"
+WNDPROC g_org_dochost_wndproc;
+
+#define nohtml_info_message_hashtml(pDH) ( (pDH)->document || (pDH)->view || (pDH)->client_disp )
+
+static void nohtml_info_message_resize(HWND hCtl, HWND hDocHost)
+{
+    const UINT pad = 5;
+    RECT r;
+    GetClientRect(hDocHost, &r);
+    SetWindowPos(hCtl, HWND_BOTTOM, pad, pad, r.right - pad * 2, r.bottom - pad * 2, SWP_NOACTIVATE);
+}
+
+static void nohtml_info_message_settext(HWND hCtl, LPCWSTR url)
+{
+    /* TODO: LoadString */
+    LPCWSTR fmt = L"Cannot display %s\n\nNo HTML engine installed, click <A HREF=\"res://G\">here</A> to install the Wine Gecko package.";
+    SIZE_T cch = lstrlenW(fmt) + lstrlenW(url);
+    LPWSTR msg = (LPWSTR)CoTaskMemAlloc(++cch * sizeof(WCHAR));
+    if (msg)
+    {
+        StringCchPrintfW(msg, cch, fmt, url);
+        SendMessageW(hCtl, WM_SETTEXT, 0, (LPARAM)msg);
+        CoTaskMemFree(msg);
+    }
+}
+
+static LRESULT CALLBACK nohtml_info_message_dochostproc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+    HWND hCtl = (HWND)GetPropW(hwnd, NOHTMLINFOMSGPROP);
+    if (uMsg ==  WM_WINDOWPOSCHANGED && hCtl)
+    {
+        nohtml_info_message_resize(hCtl, hwnd);
+    }
+    else if (uMsg == WM_SETCURSOR)
+    {
+        if ((HWND)wParam == hCtl || (HWND)wParam == hwnd)
+        {
+            SetCursor(LoadCursor(NULL, (LPCSTR)IDC_ARROW));
+        }
+    }
+    else if (uMsg == WM_CTLCOLORSTATIC && (HWND)lParam == hCtl)
+    {
+        HDC hdc = (HDC) wParam;
+        SetTextColor(hdc, GetSysColor(COLOR_WINDOW));
+        return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
+    }
+    else if (uMsg == WM_NOTIFY && lParam)
+    {
+        NMLINK *pL = (NMLINK *)lParam;
+        if (pL->hdr.hwndFrom == hCtl)
+        {
+            WinExec("\"rundll32.exe\" shell32,Control_RunDLL appwiz.cpl install_gecko", SW_SHOW);
+            return 0;
+        }
+    }
+    else if (uMsg == WM_DESTROY)
+    {
+        RemovePropW(hwnd, NOHTMLINFOMSGPROP);
+    }
+    return CallWindowProcW(g_org_dochost_wndproc, hwnd, uMsg, wParam, lParam);
+}
+
+static INT_PTR CALLBACK nohtml_info_message_initproc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+    if (uMsg == WM_TIMER && wParam)
+    {
+        DocHost *pDH = (DocHost *)wParam;
+        KillTimer(hwnd, wParam);
+        if (!nohtml_info_message_hashtml(pDH) && !GetPropW(pDH->hwnd, NOHTMLINFOMSGPROP))
+        {
+            HWND hCtl;
+            UINT lws_noprefix = 4, style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | lws_noprefix;
+            SIZE_T cch = SendMessageW(hwnd, WM_GETTEXTLENGTH, 0, 0);
+            LPWSTR url = (LPWSTR)CoTaskMemAlloc(++cch * sizeof(WCHAR));
+            if (url)
+            {
+                INITCOMMONCONTROLSEX icce = { sizeof(icce), ICC_LINK_CLASS };
+                InitCommonControlsEx(&icce);
+                hCtl = CreateWindowExW(0, L"SysLink", NULL, style, 0, 0, 0, 0,
+                                       pDH->hwnd, NULL, NULL, NULL);
+                if (hCtl)
+                {
+                    SendMessageW(hCtl, WM_SETFONT, (LPARAM)GetStockObject(DEFAULT_GUI_FONT), FALSE);
+                    SendMessageW(hwnd, WM_GETTEXT, cch, (LPARAM)url);
+                    g_org_dochost_wndproc = (WNDPROC)SetWindowLongPtrW(pDH->hwnd,
+                                                                       GWLP_WNDPROC,
+                                                                       (LPARAM)nohtml_info_message_dochostproc);
+                    if (g_org_dochost_wndproc)
+                    {
+                        SetPropW(pDH->hwnd, NOHTMLINFOMSGPROP, (HANDLE)hCtl);
+                        nohtml_info_message_resize(hCtl, pDH->hwnd);
+                        nohtml_info_message_settext(hCtl, url);
+                    }
+                }
+                CoTaskMemFree(url);
+            }
+        }
+        IUnknown_Release(&pDH->IOleClientSite_iface);
+        DestroyWindow(hwnd);
+    }
+    return FALSE;
+}
+
+static void init_nohtml_info_message(DocHost *pDH, LPCWSTR url)
+{
+    if (!nohtml_info_message_hashtml(pDH))
+    {
+        HWND hCtl = (HWND)GetPropW(pDH->hwnd, NOHTMLINFOMSGPROP);
+        if (!hCtl)
+        {
+            HWND hWaiter = CreateWindowExW(WS_EX_TOOLWINDOW, MAKEINTRESOURCEW(0x8002),
+                                           url, WS_CHILD, 0, 0, 0, 0, pDH->hwnd,
+                                           NULL, NULL, NULL);
+            if (hWaiter)
+            {
+                SetWindowLongPtrW(hWaiter, DWLP_DLGPROC, (LPARAM)nohtml_info_message_initproc);
+                IUnknown_AddRef(&pDH->IOleClientSite_iface);
+                SetTimer(hWaiter, (SIZE_T)pDH, 1000 * 2, NULL); /* Give dochost_task a chance to connect to the client */
+            }
+        }
+        else
+        {
+            nohtml_info_message_settext(hCtl, url);
+        }
+    }
+}
+#endif // __REACTOS__
+
 static void set_status_text(BindStatusCallback *This, ULONG statuscode, LPCWSTR str)
 {
     VARIANTARG arg;
@@ -1000,6 +1132,9 @@ HRESULT navigate_url(DocHost *This, LPCWSTR url, const VARIANT *Flags,
         task = heap_alloc(sizeof(*task));
         task->bsc = create_callback(This, url, post_data, post_data_len, headers);
         push_dochost_task(This, &task->header, navigate_bsc_proc, navigate_bsc_task_destr, This->url == NULL);
+#ifdef __REACTOS__
+        init_nohtml_info_message(This, url);
+#endif
     }
 
     if(post_data)
