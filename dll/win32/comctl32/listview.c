@@ -5671,11 +5671,17 @@ static BOOL LISTVIEW_DeleteAllItems(LISTVIEW_INFO *infoPtr, BOOL destroy)
 	DPA_DeletePtr(infoPtr->hdpaPosY, i);
 	infoPtr->nItemCount --;
     }
-    
+
     if (!destroy)
     {
         LISTVIEW_Arrange(infoPtr, LVA_DEFAULT);
         LISTVIEW_UpdateScroll(infoPtr);
+
+        if (!is_redrawing(infoPtr))
+        {
+            LISTVIEW_HScroll(infoPtr, SB_INTERNAL, -INT_MAX);
+            LISTVIEW_VScroll(infoPtr, SB_INTERNAL, -INT_MAX);
+        }
     }
     LISTVIEW_InvalidateList(infoPtr);
     
