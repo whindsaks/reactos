@@ -22,6 +22,106 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL (shell);
 
+#ifndef SFGAO_SYSTEM
+#define SFGAO_SYSTEM 0x00001000
+#endif
+const UINT FOLDERENUM_FOLDERS_SFGAO = SFGAO_FOLDER | SFGAO_STORAGEANCESTOR | SFGAO_STORAGE | SFGAO_BROWSABLE | SFGAO_FILESYSANCESTOR;
+const UINT FOLDERENUM_NONFOLDERS_SFGAO = SFGAO_STREAM;
+
+SFGAOF SHELL_GetAttributeQueryFromFolderEnumFlags(UINT contf)
+{
+    const UINT shcontf_checking_for_children = 0x10;
+    UINT f = 0;
+    if (contf & SHCONTF_FOLDERS)
+        f |= FOLDERENUM_FOLDERS_SFGAO;
+    if (contf & SHCONTF_NONFOLDERS)
+        f |= FOLDERENUM_NONFOLDERS_SFGAO;
+    if (contf & SHCONTF_INCLUDEHIDDEN)
+        f |= SFGAO_HIDDEN;
+    if (contf & SHCONTF_INCLUDESUPERHIDDEN)
+        f |= SFGAO_HIDDEN | SFGAO_SYSTEM;
+    if (contf & shcontf_checking_for_children)
+        f |= SFGAO_HASSUBFOLDER;
+    return (SFGAOF)f;
+}
+
+BOOL SHELL_FolderEnumIncludeItem(SFGAOF att, UINT contf)
+{
+    if (att & SFGAO_NONENUMERATED)
+        return FALSE;
+
+    const UINT super = SFGAO_HIDDEN | SFGAO_SYSTEM;
+    if ((att & super) == super && !(contf & SHCONTF_INCLUDESUPERHIDDEN))
+        return FALSE;
+
+    if ((att & SFGAO_HIDDEN) && !(contf & SHCONTF_INCLUDEHIDDEN))
+        return FALSE;
+
+    const UINT both = SHCONTF_FOLDERS | SHCONTF_NONFOLDERS;
+    if ((contf & both) == both)
+        return TRUE;
+
+    if ((contf & SHCONTF_FOLDERS) && (att & (FOLDERENUM_FOLDERS_SFGAO | SFGAO_HASSUBFOLDER)))
+        return TRUE;
+
+    if ((contf & SHCONTF_NONFOLDERS) && (att & FOLDERENUM_NONFOLDERS_SFGAO))
+        return TRUE;
+
+    return FALSE;
+}
+
+BOOL SHELL_IsFolderBaseClass(IShellFolder *psf, PCUITEMID_CHILD child)
+{
+    SFGAOF req = SFGAO_FOLDER | SFGAO_STORAGEANCESTOR | SFGAO_STORAGE | SFGAO_BROWSABLE | SFGAO_FILESYSANCESTOR | SFGAO_HASSUBFOLDER;
+    SFGAOF att = req;
+    HRESULT hr = psf->GetAttributesOf(1, &child, &att);
+    return SUCCEEDED(hr) && (req & att);
+}
+
+static SFGAOF SHELL_GetSpecialFolderBasicAttributes(LPCITEMIDLIST pidl)
+{
+    // FIXME: These attributes should be passed to CRegFolder::Initialize instead,
+    // it already knows about its special children.
+    if (_ILIsControlPanel(pidl))
+        return SFGAO_FOLDER | SFGAO_HASSUBFOLDER;
+    return 0;
+}
+
+#include "pshpack1.h"
+typedef struct {
+    WORD cb;
+    BYTE type, data[sizeof(GUIDStruct)];
+} REGFOLDERITEM;
+#include "poppack.h"
+
+static HRESULT InitializeRegFolderItem(void*pidl, const CLSID &clsid)
+{
+    REGFOLDERITEM *item = (REGFOLDERITEM*)pidl;
+    item->cb = sizeof(REGFOLDERITEM);
+    PIDLDATA *p = (PIDLDATA*)&item->type;
+    p->type = PT_GUID;
+    p->u.guid.guid = clsid;
+    return S_OK;
+}
+
+static HRESULT InitializeRegFolderItem(void*pidl, LPCWSTR clsidstr)
+{
+    CLSID clsid;
+    HRESULT hr = SHCLSIDFromStringW(clsidstr, &clsid);
+    return SUCCEEDED(hr) ? InitializeRegFolderItem(pidl, clsid) : hr;
+}
+
+static HRESULT GetRegFolderItemAttributesForFolderEnum(const void*pidlptr, SFGAOF &att)
+{
+    LPCITEMIDLIST pidl = (LPCITEMIDLIST)pidlptr;
+    DWORD found = SHELL_GetSpecialFolderBasicAttributes(pidl);
+    DWORD remain = att & ~found;
+    att &= found | SFGAO_CANLINK;
+    BOOL success = remain ? HCR_GetFolderAttributes(pidl, &remain) : TRUE;
+    att |= remain;
+    return (success || found) ? S_OK : E_FAIL;
+}
+
 HRESULT CALLBACK RegFolderContextMenuCallback(IShellFolder *psf,
                                               HWND         hwnd,
                                               IDataObject  *pdtobj,
@@ -104,6 +204,8 @@ HRESULT CGuidItemContextMenu_CreateInstance(PCIDLIST_ABSOLUTE pidlFolder,
     HKEY hKeys[10];
     UINT cKeys = 0;
 
+    // FIXME: Use IQueryAssociations::GetKey ASSOCKEY_CLASS + ASSOCKEY_BASECLASS
+
     GUID *pGuid = _ILGetGUIDPointer(apidl[0]);
     if (pGuid)
     {
@@ -118,7 +220,11 @@ HRESULT CGuidItemContextMenu_CreateInstance(PCIDLIST_ABSOLUTE pidlFolder,
             AddClassKeyToArray(key, hKeys, &cKeys);
         }
     }
-    AddClassKeyToArray(L"Folder", hKeys, &cKeys);
+
+    // Only add the folder key for folder items because the "Folder Options" item
+    // in Control Panel should not have a explore verb.
+    if (SHELL_IsFolderBaseClass(psf, apidl[0]))
+        AddClassKeyToArray(L"Folder", hKeys, &cKeys);
 
     return CDefFolderMenu_Create2(pidlFolder, hwnd, cidl, apidl, psf, RegFolderContextMenuCallback, cKeys, hKeys, ppcm);
 }
@@ -208,7 +314,7 @@ class CRegFolderEnum :
         CRegFolderEnum();
         ~CRegFolderEnum();
         HRESULT Initialize(LPCWSTR lpszEnumKeyName, DWORD dwFlags);
-        HRESULT AddItemsFromKey(HKEY hkey_root, LPCWSTR szRepPath);
+        HRESULT AddItemsFromKey(HKEY hkey_root, LPCWSTR szRepPath, DWORD dwFlags);
 
         BEGIN_COM_MAP(CRegFolderEnum)
         COM_INTERFACE_ENTRY_IID(IID_IEnumIDList, IEnumIDList)
@@ -244,13 +350,13 @@ HRESULT CRegFolderEnum::Initialize(LPCWSTR lpszEnumKeyName, DWORD dwFlags)
     if (FAILED_UNEXPECTEDLY(hr))
         return hr;
 
-    AddItemsFromKey(HKEY_LOCAL_MACHINE, KeyName);
-    AddItemsFromKey(HKEY_CURRENT_USER, KeyName);
+    AddItemsFromKey(HKEY_LOCAL_MACHINE, KeyName, dwFlags);
+    AddItemsFromKey(HKEY_CURRENT_USER, KeyName, dwFlags);
 
     return S_OK;
 }
 
-HRESULT CRegFolderEnum::AddItemsFromKey(HKEY hkey_root, LPCWSTR szRepPath)
+HRESULT CRegFolderEnum::AddItemsFromKey(HKEY hkey_root, LPCWSTR szRepPath, DWORD dwFlags)
 {
     WCHAR name[MAX_PATH];
     HKEY hkey;
@@ -272,8 +378,15 @@ HRESULT CRegFolderEnum::AddItemsFromKey(HKEY hkey_root, LPCWSTR szRepPath)
 
         if (*name == '{')
         {
-            LPITEMIDLIST pidl = _ILCreateGuidFromStrW(name);
+            BYTE stackpidl[sizeof(REGFOLDERITEM) + sizeof(WORD)] = { };
+            InitializeRegFolderItem(stackpidl, name);
 
+            SFGAOF att = SHELL_GetAttributeQueryFromFolderEnumFlags(dwFlags);
+            HRESULT hr = GetRegFolderItemAttributesForFolderEnum(stackpidl, att);
+            if (SUCCEEDED(hr) && !SHELL_FolderEnumIncludeItem(att, dwFlags))
+                continue;
+
+            LPITEMIDLIST pidl = ILClone((LPITEMIDLIST)stackpidl);
             if (pidl)
                 AddToEnumList(pidl);
         }
@@ -376,10 +489,17 @@ HRESULT CRegFolder::GetGuidItemAttributes (LPCITEMIDLIST pidl, LPDWORD pdwAttrib
     }
 
     /* In any case, links can be created */
-    if (*pdwAttributes == NULL)
+    if (*pdwAttributes == 0)
     {
         *pdwAttributes |= (dwAttributes & SFGAO_CANLINK);
     }
+
+    DWORD remain = dwAttributes & ~*pdwAttributes;
+    if (remain)
+    {
+        *pdwAttributes |= (dwAttributes & SHELL_GetSpecialFolderBasicAttributes(pidl));
+    }
+
     return S_OK;
 }
 
