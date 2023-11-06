@@ -628,12 +628,15 @@ HRESULT WINAPI CControlPanelFolder::Initialize(PCIDLIST_ABSOLUTE pidl)
     pidlRoot = ILClone(pidl);
 
     /* Create the inner reg folder */
-    HRESULT hr;
-    hr = CRegFolder_CreateInstance(&CLSID_ControlPanel,
-                                   pidlRoot,
-                                   L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}\\::{21EC2020-3AEA-1069-A2DD-08002B30309D}",
-                                   L"ControlPanel",
-                                   IID_PPV_ARG(IShellFolder2, &m_regFolder));
+    REGFOLDERCREATEPARAMETERS regfolderparams = 
+    {
+        CLSID_ControlPanel,
+        pidlRoot,
+        L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}\\::{21EC2020-3AEA-1069-A2DD-08002B30309D}",
+        L"ControlPanel",
+        NULL, 0
+    };
+    HRESULT hr = CRegFolder_CreateInstance(&regfolderparams, IID_PPV_ARG(IShellFolder2, &m_regFolder));
     if (FAILED_UNEXPECTEDLY(hr))
         return hr;
 

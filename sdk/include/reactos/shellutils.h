@@ -725,7 +725,76 @@ DataObject_SetOffset(IDataObject* pDataObject, POINT* point)
     return DataObject_SetData(pDataObject, g_cfShellIdListOffsets, point, sizeof(point[0]));
 }
 
-#endif
+template<UINT ContMask> static HRESULT
+SHELL_FolderEnumIncludeItem(IShellFolder *pSF, PCUITEMID_CHILD Item, UINT ContF)
+{
+    HRESULT hr = S_FALSE;
+    BOOL include = TRUE;
+    SFGAOF dir = SFGAO_FOLDER | SFGAO_STORAGEANCESTOR | SFGAO_FILESYSANCESTOR | SFGAO_BROWSABLE | SFGAO_HASSUBFOLDER;
+    SFGAOF att = SFGAO_NONENUMERATED, super = SFGAO_HIDDEN | SFGAO_SYSTEM;
 
+    if (ContMask & SHCONTF_INCLUDESUPERHIDDEN)
+        att |= super;
+
+    if (ContF & ContMask & SHCONTF_STORAGE)
+    {
+        ContF |= SHCONTF_INCLUDEHIDDEN;
+        // Note: The folder must be able to provide a default
+        // storage implementation when a caller asks for BHID_Storage.
+    }
+    else
+    {
+        att |= SFGAO_FOLDER;
+        if (ContMask & SHCONTF_INCLUDEHIDDEN)
+            att |= SFGAO_HIDDEN;
+
+        if ((ContF & (SHCONTF_FOLDERS | SHCONTF_NONFOLDERS)) != (SHCONTF_FOLDERS | SHCONTF_NONFOLDERS))
+        {
+            hr = pSF->GetAttributesOf(1, &Item, &att);
+            BOOL folder = SUCCEEDED(hr) && (att & dir);
+            include = folder ? (ContF & SHCONTF_FOLDERS) : (ContF & SHCONTF_NONFOLDERS);
+        }
+    }
+
+    if (include)
+    {
+        if (hr == S_FALSE)
+            hr = pSF->GetAttributesOf(1, &Item, &att);
+        if (SUCCEEDED(hr))
+        {
+            if (att & SFGAO_HIDDEN)
+            {
+                if ((att & super) == super && (ContMask & SHCONTF_INCLUDESUPERHIDDEN))
+                    include = ContF & SHCONTF_INCLUDESUPERHIDDEN;
+                else if (ContMask & SHCONTF_INCLUDEHIDDEN)
+                    include = ContF & SHCONTF_INCLUDEHIDDEN;
+            }
+            if (att & SFGAO_NONENUMERATED)
+            {
+                include = FALSE;
+            }
+        }
+    }
+    return FAILED(hr) ? hr : (include ? S_OK : S_FALSE);
+}
+
+#endif /* __cplusplus */
+
+/* All IContextMenuCB implementations should call this for unhandled messages */
+static inline HRESULT
+SHELL_DefDFMCallback(IDataObject *pDO, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+    switch(uMsg)
+    {
+        case DFM_MERGECONTEXTMENU:
+            return S_OK; // We want CLSID_ShellFileDefExt
+        case DFM_GETDEFSTATICID:
+            return S_FALSE; // Windows 7 supposedly requires this
+        case DFM_INVOKECOMMAND:
+            return S_FALSE; // Invoke DFM_CMD_* for us
+        default:
+            return E_NOTIMPL;
+    }
+}
 
 #endif /* __ROS_SHELL_UTILS_H */

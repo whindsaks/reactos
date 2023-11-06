@@ -844,7 +844,7 @@ CDefaultContextMenu::DoProperties(
     // We are asked to run the default property sheet
     if (hr == S_FALSE)
     {
-        return Shell_DefaultContextMenuCallBack(m_psf, m_pDataObj);
+        return SHELL32_ShowPropertiesDialog((LPCMINVOKECOMMANDINFO)lpcmi, m_pDataObj);
     }
 
     return hr;

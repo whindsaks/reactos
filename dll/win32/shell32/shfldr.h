@@ -36,6 +36,26 @@ typedef struct {
 #define GET_SHGDN_FOR(dwFlags)         ((DWORD)dwFlags & (DWORD)0x0000FF00)
 #define GET_SHGDN_RELATION(dwFlags)    ((DWORD)dwFlags & (DWORD)0x000000FF)
 
+typedef struct {
+    REFCLSID clsid;
+    LPCSTR icon;
+    UINT sfgaof;
+    LPCWSTR cplcmd;
+} REGFOLDERITEMATTRIBUTES;
+typedef const REGFOLDERITEMATTRIBUTES *PCREGFOLDERITEMATTRIBUTES;
+
+typedef struct {
+    REFCLSID clsid;
+    LPCITEMIDLIST pidlRoot;
+    LPCWSTR lpszPath;
+    LPCWSTR lpszEnumKeyName;
+    PCREGFOLDERITEMATTRIBUTES ItemAttributes;
+    UINT ItemAttributeCount;
+} REGFOLDERCREATEPARAMETERS;
+
+HRESULT CRegFolder_CreateInstance(const REGFOLDERCREATEPARAMETERS *pParams, REFIID riid, void **ppv);
+
+
 LPCWSTR GetNextElementW (LPCWSTR pszNext, LPWSTR pszOut, DWORD dwOut);
 HRESULT SHELL32_ParseNextElement (IShellFolder2 * psf, HWND hwndOwner, LPBC pbc, LPITEMIDLIST * pidlInOut,
                   LPOLESTR szNext, DWORD * pEaten, DWORD * pdwAttributes);
@@ -67,6 +87,15 @@ BOOL HCR_RegOpenClassIDKey(REFIID riid, HKEY *hkey);
 void AddFSClassKeysToArray(PCUITEMID_CHILD pidl, HKEY* array, UINT* cKeys);
 
 HRESULT CDefViewBckgrndMenu_CreateInstance(IShellFolder* psf, REFIID riid, void **ppv);
+
+HRESULT WINAPI SHELL32_ShowPropertiesDialog(LPCMINVOKECOMMANDINFO pici, IDataObject *pdtobj);
+
+static __inline HRESULT SHELL32_DefDFMCallback(IDataObject *pDO, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+    if (uMsg == DFM_INVOKECOMMAND && wParam == DFM_CMD_PROPERTIES)
+        return SHELL32_ShowPropertiesDialog(NULL, pDO);
+    return SHELL_DefDFMCallback(pDO, uMsg, wParam, lParam);
+}
 
 HRESULT SH_GetApidlFromDataObject(IDataObject *pDataObject, PIDLIST_ABSOLUTE* ppidlfolder, PUITEMID_CHILD **apidlItems, UINT *pcidl);
 

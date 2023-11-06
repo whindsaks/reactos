@@ -139,8 +139,8 @@ AddPropSheetPageCallback(HPROPSHEETPAGE hPage, LPARAM lParam)
     return FALSE;
 }
 
-HRESULT WINAPI
-Shell_DefaultContextMenuCallBack(IShellFolder *psf, IDataObject *pdtobj);
+EXTERN_C HRESULT WINAPI
+SHELL32_ExecuteControlPanelItem(_In_opt_ HWND hwnd, _In_ LPCWSTR parameters);
 
 // CStubWindow32 --- The owner window of file property sheets.
 // This window hides taskbar button of property sheet.

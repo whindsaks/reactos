@@ -775,3 +775,24 @@ HRESULT CQueryAssociations::ReturnString(ASSOCF flags, LPWSTR out, DWORD *outlen
 
     return hr;
 }
+
+/**************************************************************************
+ *  SHELL32_AssocGetBaseClassInitFlags
+ *
+ * Internal function that can be used by IShellFolder implementations
+ * to determine the ASSOCKEY_BASECLASS HKEY.
+ */
+ASSOCF SHELL32_AssocGetBaseClassInitFlags(IShellFolder *psf, PCUITEMID_CHILD item)
+{
+    SFGAOF dir = SFGAO_FOLDER | SFGAO_STORAGEANCESTOR | SFGAO_FILESYSANCESTOR | SFGAO_HASSUBFOLDER;
+    SFGAOF att = dir | SFGAO_STREAM;
+    HRESULT hr = psf->GetAttributesOf(item ? 1 : 0, &item, &att);
+    if (SUCCEEDED(hr))
+    {
+        if (att & dir)
+            return ASSOCF_INIT_DEFAULTTOFOLDER;
+        if (att & SFGAO_STREAM)
+            return ASSOCF_INIT_DEFAULTTOSTAR;
+    }
+    return 0;
+}

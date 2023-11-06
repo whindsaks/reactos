@@ -1803,9 +1803,6 @@ HRESULT CFSFolder::_CreateShellExtInstance(const CLSID *pclsid, LPCITEMIDLIST pi
 
 HRESULT WINAPI CFSFolder::CallBack(IShellFolder *psf, HWND hwndOwner, IDataObject *pdtobj, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
-    if (uMsg != DFM_MERGECONTEXTMENU && uMsg != DFM_INVOKECOMMAND)
-        return S_OK;
-
     /* no data object means no selection */
     if (!pdtobj)
     {
@@ -1820,15 +1817,10 @@ HRESULT WINAPI CFSFolder::CallBack(IShellFolder *psf, HWND hwndOwner, IDataObjec
             HRESULT hr = SHCreateDataObject(pidlParent, 1, &pidlChild, NULL, IID_PPV_ARG(IDataObject, &pDataObj));
             if (!FAILED_UNEXPECTEDLY(hr))
             {
-                // Ask for a title to display
-                CComHeapPtr<WCHAR> wszName;
-                if (!FAILED_UNEXPECTEDLY(SHGetNameFromIDList(m_pidlRoot, SIGDN_PARENTRELATIVEPARSING, &wszName)))
-                {
-                    BOOL bSuccess = SH_ShowPropertiesDialog(wszName, pDataObj);
-                    if (!bSuccess)
-                        ERR("SH_ShowPropertiesDialog failed\n");
-                }
+                hr = SHELL32_ShowPropertiesDialog(NULL, pDataObj);
+                FAILED_UNEXPECTEDLY(hr);
             }
+            return  hr;
         }
         else if (uMsg == DFM_MERGECONTEXTMENU)
         {
@@ -1837,15 +1829,10 @@ HRESULT WINAPI CFSFolder::CallBack(IShellFolder *psf, HWND hwndOwner, IDataObjec
             _InsertMenuItemW(hpopup, 0, TRUE, 0, MFT_STRING, MAKEINTRESOURCEW(IDS_PROPERTIES), MFS_ENABLED);
             Shell_MergeMenus(pqcminfo->hmenu, hpopup, pqcminfo->indexMenu++, pqcminfo->idCmdFirst, pqcminfo->idCmdLast, MM_ADDSEPARATOR);
             DestroyMenu(hpopup);
+            return S_OK;
         }
-
-        return S_OK;
     }
-
-    if (uMsg != DFM_INVOKECOMMAND || wParam != DFM_CMD_PROPERTIES)
-        return S_OK;
-
-    return Shell_DefaultContextMenuCallBack(this, pdtobj);
+    return SHELL32_DefDFMCallback(pdtobj, uMsg, wParam, lParam);
 }
 
 static HBITMAP DoLoadPicture(LPCWSTR pszFileName)

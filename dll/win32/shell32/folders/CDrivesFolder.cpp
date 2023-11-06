@@ -273,6 +273,9 @@ HRESULT CALLBACK DrivesContextMenuCallback(IShellFolder *psf,
                                            WPARAM       wParam,
                                            LPARAM       lParam)
 {
+
+    if (uMsg == DFM_INVOKECOMMANDEX || uMsg == DFM_GETDEFSTATICID)
+        return E_NOTIMPL;
     if (uMsg != DFM_MERGECONTEXTMENU && uMsg != DFM_INVOKECOMMAND)
         return S_OK;
 
@@ -592,6 +595,11 @@ static const DWORD dwDriveAttributes =
     SFGAO_HASSUBFOLDER | SFGAO_FILESYSTEM | SFGAO_FOLDER | SFGAO_FILESYSANCESTOR |
     SFGAO_DROPTARGET | SFGAO_HASPROPSHEET | SFGAO_CANRENAME | SFGAO_CANLINK;
 
+static const REGFOLDERITEMATTRIBUTES g_regfolderitems[] =
+{
+    { CLSID_ControlPanel, 0, dwControlPanelAttributes },
+};
+
 CDrivesFolder::CDrivesFolder()
 {
     pidlRoot = NULL;
@@ -609,12 +617,15 @@ HRESULT WINAPI CDrivesFolder::FinalConstruct()
     if (pidlRoot == NULL)
         return E_OUTOFMEMORY;
 
-    HRESULT hr = CRegFolder_CreateInstance(&CLSID_MyComputer,
-                                           pidlRoot,
-                                           L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}",
-                                           L"MyComputer",
-                                           IID_PPV_ARG(IShellFolder2, &m_regFolder));
-
+    REGFOLDERCREATEPARAMETERS regfolderparams = 
+    {
+        CLSID_MyComputer,
+        pidlRoot,
+        L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}",
+        L"MyComputer",
+        g_regfolderitems, _countof(g_regfolderitems)
+    };
+    HRESULT hr = CRegFolder_CreateInstance(&regfolderparams, IID_PPV_ARG(IShellFolder2, &m_regFolder));
     return hr;
 }
 
@@ -899,8 +910,6 @@ HRESULT WINAPI CDrivesFolder::GetAttributesOf(UINT cidl, PCUITEMID_CHILD_ARRAY a
                 if (_ILGetDriveType(apidl[i]) == DRIVE_CDROM)
                     *rgfInOut &= ~SFGAO_CANRENAME; // CD-ROM drive cannot rename
             }
-            else if (_ILIsControlPanel(apidl[i]))
-                *rgfInOut &= dwControlPanelAttributes;
             else if (_ILIsSpecialFolder(*apidl))
                 m_regFolder->GetAttributesOf(1, &apidl[i], rgfInOut);
             else
@@ -1270,21 +1279,13 @@ HRESULT WINAPI CDrivesFolder::GetCurFolder(PIDLIST_ABSOLUTE *pidl)
 
 HRESULT WINAPI CDrivesFolder::CallBack(IShellFolder *psf, HWND hwndOwner, IDataObject *pdtobj, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
-    if (uMsg != DFM_MERGECONTEXTMENU && uMsg != DFM_INVOKECOMMAND)
-        return S_OK;
-
     /* no data object means no selection */
     if (!pdtobj)
     {
         if (uMsg == DFM_INVOKECOMMAND && wParam == 1)   // #1
         {
             // "System" properties
-            ShellExecuteW(hwndOwner,
-                          NULL,
-                          L"rundll32.exe",
-                          L"shell32.dll,Control_RunDLL sysdm.cpl",
-                          NULL,
-                          SW_SHOWNORMAL);
+            return SHELL32_ExecuteControlPanelItem(hwndOwner, L"sysdm.cpl");
         }
         else if (uMsg == DFM_MERGECONTEXTMENU)
         {
@@ -1294,13 +1295,8 @@ HRESULT WINAPI CDrivesFolder::CallBack(IShellFolder *psf, HWND hwndOwner, IDataO
             _InsertMenuItemW(hpopup, 1, TRUE, 1, MFT_STRING, MAKEINTRESOURCEW(IDS_PROPERTIES), MFS_ENABLED); // #1
             Shell_MergeMenus(pqcminfo->hmenu, hpopup, pqcminfo->indexMenu++, pqcminfo->idCmdFirst, pqcminfo->idCmdLast, MM_ADDSEPARATOR);
             DestroyMenu(hpopup);
+            return S_OK;
         }
-
-        return S_OK;
     }
-
-    if (uMsg != DFM_INVOKECOMMAND || wParam != DFM_CMD_PROPERTIES)
-        return S_OK;
-
-    return Shell_DefaultContextMenuCallBack(this, pdtobj);
+    return SHELL32_DefDFMCallback(pdtobj, uMsg, wParam, lParam);
 }

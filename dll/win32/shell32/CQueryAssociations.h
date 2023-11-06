@@ -34,3 +34,5 @@ BEGIN_COM_MAP(CQueryAssociations)
     COM_INTERFACE_ENTRY_IID(IID_IQueryAssociations, IQueryAssociations)
 END_COM_MAP()
 };
+
+ASSOCF SHELL32_AssocGetBaseClassInitFlags(IShellFolder *psf, PCUITEMID_CHILD item);

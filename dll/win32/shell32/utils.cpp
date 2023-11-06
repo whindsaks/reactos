@@ -630,3 +630,20 @@ SHStartNetConnectionDialogA(
 
     return SHStartNetConnectionDialogW(hwnd, pszRemoteNameW, dwType);
 }
+
+/*************************************************************************
+ *  SHELL32_ExecuteControlPanelItem [Internal]
+ *
+ * Unlike SHRunControlPanel, this function also supports
+ * "Legacy Control Panel Commands" in addition to .cpl files.
+ */
+EXTERN_C
+HRESULT WINAPI
+SHELL32_ExecuteControlPanelItem(_In_opt_ HWND hwnd, _In_ LPCWSTR parameters)
+{
+    WCHAR sysdir[MAX_PATH];
+    GetSystemDirectory(sysdir, _countof(sysdir));
+    HINSTANCE hInst = ShellExecuteW(hwnd, L"open", L"control.exe",
+                                    parameters, sysdir, SW_SHOW);
+    return (UINT_PTR)hInst > 32 ? S_OK : E_FAIL;
+}

@@ -41,6 +41,7 @@ class CDesktopFolder :
         LPITEMIDLIST pidlRoot;  /* absolute pidl */
 
         HRESULT _GetSFFromPidl(LPCITEMIDLIST pidl, IShellFolder2** psf);
+        PCREGFOLDERITEMATTRIBUTES GetRegFolderItem(LPCITEMIDLIST pidl);
 
     public:
         CDesktopFolder();

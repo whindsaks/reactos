@@ -434,7 +434,6 @@ _ShowPropertiesDialogThread(LPVOID lpParameter)
     pDataObject.Attach((IDataObject*)lpParameter);
 
     CDataObjectHIDA cida(pDataObject);
-
     if (FAILED_UNEXPECTEDLY(cida.hr()))
         return cida.hr();
 
@@ -446,27 +445,35 @@ _ShowPropertiesDialogThread(LPVOID lpParameter)
 
     CComHeapPtr<ITEMIDLIST> completePidl(ILCombine(HIDA_GetPIDLFolder(cida), HIDA_GetPIDLItem(cida, 0)));
     CComHeapPtr<WCHAR> wszName;
-    if (FAILED_UNEXPECTEDLY(SHGetNameFromIDList(completePidl, SIGDN_PARENTRELATIVEPARSING, &wszName)))
-        return 0;
+    HRESULT hr = SHGetNameFromIDList(completePidl, SIGDN_PARENTRELATIVEPARSING, &wszName);
+    if (FAILED_UNEXPECTEDLY(hr))
+        return hr;
 
-    BOOL bSuccess = SH_ShowPropertiesDialog(wszName, pDataObject);
-    if (!bSuccess)
+    hr = SH_ShowPropertiesDialog(wszName, pDataObject) ? S_OK : E_FAIL;
+    if (FAILED(hr))
         ERR("SH_ShowPropertiesDialog failed\n");
 
-    return 0;
+    return hr;
 }
 
 /*
  * for internal use
  */
 HRESULT WINAPI
-Shell_DefaultContextMenuCallBack(IShellFolder *psf, IDataObject *pdtobj)
+SHELL32_ShowPropertiesDialog(LPCMINVOKECOMMANDINFO pici, IDataObject *pdtobj)
 {
+    if (!pdtobj)
+        return E_INVALIDARG;
+
     pdtobj->AddRef();
-    if (!SHCreateThread(_ShowPropertiesDialogThread, pdtobj, CTF_INSIST | CTF_COINIT, NULL))
+    if (pici && (pici->fMask & (CMIC_MASK_NOASYNC | SEE_MASK_ASYNCOK)) == CMIC_MASK_NOASYNC)
+        return _ShowPropertiesDialogThread((LPVOID)pdtobj);
+
+    if (!SHCreateThread(_ShowPropertiesDialogThread, pdtobj, CTF_INSIST | CTF_COINIT | CTF_PROCESS_REF, NULL))
     {
         pdtobj->Release();
-        return HRESULT_FROM_WIN32(GetLastError());
+        DWORD error = GetLastError();
+        return HRESULT_FROM_WIN32(error);
     }
     else
     {

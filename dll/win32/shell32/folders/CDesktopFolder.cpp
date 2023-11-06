@@ -189,9 +189,29 @@ static const DWORD dwDesktopAttributes =
 static const DWORD dwMyComputerAttributes =
     SFGAO_CANRENAME | SFGAO_CANDELETE | SFGAO_HASPROPSHEET | SFGAO_DROPTARGET |
     SFGAO_FILESYSANCESTOR | SFGAO_FOLDER | SFGAO_HASSUBFOLDER | SFGAO_CANLINK;
-static DWORD dwMyNetPlacesAttributes =
+static const DWORD dwMyNetPlacesAttributes =
     SFGAO_CANRENAME | SFGAO_CANDELETE | SFGAO_HASPROPSHEET | SFGAO_DROPTARGET |
     SFGAO_FILESYSANCESTOR | SFGAO_FOLDER | SFGAO_HASSUBFOLDER | SFGAO_CANLINK;
+
+#if DBG
+#define INTERNETICON MAKEINTRESOURCEA(IDI_SHELL_ENTIRE_NETWORK) // Use the wrong icon on purpose so the HCR_GetIconW fallback can be verified by nuking the registry
+#else
+#define INTERNETICON MAKEINTRESOURCEA(IDI_SHELL_WEB_BROWSER)
+#endif
+
+static const REGFOLDERITEMATTRIBUTES g_regfolderitems[] =
+{
+    { CLSID_MyComputer, MAKEINTRESOURCEA(IDI_SHELL_MY_COMPUTER), dwMyComputerAttributes, L"sysdm.cpl" },
+    { CLSID_NetworkPlaces, MAKEINTRESOURCEA(IDI_SHELL_MY_NETWORK_PLACES), dwMyNetPlacesAttributes, L"netconnections" },
+    { CLSID_Internet, INTERNETICON, SFGAO_BROWSABLE | SFGAO_HASPROPSHEET | SFGAO_CANRENAME | SFGAO_CANDELETE | SFGAO_CANLINK, L"inetcpl.cpl" },
+};
+
+static const IID* IsRootRegFolderItem(LPCITEMIDLIST pidl)
+{
+    const IID *p = _ILGetGUIDPointer(pidl);
+    const BYTE *b = (BYTE*)pidl;
+    return p && b[3] == PT_GUID ? p : NULL;
+}
 
 CDesktopFolder::CDesktopFolder() :
     sPathTarget(NULL),
@@ -209,9 +229,13 @@ HRESULT WINAPI CDesktopFolder::FinalConstruct()
     HRESULT hr;
 
     /* Create the root pidl */
-    pidlRoot = _ILCreateDesktop();
-    if (!pidlRoot)
-        return E_OUTOFMEMORY;
+    static WORD rootpidlitem = 0;
+    pidlRoot = (LPITEMIDLIST)&rootpidlitem;
+#if DBG
+    LPITEMIDLIST verifydesktop = _ILCreateDesktop();
+    ASSERT(verifydesktop && _ILIsEqualSimple(verifydesktop, pidlRoot));
+    SHFree(verifydesktop);
+#endif
 
     /* Create the inner fs folder */
     hr = SHELL32_CoCreateInitSF(pidlRoot,
@@ -230,11 +254,15 @@ HRESULT WINAPI CDesktopFolder::FinalConstruct()
         return hr;
 
     /* Create the inner reg folder */
-    hr = CRegFolder_CreateInstance(&CLSID_ShellDesktop,
-                                   pidlRoot,
-                                   L"",
-                                   L"Desktop",
-                                   IID_PPV_ARG(IShellFolder2, &m_regFolder));
+    REGFOLDERCREATEPARAMETERS regfolderparams = 
+    {
+        CLSID_ShellDesktop,
+        pidlRoot,
+        L"",
+        L"Desktop",
+        g_regfolderitems, _countof(g_regfolderitems)
+    };
+    hr = CRegFolder_CreateInstance(&regfolderparams, IID_PPV_ARG(IShellFolder2, &m_regFolder));
     if (FAILED_UNEXPECTEDLY(hr))
         return hr;
 
@@ -268,6 +296,17 @@ HRESULT CDesktopFolder::_GetSFFromPidl(LPCITEMIDLIST pidl, IShellFolder2** psf)
         return m_SharedDesktopFSFolder->QueryInterface(IID_PPV_ARG(IShellFolder2, psf));
     else
         return m_DesktopFSFolder->QueryInterface(IID_PPV_ARG(IShellFolder2, psf));
+}
+
+PCREGFOLDERITEMATTRIBUTES CDesktopFolder::GetRegFolderItem(LPCITEMIDLIST pidl)
+{
+    for (SIZE_T i = 0; i < _countof(g_regfolderitems); ++i)
+    {
+        const CLSID *p = _ILGetGUIDPointer(pidl);
+        if (p && IsEqualCLSID(*p, g_regfolderitems[i].clsid))
+            return &g_regfolderitems[i];
+    }
+    return NULL;
 }
 
 /**************************************************************************
@@ -543,10 +582,8 @@ HRESULT WINAPI CDesktopFolder::GetAttributesOf(
             pdump(*apidl);
             if (_ILIsDesktop(*apidl))
                 *rgfInOut &= dwDesktopAttributes;
-            else if (_ILIsMyComputer(apidl[i]))
-                *rgfInOut &= dwMyComputerAttributes;
-            else if (_ILIsNetHood(apidl[i]))
-                *rgfInOut &= dwMyNetPlacesAttributes;
+            else if (IsRootRegFolderItem(apidl[i]))
+                m_regFolder->GetAttributesOf(1, &apidl[i], rgfInOut);
             else if (_ILIsFolder(apidl[i]) || _ILIsValue(apidl[i]) || _ILIsSpecialFolder(apidl[i]))
             {
                 CComPtr<IShellFolder2> psf;
@@ -843,20 +880,12 @@ HRESULT WINAPI CDesktopFolder::GetCurFolder(PIDLIST_ABSOLUTE * pidl)
 
 HRESULT WINAPI CDesktopFolder::CallBack(IShellFolder *psf, HWND hwndOwner, IDataObject *pdtobj, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
-    if (uMsg != DFM_MERGECONTEXTMENU && uMsg != DFM_INVOKECOMMAND)
-        return S_OK;
-
     /* no data object means no selection */
     if (!pdtobj)
     {
         if (uMsg == DFM_INVOKECOMMAND && wParam == 0)
         {
-            if (32 >= (UINT_PTR)ShellExecuteW(hwndOwner, L"open", L"rundll32.exe",
-                                              L"shell32.dll,Control_RunDLL desk.cpl", NULL, SW_SHOWNORMAL))
-            {
-                return E_FAIL;
-            }
-            return S_OK;
+            return SHELL32_ExecuteControlPanelItem(hwndOwner, L"desk.cpl");
         }
         else if (uMsg == DFM_MERGECONTEXTMENU)
         {
@@ -865,15 +894,10 @@ HRESULT WINAPI CDesktopFolder::CallBack(IShellFolder *psf, HWND hwndOwner, IData
             _InsertMenuItemW(hpopup, 0, TRUE, 0, MFT_STRING, MAKEINTRESOURCEW(IDS_PROPERTIES), MFS_ENABLED);
             Shell_MergeMenus(pqcminfo->hmenu, hpopup, pqcminfo->indexMenu, pqcminfo->idCmdFirst++, pqcminfo->idCmdLast, MM_ADDSEPARATOR);
             DestroyMenu(hpopup);
+            return S_OK;
         }
-
-        return S_OK;
     }
-
-    if (uMsg != DFM_INVOKECOMMAND || wParam != DFM_CMD_PROPERTIES)
-        return S_OK;
-
-    return Shell_DefaultContextMenuCallBack(this, pdtobj);
+    return SHELL32_DefDFMCallback(pdtobj, uMsg, wParam, lParam);
 }
 
 /*************************************************************************
