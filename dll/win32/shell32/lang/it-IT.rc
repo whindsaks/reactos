@@ -951,7 +951,7 @@ BEGIN
     IDS_SCR_FILE "Screen Saver"
     IDS_SYS_FILE "File di sistema"
     IDS_VXD_FILE "Driver di Periferica Virtuale"
-    IDS_ANY_FILE "%s-file"
+    IDS_ANY_FILE "%s File"
 
     IDS_OPEN_VERB "Apri"
     IDS_EXPLORE_VERB "Esplora"

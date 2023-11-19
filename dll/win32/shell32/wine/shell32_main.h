@@ -50,6 +50,11 @@ BOOL HCR_GetExecuteCommandW( HKEY hkeyClass, LPCWSTR szClass, LPCWSTR szVerb, LP
 BOOL HCR_GetIconW(LPCWSTR szClass, LPWSTR szDest, LPCWSTR szName, DWORD len, int* picon_idx);
 BOOL HCR_GetClassNameW(REFIID riid, LPWSTR szDest, DWORD len) DECLSPEC_HIDDEN;
 
+#ifdef __REACTOS__
+HRESULT WINAPI SHELL32_AssocQString(UINT Flags, UINT Str, LPCWSTR Assoc, LPCWSTR Extra, LPWSTR Out, DWORD cch);
+HRESULT WINAPI SHELL32_GetFileTypeString(LPCWSTR Ext, LPWSTR Out, UINT cchOut);
+#endif
+
 /* ANSI versions of above functions, supposed to go away as soon as they are not used anymore */
 BOOL HCR_MapTypeToValueA(LPCSTR szExtension, LPSTR szFileType, LONG len, BOOL bPrependDot) DECLSPEC_HIDDEN;
 BOOL HCR_GetIconA(LPCSTR szClass, LPSTR szDest, LPCSTR sName, DWORD len, int* picon_idx);

@@ -2518,6 +2518,70 @@ BOOL _ILGetExtension (LPCITEMIDLIST pidl, LPSTR pOut, UINT uOutSize)
     return TRUE;
 }
 
+#ifdef __REACTOS__
+static HRESULT _ILGetExtensionOfChildW (PCUITEMID_CHILD pidl, LPWSTR pOut, UINT cch)
+{
+    HRESULT hr = HRESULT_FROM_WIN32(ERROR_BAD_PATHNAME);
+    LPPIDLDATA p = _ILGetDataPointer(pidl);
+    if (p && p->type == PT_VALUE)
+    {
+        WCHAR buf[MAX_PATH];
+        hr = S_FALSE;
+        if (_ILSimpleGetTextW(pidl, buf, _countof(buf)))
+        {
+            LPCWSTR dot = PathFindExtensionW(buf);
+            if (*dot)
+            {
+                lstrcpynW(pOut, dot, cch); /* Note: Includes the dot */
+                return S_OK;
+            }
+        }
+    }
+    if (cch)
+        *pOut = L'\0';
+    return hr;
+}
+
+static HRESULT _ILGetExtension2W (LPCITEMIDLIST pidl, LPWSTR pOut, UINT cch)
+{
+    return _ILGetExtensionOfChildW(ILFindLastID(pidl), pOut, cch);
+}
+
+HRESULT _ILGetFileTypeW (LPCITEMIDLIST pidl, LPWSTR pOut, UINT cch)
+{
+    WCHAR buf[MAX_PATH];
+    HRESULT hr = _ILGetExtension2W(pidl, buf, _countof(buf));
+    if (SUCCEEDED(hr))
+    {
+        hr = SHELL32_GetFileTypeString(buf, pOut, cch);
+    }
+    else
+    {
+        pOut[0] = L'\0';
+        hr = LoadStringW(shell32_hInstance, IDS_DIRECTORY, pOut, cch);
+    }
+    return hr;
+}
+
+HRESULT _ILGetFileTypeAsStrRet (LPCITEMIDLIST pidl, STRRET *pSR)
+{
+    HRESULT hr = E_OUTOFMEMORY;
+    UINT cch = 255 + 42; /* Enough for any extension + suffix */
+    pSR->uType = STRRET_WSTR;
+    pSR->u.pOleStr = CoTaskMemAlloc(cch * sizeof(WCHAR));
+    if (pSR->u.pOleStr)
+    {
+        if (SUCCEEDED(_ILGetFileTypeW(pidl, pSR->u.pOleStr, cch)))
+            return S_OK;
+        CoTaskMemFree(pSR->u.pOleStr);
+        hr = S_FALSE;
+    }
+    pSR->uType = STRRET_CSTR;
+    pSR->u.cStr[0] = '\0';
+    return hr;
+}
+#endif
+
 /*************************************************************************
  * _ILGetFileType
  *
@@ -2536,36 +2600,31 @@ BOOL _ILGetExtension (LPCITEMIDLIST pidl, LPSTR pOut, UINT uOutSize)
  */
 void _ILGetFileType(LPCITEMIDLIST pidl, LPSTR pOut, UINT uOutSize)
 {
-#ifdef __REACTOS__ /* r32966 */
-    char sType[64];
-#endif
+#ifdef __REACTOS__
+    if (!uOutSize)
+        return ;
 
+    FIXME("Use _ILGetFileTypeW or _ILGetFileTypeAsStrRet for Unicode support\n");
+    if (_ILIsValue(pidl))
+    {
+        WCHAR buf[255 + 42];
+        HRESULT hr = _ILGetFileTypeW(pidl, buf, _countof(buf));
+        if (FAILED(hr) || !WideCharToMultiByte(CP_ACP, 0, buf, -1, pOut, uOutSize, NULL, NULL))
+            pOut[0] = '\0';
+    }
+    else
+    {
+        pOut[0] = '\0';
+        LoadStringA(shell32_hInstance, IDS_DIRECTORY, pOut, uOutSize);
+    }
+#else
     if(_ILIsValue(pidl))
     {
         char sTemp[64];
 
         if(uOutSize > 0)
             pOut[0] = 0;
-#ifdef __REACTOS__ /* r32966 */
-        if (_ILGetExtension (pidl, sType, 64))
-        {
-            if (HCR_MapTypeToValueA(sType, sTemp, 64, TRUE))
-            {
-                /* retrieve description */
-                if(HCR_MapTypeToValueA(sTemp, pOut, uOutSize, FALSE ))
-                    return;
-            }
-            /* display Ext-file as description */
-            _strupr(sType);
-            /* load localized file string */
-            sTemp[0] = '\0';
-            if(LoadStringA(shell32_hInstance, IDS_ANY_FILE, sTemp, 64))
-            {
-                sTemp[63] = '\0';
-                StringCchPrintfA(pOut, uOutSize, sTemp, sType);
-            }
-        }
-#else
+
         if (_ILGetExtension (pidl, sTemp, 64))
         {
             if (!( HCR_MapTypeToValueA(sTemp, sTemp, 64, TRUE)
@@ -2575,17 +2634,8 @@ void _ILGetFileType(LPCITEMIDLIST pidl, LPSTR pOut, UINT uOutSize)
                 strcat (pOut, "-file");
             }
         }
-#endif
     }
     else
-#ifdef __REACTOS__ /* r32966 */
-    {
-        pOut[0] = '\0';
-        LoadStringA(shell32_hInstance, IDS_DIRECTORY, pOut, uOutSize);
-        /* make sure its null terminated */
-        pOut[uOutSize-1] = '\0';
-    }
-#else
         lstrcpynA(pOut, "Folder", uOutSize);
 #endif
 }

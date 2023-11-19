@@ -38,8 +38,19 @@
 WINE_DEFAULT_DEBUG_CHANNEL(shell);
 
 /* Default IQueryAssociations::Init() flags */
+#ifdef __REACTOS__
+#define SHLWAPI_ASSOCF_INIT (ASSOCF_INIT_DEFAULTTOSTAR | ASSOCF_INIT_DEFAULTTOFOLDER | \
+                             ASSOCF_INIT_BYEXENAME | ASSOCF_INIT_NOREMAPCLSID | \
+                             ASSOCF_INIT_IGNOREUNKNOWN | ASSOCF_INIT_FOR_FILE | \
+                             ASSOCF_INIT_FIXED_PROGID | ASSOCF_IS_PROTOCOL | \
+                             ASSOCF_IGNOREBASECLASS)
+#define SHLWAPI_ASSOCF_QUERY (~(SHLWAPI_ASSOCF_INIT) | ASSOCF_IS_PROTOCOL | \
+                              ASSOCF_IGNOREBASECLASS)
+#define SHLWAPI_DEF_ASSOCF (SHLWAPI_ASSOCF_INIT)
+#else
 #define SHLWAPI_DEF_ASSOCF (ASSOCF_INIT_BYEXENAME|ASSOCF_INIT_DEFAULTTOSTAR| \
                             ASSOCF_INIT_DEFAULTTOFOLDER)
+#endif
 
 /*************************************************************************
  * SHLWAPI_ParamAToW
@@ -372,8 +383,12 @@ HRESULT WINAPI AssocQueryKeyW(ASSOCF cfFlags, ASSOCKEY assockey, LPCWSTR pszAsso
   hRet = AssocCreate( CLSID_QueryAssociations, &IID_IQueryAssociations, (void **)&lpAssoc );
   if (FAILED(hRet)) return hRet;
 
+#ifdef __REACTOS__
+  hRet = IQueryAssociations_Init(lpAssoc, cfFlags & SHLWAPI_ASSOCF_INIT, pszAssoc, NULL, NULL);
+#else
   cfFlags &= SHLWAPI_DEF_ASSOCF;
   hRet = IQueryAssociations_Init(lpAssoc, cfFlags, pszAssoc, NULL, NULL);
+#endif
 
   if (SUCCEEDED(hRet))
     hRet = IQueryAssociations_GetKey(lpAssoc, cfFlags, assockey, pszExtra, phkeyOut);
@@ -537,8 +552,12 @@ HRESULT WINAPI AssocQueryStringByKeyW(ASSOCF cfFlags, ASSOCSTR str, HKEY hkAssoc
   hRet = AssocCreate( CLSID_QueryAssociations, &IID_IQueryAssociations, (void **)&lpAssoc );
   if (FAILED(hRet)) return hRet;
 
+#ifdef __REACTOS__
+  hRet = IQueryAssociations_Init(lpAssoc, cfFlags & SHLWAPI_ASSOCF_INIT, 0, hkAssoc, NULL);
+#else
   cfFlags &= SHLWAPI_DEF_ASSOCF;
   hRet = IQueryAssociations_Init(lpAssoc, cfFlags, 0, hkAssoc, NULL);
+#endif
 
   if (SUCCEEDED(hRet))
     hRet = IQueryAssociations_GetString(lpAssoc, cfFlags, str, pszExtra,

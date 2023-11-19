@@ -958,7 +958,7 @@ BEGIN
     IDS_SCR_FILE "Ekraanisäästja"
     IDS_SYS_FILE "Süsteemi fail"
     IDS_VXD_FILE "Virtuaalseadme draiver"
-    IDS_ANY_FILE "%s-fail"
+    IDS_ANY_FILE "%s fail"
 
     IDS_OPEN_VERB "Ava"
     IDS_EXPLORE_VERB "Uuri"

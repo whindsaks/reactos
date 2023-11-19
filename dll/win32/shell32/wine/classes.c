@@ -64,14 +64,6 @@ BOOL HCR_MapTypeToValueW(LPCWSTR szExtension, LPWSTR szFileType, LONG len, BOOL 
 	  return FALSE;
 	}
 
-#ifdef __REACTOS__
-        if (!RegLoadMUIStringW(hkey, L"FriendlyTypeName", szFileType, len, NULL, 0, NULL))
-        {
-            RegCloseKey(hkey);
-            return TRUE;
-        }
-#endif
-
 	if (RegQueryValueW(hkey, NULL, szFileType, &len))
 	{ 
 	  RegCloseKey(hkey);
@@ -105,14 +97,6 @@ BOOL HCR_MapTypeToValueA(LPCSTR szExtension, LPSTR szFileType, LONG len, BOOL bP
 	{ 
 	  return FALSE;
 	}
-
-#ifdef __REACTOS__
-        if (!RegLoadMUIStringA(hkey, "FriendlyTypeName", szFileType, len, NULL, 0, NULL))
-        {
-            RegCloseKey(hkey);
-            return TRUE;
-        }
-#endif
 
 	if (RegQueryValueA(hkey, NULL, szFileType, &len))
 	{ 

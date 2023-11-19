@@ -953,7 +953,7 @@ BEGIN
     IDS_SCR_FILE "स्क्रीन सेवर"
     IDS_SYS_FILE "सिस्टम फ़ाइल"
     IDS_VXD_FILE "वर्चुअल डिवाइस ड्राइवर"
-    IDS_ANY_FILE "%s-फ़ाइल"
+    IDS_ANY_FILE "%s फ़ाइल"
 
     IDS_OPEN_VERB "ओपन"
     IDS_EXPLORE_VERB "इक्स्प्लॉर"

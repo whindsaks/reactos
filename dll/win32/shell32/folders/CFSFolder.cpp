@@ -1533,7 +1533,7 @@ HRESULT WINAPI CFSFolder::GetDetailsOf(PCUITEMID_CHILD pidl,
                 hr = GetDisplayNameOf (pidl, SHGDN_NORMAL | SHGDN_INFOLDER, &psd->str);
                 break;
             case 1:                /* type */
-                _ILGetFileType(pidl, psd->str.cStr, MAX_PATH);
+                hr = _ILGetFileTypeAsStrRet(pidl, &psd->str);
                 break;
             case 2:                /* size */
                 _ILGetFileSize(pidl, psd->str.cStr, MAX_PATH);

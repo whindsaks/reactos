@@ -560,13 +560,22 @@ DWORD_PTR WINAPI SHGetFileInfoW(LPCWSTR path,DWORD dwFileAttributes,
     {
         if (!(flags & SHGFI_USEFILEATTRIBUTES) || (flags & SHGFI_PIDL))
         {
+#ifdef __REACTOS__
+            _ILGetFileTypeW(pidlLast, psfi->szTypeName, 80);
+#else
             char ftype[80];
 
             _ILGetFileType(pidlLast, ftype, 80);
             MultiByteToWideChar(CP_ACP, 0, ftype, -1, psfi->szTypeName, 80 );
+#endif
         }
         else
         {
+#ifdef __REACTOS__
+            LPCWSTR assoc = (dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+                            ? NULL : PathFindExtensionW(szFullPath);
+            SHELL32_GetFileTypeString(assoc, psfi->szTypeName, 80);
+#else
             if (dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
                 strcatW (psfi->szTypeName, L"Folder");
             else 
@@ -593,6 +602,7 @@ DWORD_PTR WINAPI SHGetFileInfoW(LPCWSTR path,DWORD dwFileAttributes,
                     }
                 }
             }
+#endif
         }
     }
 
