@@ -790,6 +790,8 @@ Activate_RunDLL(
 #define TRAYCMD_SEARCH_FILES        41093
 #define TRAYCMD_SEARCH_COMPUTERS    41094
 
+#define TWM_QUERYUSERNOTIFYSTATE 1263 // (WM_USER+0xef)
+
 // Explorer Tray Application Bar Data Message Commands
 #define TABDMC_APPBAR     0
 #define TABDMC_NOTIFY     1

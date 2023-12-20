@@ -365,6 +365,7 @@
 366 stdcall Shell_NotifyIcon(long ptr) Shell_NotifyIconA
 367 stdcall Shell_NotifyIconA(long ptr)
 368 stdcall Shell_NotifyIconW(long ptr)
+@   stdcall -version=0x0600+ SHQueryUserNotificationState(ptr)
 369 stdcall StrChrA(str long) shlwapi.StrChrA
 370 stdcall StrChrIA(str long) shlwapi.StrChrIA
 371 stdcall StrChrIW(wstr long) shlwapi.StrChrIW

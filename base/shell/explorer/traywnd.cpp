@@ -58,6 +58,8 @@ void appbar_notify_all(HMONITOR hMon, UINT uMsg, HWND hwndExclude, LPARAM lParam
 
 static const WCHAR szTrayWndClass[] = L"Shell_TrayWnd";
 
+BYTE g_NotificationState = 0;
+
 enum { NONE, TILED, CASCADED } g_Arrangement = NONE;
 
 struct WINDOWPOSBACKUPDATA
@@ -2531,6 +2533,17 @@ ChangePos:
         return m_ContextMenu->GetCommandString(idCmd, uType, pwReserved, pszName, cchMax);
     }
 
+    void RegisterSessionNotification(BOOL Register)
+    {
+        HMODULE hWTSAPI32 = LoadLibraryW(L"WTSAPI32"); // Keep this loaded
+        LPCSTR fn = Register ? "WTSRegisterSessionNotification" : "WTSUnRegisterSessionNotification";
+        FARPROC fp = GetProcAddress(hWTSAPI32, fn);
+        if (fp && Register)
+            ((BOOL (WINAPI*)(HWND,DWORD))fp)(m_hWnd, 0);
+        else if (fp)
+            ((BOOL (WINAPI*)(HWND))fp)(m_hWnd);
+    }
+
     /**********************************************************
      *    ##### message handling #####
      */
@@ -2591,6 +2604,8 @@ ChangePos:
 
         UpdateFonts();
 
+        RegisterSessionNotification(TRUE);
+
         InitShellServices(&m_ShellServices);
 
         if (g_TaskbarSettings.sr.AutoHide)
@@ -2623,6 +2638,7 @@ ChangePos:
 
     LRESULT OnDestroy(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
     {
+        RegisterSessionNotification(FALSE);
         KillTimer(TIMER_ID_IGNOREPULSERESET);
         return 0;
     }
@@ -3224,6 +3240,29 @@ HandleTrayContextMenu:
         return 0;
     }
 
+    LRESULT OnSessionChange(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+    {
+        if (wParam == WTS_SESSION_LOCK)
+            g_NotificationState |= QUNSF_LOCKED;
+        else if (wParam == WTS_SESSION_UNLOCK)
+            g_NotificationState &= ~QUNSF_LOCKED;
+        return 0;
+    }
+
+    LRESULT OnQueryUserNotificationState(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+    {
+        BOOL bState;
+        if (SystemParametersInfoW(SPI_GETSCREENSAVERRUNNING, 0, &bState, 0) && bState)
+            return QUNS_NOT_PRESENT;
+        if (g_NotificationState & QUNSF_LOCKED)
+            return QUNS_NOT_PRESENT;
+        // TODO: QUNS_PRESENTATION_MODE, QUNS_RUNNING_D3D_FULL_SCREEN
+        if (g_NotificationState & QUNSF_RUDEWND)
+            return QUNS_BUSY;
+        // TODO: QUNS_QUIET_TIME
+        return QUNS_ACCEPTS_NOTIFICATIONS;
+    }
+
     LRESULT OnHotkey(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
     {
         return HandleHotKey(wParam);
@@ -3590,11 +3629,13 @@ HandleTrayContextMenu:
         MESSAGE_HANDLER(WM_HOTKEY, OnHotkey)
         MESSAGE_HANDLER(WM_NCCALCSIZE, OnNcCalcSize)
         MESSAGE_HANDLER(WM_INITMENUPOPUP, OnInitMenuPopup)
+        MESSAGE_HANDLER(WM_WTSSESSION_CHANGE, OnSessionChange)
         MESSAGE_HANDLER(TWM_SETTINGSCHANGED, OnTaskbarSettingsChanged)
         MESSAGE_HANDLER(TWM_OPENSTARTMENU, OnOpenStartMenu)
         MESSAGE_HANDLER(TWM_DOEXITWINDOWS, OnDoExitWindows)
         MESSAGE_HANDLER(TWM_GETTASKSWITCH, OnGetTaskSwitch)
         MESSAGE_HANDLER(TWM_PULSE, OnPulse)
+        MESSAGE_HANDLER(TWM_QUERYUSERNOTIFYSTATE, OnQueryUserNotificationState)
     ALT_MSG_MAP(1)
     END_MSG_MAP()
 

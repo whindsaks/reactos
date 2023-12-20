@@ -134,6 +134,8 @@ HRESULT WINAPI _CBandSite_CreateInstance(LPUNKNOWN pUnkOuter, REFIID riid, void 
 #define TWM_PULSE (WM_USER + 400)
 
 extern const GUID IID_IShellDesktopTray;
+enum { QUNSF_LOCKED = 0x1, QUNSF_RUDEWND = 0x2 };
+extern BYTE g_NotificationState;
 
 #define INTERFACE ITrayWindow
 DECLARE_INTERFACE_(ITrayWindow, IUnknown)

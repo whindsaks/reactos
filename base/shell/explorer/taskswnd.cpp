@@ -1530,6 +1530,9 @@ public:
 
         case HSHELL_RUDEAPPACTIVATED:
         case HSHELL_WINDOWACTIVATED:
+            g_NotificationState &= ~QUNSF_RUDEWND;
+            if (wParam == HSHELL_RUDEAPPACTIVATED)
+                g_NotificationState |= QUNSF_RUDEWND;
             SendPulseToTray(FALSE, (HWND)lParam);
             ActivateTask((HWND)lParam);
             break;

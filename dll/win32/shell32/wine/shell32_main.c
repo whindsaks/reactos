@@ -1376,3 +1376,28 @@ HRESULT WINAPI SHLoadNonloadedIconOverlayIdentifiers( VOID )
     FIXME("stub\n");
     return S_OK;
 }
+
+/***********************************************************************
+ *              SHQueryUserNotificationState (SHELL32.@)
+ */
+HRESULT WINAPI SHQueryUserNotificationState(QUERY_USER_NOTIFICATION_STATE *state)
+{
+#ifdef __REACTOS__
+    DWORD_PTR res = QUNS_BUSY;
+    HWND hTrayWnd = FindWindowW(L"Shell_TrayWnd", NULL);
+    if (!state)
+    {
+        return E_INVALIDARG;
+    }
+    if (hTrayWnd && SendMessageTimeoutW(hTrayWnd, TWM_QUERYUSERNOTIFYSTATE, 0, 0,
+                                        SMTO_BLOCK, 1000 * 5, &res))
+    {
+        *state = (QUERY_USER_NOTIFICATION_STATE) res;
+    }
+    return S_OK;
+#else
+    FIXME("%p: stub\n", state);
+    *state = QUNS_ACCEPTS_NOTIFICATIONS;
+    return S_OK;
+#endif
+}
