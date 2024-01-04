@@ -24,6 +24,170 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL (shell);
 
+static bool IsInvalidFsNameCharacter(WCHAR c)
+{
+    return c < ' ' || c == ':' || c == '<' || c == '>' || c == '|' ||
+           c == '?' || c == '*' || c == '\\' || c == '/' || c == 127;
+}
+
+static void RemoveInvalidFsNameCharacters(PWSTR str)
+{
+    for (PWSTR src = str, dst = src;; ++src, ++dst)
+    {
+        while (IsInvalidFsNameCharacter(*src) && *src)
+            ++src;
+        *dst = *src;
+        if (!*dst)
+            break;
+    }
+}
+
+static HRESULT SHELL_GetNameRetAndAttributes(PCIDLIST_ABSOLUTE pidl, UINT shgdn, STRRET *pSR, DWORD *pAtt)
+{
+    IShellFolder *pSF;
+    PCUITEMID_CHILD child;
+    HRESULT hr = SHBindToParent(pidl, IID_PPV_ARG(IShellFolder, &pSF), &child);
+    if (FAILED(hr))
+        return hr;
+    if (pAtt && FAILED(hr = pSF->GetAttributesOf(1, &child, pAtt)))
+        *pAtt = 0;
+    if (SUCCEEDED(hr) && pSR)
+    {
+        hr = pSF->GetDisplayNameOf(child, shgdn, pSR);
+        if (SUCCEEDED(hr) && pSR->uType == STRRET_OFFSET)
+        {
+            hr = StrRetToStrW(pSR, child, &pSR->pOleStr);
+            if (SUCCEEDED(hr))
+                pSR->uType = STRRET_WSTR;
+        }
+    }
+    pSF->Release();
+    return hr;
+}
+
+static HRESULT SHELL32_GetNewLinkPath(LPCWSTR Directory, LPCWSTR BaseName, PWSTR *Output, UINT shgnli)
+{
+    PCWSTR prefix = L"";
+    WCHAR ext[1 + 3 + 1], number[42 + 1], sep[1 + 1], prefixbuf[100];
+    if ((shgnli & SHGNLI_PREFIXNAME) && LoadStringW(shell32_hInstance, IDS_LNK_FILE, prefixbuf, _countof(prefixbuf)))
+        prefix = prefixbuf;
+    SIZE_T cchDir = lstrlenW(Directory);
+    CComHeapPtr<WCHAR> full;
+    if (!full.Reallocate(cchDir + 1 + lstrlenW(prefix) + lstrlenW(BaseName) + _countof(number) + 1 + 3))
+        return E_OUTOFMEMORY;
+    *ext = *number = *sep = UNICODE_NULL;
+    if (!(shgnli & SHGNLI_NOLNK))
+        lstrcpyW(ext, L".lnk");
+#ifdef SHGNLI_USEURLEXT
+    if (shgnli & SHGNLI_USEURLEXT)
+        lstrcpyW(ext, L".url");
+#endif
+    if (cchDir && Directory[cchDir - 1] != '\\' && Directory[cchDir - 1] != '/')
+        lstrcpyW(sep, L"\\");
+    for (UINT i = 0;;)
+    {
+        if (i)
+            wsprintfW(number, L" (%u)", i);
+        if (!++i)
+            return E_FAIL;
+        wsprintfW(full, L"%s%s%s%s%s%s", Directory, sep, prefix, BaseName, number, ext);
+        RemoveInvalidFsNameCharacters(full + cchDir + !!*sep);
+        if ((shgnli & SHGNLI_NOUNIQUE) || !PathFileExistsW(full))
+            break;
+    }
+    *Output = full.Detach();
+    return S_OK;
+}
+
+static HRESULT SHELL32_CreateLink(HWND hWnd, LPCWSTR Directory, PCIDLIST_ABSOLUTE Target)
+{
+    WCHAR Name[MAX_PATH];
+    DWORD Att = SFGAO_LINK | SFGAO_FILESYSTEM;
+    STRRET sr;
+    HRESULT hr = SHELL_GetNameRetAndAttributes(Target, SHGDN_NORMAL, &sr, &Att);
+    if (SUCCEEDED(hr))
+        hr = StrRetToBufW(&sr, NULL, Name, _countof(Name));
+    if (FAILED(hr))
+        return hr;
+
+    PWSTR Link;
+    hr = SHELL32_GetNewLinkPath(Directory, Name, &Link, 0);
+    if (FAILED(hr))
+        return hr;
+
+    IShellLinkW *pSL;
+    if (Att & SFGAO_LINK)
+    {
+        IShellFolder *pSF;
+        PCUITEMID_CHILD child;
+        hr = SHBindToParent(Target, IID_PPV_ARG(IShellFolder, &pSF), &child);
+        if (SUCCEEDED(hr))
+        {
+            hr = pSF->GetUIObjectOf(hWnd, 1, &child, IID_IShellLinkW, NULL, (void**)&pSL);
+            if (FAILED(hr))
+                hr = pSF->GetUIObjectOf(hWnd, 1, &child, IID_IShellLinkA, NULL, (void**)&pSL);
+            pSF->Release();
+        }
+    }
+    else
+    {
+        hr = CShellLink::_CreatorClass::CreateInstance(NULL, IID_PPV_ARG(IShellLinkW, &pSL));
+        if (SUCCEEDED(hr))
+            hr = pSL->SetIDList(Target);
+    }
+    if (SUCCEEDED(hr))
+    {
+        IPersistFile *pPF;
+        hr = pSL->QueryInterface(IID_PPV_ARG(IPersistFile, &pPF));
+        if (SUCCEEDED(hr))
+        {
+            hr = pPF->Save(Link, FALSE);
+            if (SUCCEEDED(hr))
+                SHChangeNotify(SHCNE_CREATE, SHCNF_PATHW, Link, NULL);
+            pPF->Release();
+        }
+        pSL->Release();
+    }
+    SHFree(Link);
+    return hr;
+}
+
+struct COleWindow : CComObjectRootEx<CComMultiThreadModelNoCS>, IOleWindow
+{
+    COleWindow() {}
+    HRESULT Initialize(HWND hWnd) { m_hWnd = hWnd; return S_OK; }
+    virtual HRESULT STDMETHODCALLTYPE GetWindow(HWND *pOut) { *pOut = m_hWnd; return S_OK; }
+    virtual HRESULT STDMETHODCALLTYPE ContextSensitiveHelp(BOOL fEnterMode) { return E_NOTIMPL; }
+    DECLARE_NOT_AGGREGATABLE(COleWindow)
+    DECLARE_PROTECT_FINAL_CONSTRUCT()
+    BEGIN_COM_MAP(COleWindow)
+    COM_INTERFACE_ENTRY_IID(IID_IOleWindow, IOleWindow)
+    END_COM_MAP()
+    static IOleWindow* CreateInstance(HWND hWnd)
+    {
+        IOleWindow *pOW = NULL;
+        ShellObjectCreatorInit<COleWindow>(hWnd, IID_PPV_ARG(IOleWindow, &pOW));
+        return pOW;
+    }
+    HWND m_hWnd;
+}; 
+
+EXTERN_C HRESULT SHELL32_SFCreateLinks(HWND hWnd, IUnknown *pSite, IShellFolder *pDestination, IDataObject *pTargets)
+{
+    CComPtr<IOleWindow> pOW;
+    CComPtr<IDropTarget> pDT;
+    HRESULT hr = pDestination->CreateViewObject(NULL, IID_PPV_ARG(IDropTarget, &pDT));
+    if (FAILED_UNEXPECTEDLY(hr))
+        return hr;
+    if (IsWindowVisible(hWnd))
+        pSite = pOW = COleWindow::CreateInstance(hWnd);
+    IUnknown_SetSite(pDT, pSite);
+    DWORD effect = DROPEFFECT_LINK;
+    hr = SHSimulateDrop(pDT, pTargets, MK_CONTROL|MK_SHIFT, NULL, &effect);
+    IUnknown_SetSite(pDT, NULL);
+    return hr;
+}
+
 
 /****************************************************************************
  * CFSDropTarget::_CopyItems
@@ -554,8 +718,23 @@ HRESULT CFSDropTarget::_DoDrop(IDataObject *pDataObject,
             TRACE("target path = %s\n", debugstr_w(m_sPathTarget));
 
             /* We need to create a link for each pidl in the copied items, so step through the pidls from the clipboard */
+            BOOL fCreatePidlLinks = SHELL_Experiment(SHELL_DRAGTOLINK_PIDLTARGET);
+            HWND hWnd = IsWindowVisible(m_hwndSite) ? m_hwndSite : NULL;
             for (UINT i = 0; i < lpcida->cidl; i++)
             {
+                if (fCreatePidlLinks)
+                {
+                    DbgPrint("X: SHELL_DRAGTOLINK_PIDLTARGET\n");
+                    CComHeapPtr<ITEMIDLIST> absolute;
+                    hr = SHILCombine(pidl, apidl[i], &absolute);
+                    if (FAILED_UNEXPECTEDLY(hr))
+                        break;
+                    hr = SHELL32_CreateLink(hWnd, m_sPathTarget, absolute);
+                    if (FAILED_UNEXPECTEDLY(hr))
+                        break;
+                    continue;
+                }
+
                 // Find out which file we're linking.
                 STRRET strFile;
                 hr = psfFrom->GetDisplayNameOf(apidl[i], SHGDN_FORPARSING, &strFile);

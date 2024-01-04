@@ -23,6 +23,21 @@
 extern "C" {
 #endif /* defined(__cplusplus) */
 
+#if DBG-0 && !defined(SHELL_EXPERIMENTS)
+#define SHELL_EXPERIMENTS 1
+#endif
+#if SHELL_EXPERIMENTS-0
+inline HRESULT SHELL_QueryExperiment(LPCSTR id)
+{
+    DWORD always = 0x1, caps = 0x2, data = 0, size = 4, error;
+    error = SHGetValueA(HKEY_LOCAL_MACHINE, "Software\\ReactOS\\Experiments", id, NULL, &data, &size);
+    return error ? E_FAIL : !((data & always) || ((data & caps) && GetKeyState(VK_CAPITAL)));
+}
+#define SHELL_Experiment(id) ( S_OK == SHELL_QueryExperiment(#id) )
+#else
+#define SHELL_Experiment(id) ( 0 )
+#endif
+
 inline ULONG
 Win32DbgPrint(const char *filename, int line, const char *lpFormat, ...)
 {

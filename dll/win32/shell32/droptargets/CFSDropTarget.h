@@ -23,6 +23,8 @@
 #ifndef _CFSDROPTARGET_H_
 #define _CFSDROPTARGET_H_
 
+EXTERN_C HRESULT SHELL32_SFCreateLinks(HWND hWnd, IUnknown *pSite, IShellFolder *pDestination, IDataObject *pTargets);
+
 class CFSDropTarget :
     public CComObjectRootEx<CComMultiThreadModelNoCS>,
     public IDropTarget,

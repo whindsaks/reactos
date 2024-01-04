@@ -870,15 +870,7 @@ HRESULT CDefaultContextMenu::DoCreateLink(LPCMINVOKECOMMANDINFOEX lpcmi)
 {
     if (!m_cidl || !m_pDataObj)
         return E_FAIL;
-
-    CComPtr<IDropTarget> pDT;
-    HRESULT hr = m_psf->CreateViewObject(NULL, IID_PPV_ARG(IDropTarget, &pDT));
-    if (FAILED_UNEXPECTEDLY(hr))
-        return hr;
-
-    SHSimulateDrop(pDT, m_pDataObj, MK_CONTROL|MK_SHIFT, NULL, NULL);
-
-    return S_OK;
+    return SHELL32_SFCreateLinks(lpcmi->hwnd, m_site, m_psf, m_pDataObj);
 }
 
 HRESULT CDefaultContextMenu::DoDelete(LPCMINVOKECOMMANDINFOEX lpcmi)
