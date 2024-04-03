@@ -335,3 +335,301 @@ HRESULT WINAPI SHCreateShellItem(PCIDLIST_ABSOLUTE pidlParent,
 
     return hr;
 }
+
+static HRESULT SHELL32_CreateShellItem(PCIDLIST_ABSOLUTE pidlParent, IShellFolder *psfParent, PCUITEMID_CHILD pidl, REFIID riid, void **ppv)
+{
+    CComPtr<IShellItem> item;
+    HRESULT hr = SHCreateShellItem(pidlParent, psfParent, pidl, &item);
+    if (SUCCEEDED(hr))
+    {
+        hr = item->QueryInterface(riid, ppv);
+    }
+    return hr;
+}
+
+static HRESULT DataObject_GetLockedGlobal(IDataObject *pdo, CLIPFORMAT cf, STGMEDIUM *psm, LPVOID *ptr)
+{
+    FORMATETC fmt = { cf, NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+    psm->tymed = TYMED_NULL;
+    HRESULT hr = pdo->GetData(&fmt, psm);
+    if (SUCCEEDED(hr))
+    {
+        LPVOID blob = GlobalLock(psm->hGlobal);
+        *ptr = blob;
+        if (blob)
+            return S_OK;
+        ReleaseStgMedium(psm);
+        psm->tymed = TYMED_NULL;
+    }
+    return hr;
+}
+
+class CShellItemArray :
+    public CComCoClass<CShellItemArray, &CLSID_NULL>,
+    public CComObjectRootEx<CComMultiThreadModelNoCS>,
+    public IShellItemArray
+{
+private:
+    IUnknown *m_Ref;
+    IShellFolder *m_SF;
+    PCUIDLIST_ABSOLUTE m_Parent;
+    PCUIDLIST_RELATIVE *m_Items;
+    UINT m_count;
+    STGMEDIUM m_Stgm; // CIDA
+
+    HRESULT Initialize(CIDA const *cida);
+
+public:
+DECLARE_NO_REGISTRY()
+DECLARE_NOT_AGGREGATABLE(CShellItemArray)
+
+BEGIN_COM_MAP(CShellItemArray)
+    COM_INTERFACE_ENTRY_IID(IID_IShellItemArray, IShellItemArray)
+END_COM_MAP()
+
+    CShellItemArray() : m_Ref(NULL), m_SF(NULL), m_Parent(NULL), m_Items(NULL), m_count(0)
+    {
+        m_Stgm.tymed = TYMED_NULL;
+    }
+
+    ~CShellItemArray()
+    {
+        IUnknown_Set((IUnknown**)&m_Ref, NULL);
+        IUnknown_Set((IUnknown**)&m_SF, NULL);
+        ReleaseStgMedium(&m_Stgm);
+        SHFree(m_Items);
+    }
+
+    // IShellItemArray
+    STDMETHODIMP GetCount(DWORD *pdwNumItems) override
+    {
+        *pdwNumItems = m_count;
+        return S_OK;
+    }
+
+    STDMETHODIMP BindToHandler(IBindCtx *pbc, REFGUID bhid, REFIID riid, void **ppvOut) override
+    {
+        UNIMPLEMENTED;
+        *ppvOut = NULL;
+        return E_NOTIMPL;
+    }
+
+    STDMETHODIMP EnumItems(IEnumShellItems **ppenumShellItems) override
+    {
+        UNIMPLEMENTED;
+        *ppenumShellItems = NULL;
+        return E_NOTIMPL;
+    }
+
+    STDMETHODIMP GetPropertyDescriptionList(REFPROPERTYKEY keyType, REFIID riid, void **ppv) override
+    {
+        UNIMPLEMENTED;
+        *ppv = NULL;
+        return E_NOTIMPL;
+    }
+
+    STDMETHODIMP GetPropertyStore(GETPROPERTYSTOREFLAGS flags, REFIID riid, void **ppv) override
+    {
+        UNIMPLEMENTED;
+        *ppv = NULL;
+        return E_NOTIMPL;
+    }
+
+    STDMETHODIMP GetAttributes(SIATTRIBFLAGS AttribFlags, SFGAOF sfgaoMask, SFGAOF *psfgaoAttribs) override
+    {
+        UNIMPLEMENTED;
+        *psfgaoAttribs = 0;
+        return E_NOTIMPL;
+    }
+
+    STDMETHODIMP GetItemAt(DWORD dwIndex, IShellItem **ppsi) override
+    {
+        return dwIndex < m_count ? SHCreateShellItem(m_Parent, m_SF, m_Items[dwIndex], ppsi) : E_FAIL;
+    }
+
+    static HRESULT CreateInstance(CShellItemArray *&array)
+    {
+        IShellItemArray *p;
+        HRESULT hr = _CreatorClass::CreateInstance(NULL, IID_PPV_ARG(IShellItemArray, &p));
+        array = static_cast<CShellItemArray*>(p);
+        return hr;
+    }
+
+    static HRESULT CreateFromDataObject(IDataObject *pdo, IShellItemArray **ppsi);
+    static HRESULT Create(PCIDLIST_ABSOLUTE pidlParent, IShellFolder *psf, UINT cidl, PCUITEMID_CHILD_ARRAY ppidl, IShellItemArray **ppsi);
+};
+
+HRESULT CShellItemArray::Initialize(CIDA const *cida)
+{
+    m_count = cida->cidl;
+    m_Items = (PCUIDLIST_RELATIVE*)SHAlloc(m_count * sizeof(PCUIDLIST_RELATIVE));
+    if (!m_Items)
+        return E_OUTOFMEMORY;
+    m_Parent = HIDA_GetPIDLFolder(cida); // Note: Not a clone
+    for (UINT i = 0; i < m_count; ++i)
+    {
+        m_Items[i] = HIDA_GetPIDLItem(cida, i); // Note: Not a clone
+    }
+    return S_OK;
+}
+
+HRESULT CShellItemArray::CreateFromDataObject(IDataObject *pdo, IShellItemArray **ppsi)
+{
+    if (!pdo)
+        return E_POINTER;
+    if (!g_cfHIDA)
+        g_cfHIDA = (CLIPFORMAT)RegisterClipboardFormatW(CFSTR_SHELLIDLISTW);
+
+    CShellItemArray *array;
+    HRESULT hr = CreateInstance(array);
+    *ppsi = static_cast<IShellItemArray*>(array);
+    if (SUCCEEDED(hr))
+    {
+        CIDA const *cida;
+        hr = DataObject_GetLockedGlobal(pdo, g_cfHIDA, &array->m_Stgm, (void**)&cida);
+        if (SUCCEEDED(hr))
+        {
+            hr = array->Initialize(cida);
+            if (SUCCEEDED(hr))
+            {
+                IUnknown_Set((IUnknown**)&array->m_Ref, pdo); // MSDN says we are supposed to hold a reference
+                return S_OK;
+            }
+        }
+        array->Release();
+    }
+    return hr;
+}
+
+HRESULT CShellItemArray::Create(PCIDLIST_ABSOLUTE pidlParent, IShellFolder *psf, UINT cidl, PCUITEMID_CHILD_ARRAY ppidl, IShellItemArray **ppsi)
+{
+    CShellItemArray *array;
+    HRESULT hr = CreateInstance(array);
+    *ppsi = static_cast<IShellItemArray*>(array);
+    if (SUCCEEDED(hr))
+    {
+        IUnknown_Set((IUnknown**)&array->m_SF, psf);
+        hr = E_OUTOFMEMORY;
+        HGLOBAL hida = RenderSHELLIDLIST(const_cast<LPITEMIDLIST>(pidlParent), (LPITEMIDLIST*)ppidl, cidl);
+        if (hida)
+        {
+            array->m_Stgm.tymed = TYMED_HGLOBAL;
+            array->m_Stgm.hGlobal = hida;
+            array->m_Stgm.pUnkForRelease = NULL;
+            CIDA *cida = (CIDA*)GlobalLock(hida);
+            if (cida)
+            {
+                hr = array->Initialize(cida);
+                if (SUCCEEDED(hr))
+                {
+                    return S_OK;
+                }
+            }
+        }
+        array->Release();
+    }
+    return hr;
+}
+
+/*************************************************************************
+ * SHCreateShellItemArrayFromDataObject [SHELL32.@]
+ */
+HRESULT WINAPI SHCreateShellItemArrayFromDataObject(IDataObject *pdo, REFIID riid, void**ppv)
+{
+    IShellItemArray *array;
+    HRESULT hr = CShellItemArray::CreateFromDataObject(pdo, &array);
+    if (SUCCEEDED(hr))
+    {
+        hr = array->QueryInterface(riid, ppv);
+        array->Release();
+    }
+    return hr;
+}
+
+/*************************************************************************
+ * SHCreateShellItemArray [SHELL32.@]
+ */
+HRESULT WINAPI SHCreateShellItemArray(PCIDLIST_ABSOLUTE pidlParent, IShellFolder *psf, UINT cidl, PCUITEMID_CHILD_ARRAY ppidl, IShellItemArray **ppsiItemArray)
+{
+    HRESULT hr = S_OK;
+    PIDLIST_ABSOLUTE pidl = NULL;
+    if (!pidlParent)
+    {
+        hr = psf ? SHGetIDListFromObject(psf, &pidl) : E_POINTER;
+        if (SUCCEEDED(hr))
+        {
+            pidlParent = pidl;
+        }
+    }
+    if (SUCCEEDED(hr))
+    {
+        hr = CShellItemArray::Create(pidlParent, psf, cidl, ppidl, ppsiItemArray);
+    }
+    ILFree(pidl);
+    return hr;
+}
+
+/*************************************************************************
+ * SHCreateShellItemArrayFromIDLists [SHELL32.@]
+ */
+HRESULT WINAPI SHCreateShellItemArrayFromIDLists(UINT cidl, PCIDLIST_ABSOLUTE_ARRAY rgpidl, IShellItemArray **ppsiItemArray)
+{
+    DWORD root = 0;
+    return SHCreateShellItemArray((PCIDLIST_ABSOLUTE)&root, NULL, cidl, rgpidl, ppsiItemArray);
+}
+
+/*************************************************************************
+ * SHCreateShellItemArrayFromShellItem [SHELL32.@]
+ */
+HRESULT WINAPI SHCreateShellItemArrayFromShellItem(IShellItem *psi, REFIID riid, void **ppv)
+{
+    PIDLIST_ABSOLUTE pidl;
+    HRESULT hr = SHGetIDListFromObject(psi, &pidl);
+    if (SUCCEEDED(hr))
+    {
+        IShellItemArray *array;
+        hr = SHCreateShellItemArrayFromIDLists(1, &pidl, &array);
+        if (SUCCEEDED(hr))
+        {
+            hr = array->QueryInterface(riid, ppv);
+            array->Release();
+        }
+        ILFree(pidl);
+    }
+    return hr;
+}
+
+static HRESULT SHELL32_GetIDListFromDataObject(IDataObject *pdtobj, DATAOBJ_GET_ITEM_FLAGS dwFlags, PIDLIST_ABSOLUTE *ppidl)
+{
+    return E_NOTIMPL;
+}
+
+/*************************************************************************
+ * SHGetItemFromDataObject [SHELL32.@]
+ */
+HRESULT WINAPI SHGetItemFromDataObject(IDataObject *pdtobj, DATAOBJ_GET_ITEM_FLAGS dwFlags, REFIID riid, void **ppv)
+{
+    PIDLIST_ABSOLUTE pidl;
+    HRESULT hr = SHELL32_GetIDListFromDataObject(pdtobj, dwFlags, &pidl);
+    if (SUCCEEDED(hr))
+    {
+        hr = SHELL32_CreateShellItem(NULL, NULL, pidl, riid, ppv);
+        ILFree(pidl);
+    }
+    return hr;
+}
+
+/*************************************************************************
+ * SHGetItemFromObject [SHELL32.@]
+ */
+SHSTDAPI SHGetItemFromObject(IUnknown *punk, REFIID riid, void **ppv)
+{
+    PIDLIST_ABSOLUTE pidl;
+    HRESULT hr = SHGetIDListFromObject(punk, &pidl);
+    if (SUCCEEDED(hr))
+    {
+        hr = SHELL32_CreateShellItem(NULL, NULL, pidl, riid, ppv);
+        ILFree(pidl);
+    }
+    return hr;
+}
