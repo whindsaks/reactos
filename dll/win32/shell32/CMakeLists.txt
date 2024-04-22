@@ -18,6 +18,7 @@ if(DBG)
 endif()
 
 list(APPEND SOURCE
+    assoc.cpp
     CActiveDesktop.cpp
     CActiveDesktop.h
     CIDLDataObj.cpp

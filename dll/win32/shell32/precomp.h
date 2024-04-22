@@ -169,7 +169,7 @@ BOOL Shell_FailForceReturn(_In_ HRESULT hr);
 EXTERN_C INT
 Shell_ParseSpecialFolder(_In_ LPCWSTR pszStart, _Out_ LPWSTR *ppch, _Out_ INT *pcch);
 
-HRESULT
+EXTERN_C HRESULT
 Shell_DisplayNameOf(
     _In_ IShellFolder *psf,
     _In_ LPCITEMIDLIST pidl,
@@ -216,5 +216,8 @@ BOOL PathIsDotOrDotDotW(_In_ LPCWSTR pszPath);
 BOOL PathIsValidElement(_In_ LPCWSTR pszPath);
 BOOL PathIsDosDevice(_In_ LPCWSTR pszName);
 HRESULT SHILAppend(_Inout_ LPITEMIDLIST pidl, _Inout_ LPITEMIDLIST *ppidl);
+
+EXTERN_C HRESULT
+SHELL32_AssocGetTypeNameFromFileName(_In_ LPCWSTR Name, _In_ UINT FileAtt, _Out_ LPWSTR Buffer, _In_ SIZE_T cch);
 
 #endif /* _PRECOMP_H__ */

@@ -211,7 +211,7 @@ HRESULT SHBindToObject(
     return SHBindToObjectEx(psf, pidl, NULL, riid, ppvObj);
 }
 
-HRESULT
+EXTERN_C HRESULT
 Shell_DisplayNameOf(
     _In_ IShellFolder *psf,
     _In_ LPCITEMIDLIST pidl,

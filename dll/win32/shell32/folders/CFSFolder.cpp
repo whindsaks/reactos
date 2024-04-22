@@ -667,7 +667,7 @@ HRESULT SHELL32_GetFSItemAttributes(IShellFolder * psf, LPCITEMIDLIST pidl, LPDW
 
 HRESULT CFSFolder::_ParseSimple(
     _In_ LPOLESTR lpszDisplayName,
-    _Out_ WIN32_FIND_DATAW *pFind,
+    _In_ WIN32_FIND_DATAW *pFind,
     _Out_ LPITEMIDLIST *ppidl)
 {
     HRESULT hr;
@@ -675,6 +675,7 @@ HRESULT CFSFolder::_ParseSimple(
 
     *ppidl = NULL;
 
+    const DWORD origattr = pFind->dwFileAttributes;
     LPITEMIDLIST pidl;
     for (hr = S_OK; SUCCEEDED(hr); hr = SHILAppend(pidl, ppidl))
     {
@@ -682,9 +683,8 @@ HRESULT CFSFolder::_ParseSimple(
         if (hr != S_OK)
             break;
 
-        if (pchNext)
-            pFind->dwFileAttributes = FILE_ATTRIBUTE_DIRECTORY;
-
+        pFind->dwFileAttributes = pchNext ? FILE_ATTRIBUTE_DIRECTORY : origattr;
+DbgPrint("%x for %ls (%ls) next=%p(%ls)|\n", pFind->dwFileAttributes, pFind->cFileName, lpszDisplayName, pchNext, pchNext ? pchNext : L"EOF");
         pidl = _ILCreateFromFindDataW(pFind);
         if (!pidl)
         {
@@ -807,6 +807,7 @@ HRESULT WINAPI CFSFolder::ParseDisplayName(HWND hwndOwner,
 
         if (SUCCEEDED(hr))
             *ppidl = pidlTemp.Detach();
+DbgPrint("parse=%x\n", ILFindLastID(*ppidl)->mkid.abID[0]);
     }
     else
     {

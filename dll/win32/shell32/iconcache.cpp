@@ -749,7 +749,7 @@ BOOL PidlToSicIndex (
         *pIndex = (INVALID_INDEX != iShortcutDefaultIndex ? iShortcutDefaultIndex : 0);
       }
     }
-
+DbgPrint("%ls,%d->%d\n", szIconFile,iSourceIndex,*pIndex);
     return ret;
 
 }
