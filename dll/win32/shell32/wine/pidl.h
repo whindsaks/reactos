@@ -103,6 +103,23 @@ extern "C" {
 #define PT_YAGUID	0x70 /* yet another guid.. */
 #define PT_IESPECIAL2	0xb1
 #define PT_SHARE	0xc3
+#ifdef __REACTOS__
+#define PT_ROOT_REGITEM 0x1F // SHDID_ROOT_REGITEM
+#define PT_FS           0x30 // SHDID_FS_OTHER ANSI (SHSimpleIDList on 95 and NT4)
+#define PT_FS_DIR       0x31 // SHDID_FS_DIRECTORY ANSI
+#define PT_FS_FILE      0x32 // SHDID_FS_FILE ANSI
+#define PT_FS_UNICODE   0x34 // SHDID_FS_OTHER Unicode (SHSimpleIDList on NT4)
+#define PT_FS_DIRW      0x35 // SHDID_FS_DIRECTORY Unicode
+#define PT_FS_FILEW     0x36 // SHDID_FS_FILE Unicode
+#define PT_FS_MASK      (PT_FS_DIRW | PT_FS_FILEW)
+#define PT_NET          0x40 // SHDID_NET_OTHER?
+#define PT_JUNCTION     0x80 // Boolean flag. ("Dir.{GUID}"? etc.) (Note: This means PT_SHARE above is really (0x43|PT_JUNCTION))
+#define PT_BASEMASK     (0xF0 & ~PT_JUNCTION)
+#define _ILFastGetBaseType(p) ( (p)->mkid.abID[0] & (PT_BASEMASK) )
+static inline BYTE _ILGetBaseType(PCUITEMID_CHILD p) { return p && p->mkid.cb ? _ILFastGetBaseType(p) : 0; }
+#define _ILFastGetType(p) ( (p)->mkid.abID[0] & (0xFF & ~PT_JUNCTION) )
+static inline BYTE _ILGetType(PCUITEMID_CHILD p) { return p && p->mkid.cb ? _ILFastGetType(p) : 0; }
+#endif
 
 #include "pshpack1.h"
 typedef BYTE PIDLTYPE;
@@ -311,6 +328,10 @@ PITEMID_CHILD* _ILCopyaPidl(PCUITEMID_CHILD_ARRAY apidlsrc, UINT cidl) DECLSPEC_
 LPITEMIDLIST * _ILCopyCidaToaPidl(LPITEMIDLIST* pidl, const CIDA * cida) DECLSPEC_HIDDEN;
 
 BOOL ILGetDisplayNameExW(LPSHELLFOLDER psf, LPCITEMIDLIST pidl, LPWSTR path, DWORD type) DECLSPEC_HIDDEN;
+
+#ifdef __REACTOS__
+DWORD _ILItemGetFSItemType(PCUITEMID_CHILD pidl);
+#endif
 
 #ifdef __cplusplus
 } /* extern "C" */
