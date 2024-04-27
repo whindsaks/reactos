@@ -318,9 +318,9 @@ ConSrvTermReadStream(IN OUT PTERMINAL This,
     /* Validity checks */
     // ASSERT(Console == InputBuffer->Header.Console);
     ASSERT((Buffer != NULL) || (Buffer == NULL && NumCharsToRead == 0));
-
+DPRINT1("ConSrvTermReadStream\n");
     /* We haven't read anything (yet) */
-
+//DPRINT1("1\n");//DPRINT("0\n");
     if (InputBuffer->Mode & ENABLE_LINE_INPUT)
     {
         /* COOKED mode, call the line discipline */

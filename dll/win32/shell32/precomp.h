@@ -121,6 +121,23 @@ extern const GUID CLSID_UnixDosFolder;
 extern const GUID SHELL32_AdvtShortcutProduct;
 extern const GUID SHELL32_AdvtShortcutComponent;
 
+#if SHELL32PROPSYS >= 0
+EXTERN_C SHCOLUMNID PKEY_ItemNameDisplay;
+EXTERN_C SHCOLUMNID PKEY_Size;
+EXTERN_C SHCOLUMNID PKEY_ItemTypeText;
+EXTERN_C SHCOLUMNID PKEY_DateModified;
+EXTERN_C SHCOLUMNID PKEY_FileAttributes;
+EXTERN_C SHCOLUMNID PKEY_FindData;
+EXTERN_C SHCOLUMNID PKEY_DescriptionID;
+#endif
+
+EXTERN_C HRESULT SHELL_InitVariantFromBuffer(const void *p, UINT cb, VARIANT *v);
+EXTERN_C HRESULT SHELL_VariantToBuffer(const VARIANT *v, void *p, UINT cb);
+EXTERN_C HRESULT SHELL_InitVariantFromStrRet(STRRET *pStr, PCUITEMID_CHILD pidl, VARIANT *v);
+#ifndef IsEqualPropertyKey
+#define IsEqualPropertyKey(a, b) ( ((a).pid == (b).pid) && IsEqualGUID((a).fmtid, (b).fmtid) )
+#endif
+
 #define MAX_PROPERTY_SHEET_PAGE 32
 
 extern inline

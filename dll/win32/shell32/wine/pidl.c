@@ -51,7 +51,9 @@ WINE_DECLARE_DEBUG_CHANNEL(shell);
 extern LPVOID WINAPI Alloc(INT);
 extern BOOL WINAPI Free(LPVOID);
 
+#ifndef __REACTOS__
 static LPSTR _ILGetSTextPointer(LPCITEMIDLIST pidl);
+#endif
 static LPWSTR _ILGetTextPointerW(LPCITEMIDLIST pidl);
 
 EXTERN_C HWND BindCtx_GetUIWindow(_In_ IBindCtx *pBindCtx);
@@ -1163,6 +1165,33 @@ LPITEMIDLIST WINAPI SHSimpleIDListFromPathAW(LPCVOID lpszPath)
 HRESULT WINAPI SHGetDataFromIDListA(LPSHELLFOLDER psf, LPCITEMIDLIST pidl,
                                     int nFormat, LPVOID dest, int len)
 {
+#ifdef __REACTOS__
+    EXTERN_C int WINAPI SHUnicodeToAnsi(LPCWSTR pwszSrc, LPSTR pszDst, int cchBuf);
+
+    BYTE wide[max(sizeof(NETRESOURCEW), sizeof(WIN32_FIND_DATAW))];
+    void *ptr = nFormat == SHGDFIL_DESCRIPTIONID ? dest : wide;
+    UINT size = nFormat == SHGDFIL_DESCRIPTIONID ? len : sizeof(wide);
+    HRESULT hr = SHGetDataFromIDListW(psf, pidl, nFormat, ptr, size);
+    if (SUCCEEDED(hr))
+    {
+        if (nFormat == SHGDFIL_FINDDATA)
+        {
+            WIN32_FIND_DATAW *in = (WIN32_FIND_DATAW*)wide;
+            WIN32_FIND_DATAA *out = (WIN32_FIND_DATAA*)dest;
+            if (len < sizeof(*out))
+                return E_INVALIDARG;
+            if (!SHUnicodeToAnsi(in->cFileName, out->cFileName, MAX_PATH))
+                return E_FAIL;
+            if (!SHUnicodeToAnsi(in->cAlternateFileName, out->cAlternateFileName, 14))
+                out->cAlternateFileName[0] = '\0';
+        }
+        else if (nFormat == SHGDFIL_NETRESOURCE)
+        {
+            FIXME_(shell)("SHGDFIL %i stub\n", nFormat);
+        }
+    }
+    return hr;
+#else
     LPSTR filename, shortname;
     WIN32_FIND_DATAA * pfd;
 
@@ -1212,6 +1241,7 @@ HRESULT WINAPI SHGetDataFromIDListA(LPSHELLFOLDER psf, LPCITEMIDLIST pidl,
     }
 
     return E_INVALIDARG;
+#endif
 }
 
 /*************************************************************************
@@ -1221,6 +1251,52 @@ HRESULT WINAPI SHGetDataFromIDListA(LPSHELLFOLDER psf, LPCITEMIDLIST pidl,
 HRESULT WINAPI SHGetDataFromIDListW(LPSHELLFOLDER psf, LPCITEMIDLIST pidl,
                                     int nFormat, LPVOID dest, int len)
 {
+#ifdef __REACTOS__
+    EXTERN_C HRESULT SHELL_VariantToBuffer(const VARIANT *v, void *p, UINT cb);
+    EXTERN_C SHCOLUMNID PKEY_FindData;
+    EXTERN_C SHCOLUMNID PKEY_DescriptionID;
+
+    SHCOLUMNID *pscid = NULL;
+    HRESULT hr = E_INVALIDARG;
+    TRACE_(shell)("sf=%p pidl=%p 0x%04x %p 0x%04x stub\n",psf,pidl,nFormat,dest,len);
+    if (!psf || !dest)
+    {
+        return E_INVALIDARG;
+    }
+    else if (nFormat == SHGDFIL_FINDDATA)
+    {
+        pscid = &PKEY_FindData;
+        if (len < sizeof (WIN32_FIND_DATAW))
+            return E_INVALIDARG;
+    }
+    else if (nFormat == SHGDFIL_DESCRIPTIONID)
+    {
+        pscid = &PKEY_DescriptionID;
+        if (len < sizeof (SHDESCRIPTIONID))
+            return E_INVALIDARG;
+    }
+    else
+    {
+        FIXME_(shell)("SHGDFIL %i stub\n", nFormat);
+    }
+
+    if (pscid)
+    {
+        IShellFolder2 *psf2;
+        hr = IShellFolder_QueryInterface(psf, &IID_IShellFolder2, (void**)&psf2);
+        if (SUCCEEDED(hr))
+        {
+            VARIANT v;
+            V_VT(&v) = VT_EMPTY;
+            hr = IShellFolder2_GetDetailsEx(psf2, pidl, pscid, &v);
+            IShellFolder2_Release(psf2);
+            if (SUCCEEDED(hr))
+                hr = SHELL_VariantToBuffer(&v, dest, len);
+            VariantClear(&v);
+        }
+    }
+    return hr;
+#else
     LPSTR filename, shortname;
     WIN32_FIND_DATAW * pfd = dest;
 
@@ -1269,8 +1345,8 @@ HRESULT WINAPI SHGetDataFromIDListW(LPSHELLFOLDER psf, LPCITEMIDLIST pidl,
     default:
         ERR_(shell)("Unknown SHGDFIL %i, please report\n", nFormat);
     }
-
     return E_INVALIDARG;
+#endif
 }
 
 /*************************************************************************
@@ -1821,7 +1897,9 @@ LPITEMIDLIST _ILCreateFromFindDataW( const WIN32_FIND_DATAW *wfd )
         FileTimeToDosDateTime( &wfd->ftCreationTime, &fsw->uCreationDate, &fsw->uCreationTime);
         FileTimeToDosDateTime( &wfd->ftLastAccessTime, &fsw->uLastAccessDate, &fsw->uLastAccessTime);
         memcpy(fsw->wszName, wfd->cFileName, wlen * sizeof(WCHAR));
-
+#ifdef __REACTOS__
+        *(WORD*)&fsw->dummy2 = (WORD)((SIZE_T)fsw->wszName - (SIZE_T)fsw); // Name offset
+#endif
         pOffsetW = (WORD*)((LPBYTE)pidl + pidl->mkid.cb - sizeof(WORD));
         *pOffsetW = (LPBYTE)fsw - (LPBYTE)pidl;
         TRACE("-- Set Value: %s\n",debugstr_w(fsw->wszName));
@@ -2338,6 +2416,7 @@ LPSTR _ILGetTextPointer(LPCITEMIDLIST pidl)
  *  _ILGetSTextPointer()
  * gets a pointer to the short filename string stored in the pidl
  */
+#ifndef __REACTOS__
 static LPSTR _ILGetSTextPointer(LPCITEMIDLIST pidl)
 {
     /* TRACE(pidl,"(pidl%p)\n", pidl); */
@@ -2360,6 +2439,7 @@ static LPSTR _ILGetSTextPointer(LPCITEMIDLIST pidl)
     }
     return NULL;
 }
+#endif
 
 /**************************************************************************
  * _ILGetGUIDPointer()

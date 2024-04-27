@@ -41,6 +41,7 @@ list(APPEND SOURCE
     iconcache.cpp
     shell32.cpp
     utils.cpp
+    variant.cpp
     CShellItem.cpp
     CShellLink.cpp
     CFolderOptions.cpp

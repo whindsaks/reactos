@@ -89,7 +89,7 @@ PreprocessInput(PCONSRV_CONSOLE Console,
                 ULONG NumEventsToWrite)
 {
     ULONG NumEvents;
-
+//DPRINT1("PreprocessInput\n");
     /*
      * Loop each event, and for each, check for pause or unpause
      * and perform adequate behaviour.
@@ -214,7 +214,7 @@ ConioProcessInputEvent(PCONSRV_CONSOLE Console,
              Down && (VirtualKeyCode == VK_PAUSE || VirtualKeyCode == 'C') &&
              (ShiftState & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) )
         {
-            DPRINT1("Console_Api Ctrl-C\n");
+            DPRINT1("Console_Api Ctrl-C\n");//OutputDebugStringA("DBG ME HIT\n");
             ConSrvConsoleProcessCtrlEvent(Console, 0, CTRL_C_EVENT);
 
             if (Console->LineBuffer && !Console->LineComplete)

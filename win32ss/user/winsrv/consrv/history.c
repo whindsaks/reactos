@@ -50,7 +50,7 @@ HistoryCurrentBuffer(
 {
     PLIST_ENTRY Entry;
     PHISTORY_BUFFER Hist;
-
+DPRINT1("HistoryCurrentBuffer\n");
     for (Entry = Console->HistoryBuffers.Flink;
          Entry != &Console->HistoryBuffers;
          Entry = Entry->Flink)
@@ -102,7 +102,7 @@ HistoryFindBuffer(PCONSRV_CONSOLE Console,
 
     PLIST_ENTRY Entry;
     PHISTORY_BUFFER Hist = NULL;
-
+DPRINT1("HistoryFindBuffer\n");
     if (ExeName == NULL) return NULL;
 
     if (UnicodeExe)
@@ -188,7 +188,7 @@ HistoryAddEntry(PCONSRV_CONSOLE Console,
 {
     // UNICODE_STRING NewEntry;
     PHISTORY_BUFFER Hist = HistoryCurrentBuffer(Console, ExeName);
-
+DPRINT1("HistoryAddEntry\n");
     if (!Hist) return;
 
     // NewEntry.Length = NewEntry.MaximumLength = Console->LineSize * sizeof(WCHAR);
@@ -201,11 +201,11 @@ HistoryAddEntry(PCONSRV_CONSOLE Console,
     {
         return;
     }
-
+DPRINT1("maybe HistoryNoDup\n");
     if (Console->HistoryNoDup)
     {
         INT i;
-
+DPRINT1("yes\n");
         /* Check if this line has been entered before */
         for (i = Hist->NumEntries - 1; i >= 0; i--)
         {
@@ -243,7 +243,7 @@ HistoryGetCurrentEntry(PCONSRV_CONSOLE Console,
                        PUNICODE_STRING Entry)
 {
     PHISTORY_BUFFER Hist = HistoryCurrentBuffer(Console, ExeName);
-
+DPRINT1("HistoryGetCurrentEntry\n");
     if (!Hist || Hist->NumEntries == 0)
         Entry->Length = 0;
     else
@@ -258,7 +258,7 @@ HistoryRecallHistory(PCONSRV_CONSOLE Console,
 {
     PHISTORY_BUFFER Hist = HistoryCurrentBuffer(Console, ExeName);
     ULONG Position = 0;
-
+DPRINT1("HistoryRecallHistory\n");
     if (!Hist || Hist->NumEntries == 0) return FALSE;
 
     Position = Hist->Position + Offset;
@@ -280,7 +280,7 @@ HistoryFindEntryByPrefix(PCONSRV_CONSOLE Console,
     /* Search for history entries starting with input. */
     PHISTORY_BUFFER Hist = HistoryCurrentBuffer(Console, ExeName);
     if (!Hist || Hist->NumEntries == 0) return FALSE;
-
+DPRINT1("HistoryFindEntryByPrefix\n");
     /*
      * Like Up/F5, on first time start from current (usually last) entry,
      * but on subsequent times start at previous entry.
@@ -322,7 +322,7 @@ HistoryDisplayCurrentHistory(PCONSRV_CONSOLE Console,
     SHORT Width, Height;
 
     PHISTORY_BUFFER Hist = HistoryCurrentBuffer(Console, ExeName);
-
+DPRINT1("HistoryDisplayCurrentHistory\n");
     if (!Hist) return NULL;
     if (Hist->NumEntries == 0) return NULL;
 
@@ -429,7 +429,7 @@ CON_API(SrvGetConsoleCommandHistory,
     NTSTATUS Status = STATUS_SUCCESS;
     ULONG BytesWritten = 0;
     PHISTORY_BUFFER Hist;
-
+DPRINT1("SrvGetConsoleCommandHistory\n");
     if ( !CsrValidateMessageBuffer(ApiMessage,
                                    (PVOID*)&GetCommandHistoryRequest->History,
                                    GetCommandHistoryRequest->HistoryLength,
@@ -510,7 +510,7 @@ CON_API(SrvGetConsoleCommandHistoryLength,
 {
     PHISTORY_BUFFER Hist;
     ULONG Length = 0;
-
+DPRINT1("SrvGetConsoleCommandHistoryLength\n");
     if (!CsrValidateMessageBuffer(ApiMessage,
                                   (PVOID*)&GetCommandHistoryLengthRequest->ExeName,
                                   GetCommandHistoryLengthRequest->ExeLength,
@@ -546,7 +546,7 @@ CON_API(SrvExpungeConsoleCommandHistory,
         CONSOLE_EXPUNGECOMMANDHISTORY, ExpungeCommandHistoryRequest)
 {
     PHISTORY_BUFFER Hist;
-
+DPRINT1("SrvExpungeConsoleCommandHistory\n");
     if (!CsrValidateMessageBuffer(ApiMessage,
                                   (PVOID*)&ExpungeCommandHistoryRequest->ExeName,
                                   ExpungeCommandHistoryRequest->ExeLength,
@@ -570,7 +570,7 @@ CON_API(SrvSetConsoleNumberOfCommands,
 {
     NTSTATUS Status = STATUS_SUCCESS;
     PHISTORY_BUFFER Hist;
-
+DPRINT1("SrvSetConsoleNumberOfCommands\n");
     if (!CsrValidateMessageBuffer(ApiMessage,
                                   (PVOID*)&SetHistoryNumberCommandsRequest->ExeName,
                                   SetHistoryNumberCommandsRequest->ExeLength,

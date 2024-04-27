@@ -38,6 +38,10 @@ static void PrintHelp(PCWSTR ExtraLine = NULL)
     wprintf(L"shlextdbg /shgfi=path\n");
     wprintf(L"    Call SHGetFileInfo. Prefix path with $ to parse as a pidl.\n");
     wprintf(L"\n");
+    wprintf(L"shlextdbg /shgetdatafromidlist=path\n");
+    wprintf(L"\n");
+    wprintf(L"shlextdbg /getdetailsex <path> <propkey>\n");
+    wprintf(L"\n");
     wprintf(L"shlextdbg /assocq <[{bhid}]path> <string|data|key> <type> <initflags> <queryflags> <initstring> [extra] [maxsize]\n");
     wprintf(L"    Uses the default implementation from AssocCreate if path is empty.\n");
     wprintf(L"\n");
@@ -53,6 +57,7 @@ Examples:
 /clsid=CompressedFolder /IShellExtInit=e:\test.zip /IContextMenu=extract /openwindows
 /clsid=CompressedFolder /IShellExtInit=e:\test.zip /IContextMenu=extract /openwindows /dll=R:\build\dev\devenv\dll\shellext\zipfldr\Debug\zipfldr.dll
 /shgfi=c:\freeldr.ini
+/getdetailsex %windir%\explorer.exe {B725F130-47EF-101A-A5F1-02608C9EEBAC},14
 /assocq "" string 1 0 0 .txt
 /assocq "" string friendlytypename 0x400 0 .txt "" 10
 /openwindows /shellexec=c: /invoke properties
@@ -99,6 +104,27 @@ static bool CLSIDPrefix(T& String, CLSID& Clsid)
         }
     }
     return false;
+}
+
+static HRESULT ParsePKey(LPCWSTR String, SHCOLUMNID &scid)
+{
+    FARPROC gpkfn = GetProcAddress(LoadLibraryA("PROPSYS"), "PSGetPropertyKeyFromName");
+    if (gpkfn)
+    {
+        HRESULT hr = ((HRESULT(WINAPI*)(LPCWSTR, SHCOLUMNID*))gpkfn)(String, &scid);
+        if (SUCCEEDED(hr))
+            return hr;
+    }
+    if (CLSIDPrefix(String, scid.fmtid))
+    {
+        if (*String == ' ' || *String == ',') // PSPropertyKeyFromString uses a space, the classic format uses a comma
+        {
+            scid.pid = StrToNum(++String);
+            if (*String)
+                return S_OK;
+        }
+    }
+    return E_FAIL;
 }
 
 static HRESULT GetUIObjectOfAbsolute(LPCITEMIDLIST pidl, REFIID riid, void** ppv)
@@ -170,6 +196,47 @@ static void DumpBytes(const void *Data, SIZE_T cb)
         wprintf(L"%s%.2X", i ? L" " : L"", ((LPCBYTE)Data)[i]);
     }
     wprintf(L"\n");
+}
+
+static void DumpDateTime(LPCSTR Prefix, const SYSTEMTIME &st)
+{
+    if (st.wYear && st.wYear != 1601)
+        wprintf(L"%hs%.4u/%.2u/%.2u %.2u:%.2u:%.2u.%.3u\n", Prefix, st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+    else
+        wprintf(L"%hs?\n", Prefix);
+}
+
+static void DumpFileTime(LPCSTR Prefix, const FILETIME &ft)
+{
+    SYSTEMTIME st;
+    if (!FileTimeToSystemTime(&ft, &st))
+        st.wYear = 0;
+    DumpDateTime(Prefix, st);
+}
+
+static void DumpVariant(VARIANT &v)
+{
+    WCHAR buf[99];
+#define DUMPVARIANT(vt, fmt, val) case vt: wsprintfW(buf, L"%hs: %s\n", #vt, fmt), wprintf(buf, val); break
+    switch(V_VT(&v))
+    {
+        DUMPVARIANT(VT_EMPTY, L"", 0);
+        DUMPVARIANT(VT_NULL, L"", 0);
+        DUMPVARIANT(VT_BSTR, L"%ls", V_BSTR(&v));
+        DUMPVARIANT(VT_I4, L"%d", V_I4(&v));
+        DUMPVARIANT(VT_UI4, L"%u", V_UI4(&v));
+        DUMPVARIANT(VT_I8, L"%I64d", V_I8(&v));
+        DUMPVARIANT(VT_UI8, L"%I64u", V_UI8(&v));
+        case VT_DATE:
+        {
+            SYSTEMTIME st = {};
+            VariantTimeToSystemTime(V_DATE(&v), &st);
+            DumpDateTime("VT_DATE: ", st);
+            break;
+        }
+        default:
+            wprintf(L"VT_? (%#.2x) %I64X\n", V_VT(&v), V_UI8(&v));
+    }
 }
 
 static HRESULT GetCommandString(IContextMenu& CM, UINT Id, UINT Type, LPWSTR buf, UINT cchMax)
@@ -379,6 +446,76 @@ static HRESULT AssocQ(int argc, WCHAR **argv)
         PrintHelp(L"Unknown query");
         return ErrMsg(ERROR_INVALID_PARAMETER);
     }
+    return hr;
+}
+
+static HRESULT GetDataFromIDList(PCWSTR Path)
+{
+    CComHeapPtr<ITEMIDLIST> pidl;
+    HRESULT hr = SHParseDisplayName(Path, NULL, &pidl, 0, NULL);
+    if (FAILED(hr))
+        return ErrMsg(hr);
+    CComPtr<IShellFolder> psf;
+    PCUITEMID_CHILD child;
+    if (SUCCEEDED(hr = SHBindToParent(pidl, IID_PPV_ARG(IShellFolder, &psf), &child)))
+    {
+        WIN32_FIND_DATAW wfd;
+        if (SUCCEEDED(hr = SHGetDataFromIDListW(psf, child, SHGDFIL_FINDDATA, &wfd, sizeof(wfd))))
+        {
+            wprintf(L"Name: %s\n", wfd.cFileName);
+            wprintf(L"Alternate: %s\n", wfd.cAlternateFileName);
+            wprintf(L"Attributes: %#.8x\n", wfd.dwFileAttributes);
+            wprintf(L"Size: %I64u\n", UINT64(wfd.nFileSizeLow) | (UINT64(wfd.nFileSizeHigh) >> 32));
+            DumpFileTime("CDate: ", wfd.ftCreationTime);
+            DumpFileTime("MDate: ", wfd.ftLastWriteTime);
+            DumpFileTime("ADate: ", wfd.ftLastAccessTime);
+        }
+        SHDESCRIPTIONID did;
+        if (SUCCEEDED(hr = SHGetDataFromIDListW(psf, child, SHGDFIL_DESCRIPTIONID, &did, sizeof(did))))
+        {
+            static const LPCSTR dids[] = {
+                "?", "ROOT_REGITEM", "FS_FILE", "FS_DIRECTORY", "FS_OTHER",
+                "COMPUTER_DRIVE35", "COMPUTER_DRIVE525", "COMPUTER_REMOVABLE", "COMPUTER_FIXED",
+                "COMPUTER_NETDRIVE", "COMPUTER_CDROM", "COMPUTER_RAMDISK", "COMPUTER_OTHER",
+                "NET_DOMAIN", "NET_SERVER", "NET_SHARE", "NET_RESTOFNET", "NET_OTHER",
+                "COMPUTER_IMAGING", "COMPUTER_AUDIO", "COMPUTER_SHAREDDOCS", "MOBILE_DEVICE",
+            };
+            wprintf(L"SHDID_%hs\n", dids[did.dwDescriptionId < _countof(dids) ? did.dwDescriptionId : 0]);
+            WCHAR buf[39];
+            StringFromGUID2(did.clsid, buf, _countof(buf));
+            wprintf(L"%s\n", buf);
+        }
+        NETRESOURCEW nr;
+        if (SUCCEEDED(hr = SHGetDataFromIDListW(psf, child, SHGDFIL_NETRESOURCE, &nr, sizeof(nr))))
+        {
+            wprintf(L"%d\\%d\\%d (%#x)", nr.dwDisplayType, nr.dwType, nr.dwScope, nr.dwUsage);
+            wprintf(L"%s\n", nr.lpLocalName);
+            wprintf(L"%s\n", nr.lpRemoteName);
+            wprintf(L"%s\n", nr.lpComment);
+            wprintf(L"%s\n", nr.lpProvider);
+        }
+    }
+    return hr;
+}
+
+static HRESULT GetDetailsEx(int argc, WCHAR **argv)
+{
+    SHCOLUMNID propkey;
+    CComHeapPtr<ITEMIDLIST> pidl;
+    HRESULT hr = SHParseDisplayName(argv[0], NULL, &pidl, 0, NULL);
+    if (FAILED(hr) || FAILED(hr = ParsePKey(argv[1], propkey)))
+        return ErrMsg(hr);
+    CComPtr<IShellFolder2> psf2;
+    PCUITEMID_CHILD child;
+    if (SUCCEEDED(hr = SHBindToParent(pidl, IID_PPV_ARG(IShellFolder2, &psf2), &child)))
+    {
+        VARIANT v = {};
+        if (SUCCEEDED(hr = psf2->GetDetailsEx(child, &propkey, &v)))
+            DumpVariant(v);
+        VariantClear(&v);
+    }
+    if (FAILED(hr))
+        ErrMsg(hr);
     return hr;
 }
 
@@ -655,6 +792,18 @@ int wmain(int argc, WCHAR **argv)
                 failArgs = true;
                 if (*arg)
                     return SHGFI(arg);
+            }
+            else if (isCmdWithArg(argc, argv, n, L"shgetdatafromidlist", arg))
+            {
+                failArgs = true;
+                if (*arg)
+                    return GetDataFromIDList(arg);
+            }
+            else if (isCmd(argc, argv, n, L"getdetailsex"))
+            {
+                failArgs = true;
+                if (argc - (n + 1) == 2)
+                    return GetDetailsEx(argc - (n + 1), &argv[(n + 1)]);
             }
             else if (isCmd(argc, argv, n, L"assocq"))
             {

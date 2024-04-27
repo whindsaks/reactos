@@ -154,7 +154,9 @@ LineInputKeyDown(PCONSRV_CONSOLE Console,
     /*
      * First, deal with control keys...
      */
-
+ //    DPRINT1();
+ DPRINT1("LineInputKeyDown %x\n", KeyEvent->wVirtualKeyCode);
+//DPRINT1("foo\n");OutputDebugStringA("bar\n");
     switch (KeyEvent->wVirtualKeyCode)
     {
         case VK_ESCAPE:
@@ -162,7 +164,7 @@ LineInputKeyDown(PCONSRV_CONSOLE Console,
             /* Clear the entire line */
             LineInputSetPos(Console, 0);
             LineInputEdit(Console, Console->LineSize, 0, NULL);
-
+DPRINT1("esc\n");
             // TESTS!!
             if (Popup)
             {
@@ -261,7 +263,7 @@ LineInputKeyDown(PCONSRV_CONSOLE Console,
 
         case VK_UP:
         case VK_F5:
-        {
+        {DPRINT1("VK_UP\n");
             /*
              * Recall the previous history entry. On first time, actually recall
              * the current (usually last) entry; on subsequent times go back.
@@ -279,7 +281,7 @@ LineInputKeyDown(PCONSRV_CONSOLE Console,
         }
 
         case VK_F3:
-        {
+        {DPRINT1("VK_F3\n");
             /* Recall the remainder of the current history entry */
             HistoryGetCurrentEntry(Console, ExeName, &Entry);
             if (Pos * sizeof(WCHAR) < Entry.Length)
@@ -395,7 +397,7 @@ LineInputKeyDown(PCONSRV_CONSOLE Console,
         }
     }
     else if (KeyEvent->uChar.UnicodeChar == L'\r')
-    {
+    {//OutputDebugStringA("\\r\n");
         /*
          * Only add a history entry if console echo is enabled. This ensures
          * that anything sent to the console when echo is disabled (e.g.
