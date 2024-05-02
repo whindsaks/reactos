@@ -11,6 +11,7 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(dmenu);
 
+EXTERN_C INT WINAPI GetMenuPosFromID(HMENU hMenu, UINT wID);
 
 // FIXME: 260 is correct, but should this be part of the SDK or just MAX_PATH?
 #define MAX_VERB 260
@@ -29,19 +30,44 @@ static inline bool RegValueExists(HKEY hKey, LPCWSTR Name)
     return RegQueryValueExW(hKey, Name, NULL, NULL, NULL, NULL) == ERROR_SUCCESS;
 }
 
-static BOOL InsertMenuItemAt(HMENU hMenu, UINT Pos, UINT Flags)
+#define InsertMenuSeparatorAt(hmenu, pos) InsertMenuItemAt((hmenu), (pos), 0, NULL)
+static BOOL InsertMenuItemAt(HMENU hMenu, UINT Pos, UINT Id, LPCWSTR String)
+{
+    MENUITEMINFOW mii;
+    mii.cbSize = FIELD_OFFSET(MENUITEMINFOW, hbmpItem); // USER32 version agnostic
+    mii.fMask = MIIM_TYPE | MIIM_ID;
+    mii.dwTypeData = const_cast<LPWSTR>(String);
+    mii.fType = String ? MF_STRING : MF_SEPARATOR;
+    mii.wID = Id;
+    return InsertMenuItemW(hMenu, Pos, TRUE, &mii);
+}
+
+static bool MenuItemIsSeparator(HMENU hMenu, UINT Pos, UINT Flags)
 {
     MENUITEMINFOW mii;
     mii.cbSize = FIELD_OFFSET(MENUITEMINFOW, hbmpItem); // USER32 version agnostic
     mii.fMask = MIIM_TYPE;
-    mii.fType = Flags;
-    return InsertMenuItemW(hMenu, Pos, TRUE, &mii);
+    mii.cch = 0;
+    return GetMenuItemInfoW(hMenu, Pos, Flags & MF_BYPOSITION, &mii) && (mii.fType & MFT_SEPARATOR);
 }
+
+template<class T> bool IsUnicode(const T &ici)
+{
+    return (ici.fMask & CMIC_MASK_UNICODE) && ici.cbSize >= FIELD_OFFSET(CMINVOKECOMMANDINFOEX, ptInvoke);
+}
+
+enum CMDTYPE {
+    CT_STATICVERB, // Shell
+    CT_DYNAMIC, // ShellEx
+    CT_CALLBACK, // DFM_MERGEMENU
+    CT_FCIDM, // DFM_CMD and friends
+    CT_UNKNOWN // Error
+};
 
 typedef struct _DynamicShellEntry_
 {
     UINT iIdCmdFirst;
-    UINT NumIds;
+    UINT iIdCmdEnd;
     CLSID ClassID;
     CComPtr<IContextMenu> pCM;
 } DynamicShellEntry, *PDynamicShellEntry;
@@ -53,6 +79,32 @@ typedef struct _StaticShellEntry_
 } StaticShellEntry, *PStaticShellEntry;
 
 #define DCM_FCIDM_SHVIEW_OFFSET 0x7000 // Offset from the menu ids in the menu resource to FCIDM_SHVIEW_*
+
+/*
+Menu layout:
+? DFM_MERGECONTEXTMENU_TOP
+? DFM_MERGECONTEXTMENU, Shell, ShellEx
+- DCM_INTERNALID_PLACEHOLDER, DCM_INTERNALID_MIDDLESTART
+? ShellEx (SendTo etc.)
+- DCM_INTERNALID_PLACEHOLDER, DCM_INTERNALID_MIDDLEEND
+? DFM_CMD_*
+- DCM_INTERNALID_PLACEHOLDER, DCM_INTERNALID_BOTTOMSTART
+? ShellEx (CLSID_NewMenu)
+- DCM_INTERNALID_PLACEHOLDER, DCM_INTERNALID_BOTTOMEND
+? DFM_MERGECONTEXTMENU_BOTTOM
+? DFM_CMD_PROPERTIES
+*/
+#define DCM_INTERNALID_PLACEHOLDER(last) ((last) - 1)
+#define DCM_INTERNALID_MIDDLESTART(last) ((last) - 2)
+#define DCM_INTERNALID_MIDDLEEND(last)   ((last) - 3)
+#define DCM_INTERNALID_BOTTOMSTART(last) ((last) - 4)
+#define DCM_INTERNALID_BOTTOMEND(last)   ((last) - 5)
+#define DCM_INTERNALMENUITEMIDCOUNT      (         6)
+#if DBG
+#define DCM_INTERNALTEXT(dbg) L"[" dbg L"]"
+#else
+#define DCM_INTERNALTEXT(dbg) L"[P]" // NT5 uses "placeholder", NT6 uses "{GUID}"
+#endif
 
 //
 // verbs for InvokeCommandInfo
@@ -80,6 +132,17 @@ static const struct _StaticInvokeCommandMap_
     { "moveto",          FCIDM_SHVIEW_MOVETO },
 };
 
+#define MapFCIDMToDFMCMD(FCIDM) ( (int)(short)HIWORD(MapFCIDMToStatic(FCIDM)) )
+static UINT MapFCIDMToStatic(UINT FCIDM)
+{
+    for (UINT i = 0; i < _countof(g_StaticInvokeCmdMap); ++i)
+    {
+        if (g_StaticInvokeCmdMap[i].IntVerb == FCIDM)
+            return MAKELONG(i, g_StaticInvokeCmdMap[i].DfmCmd);
+    }
+    return 0;
+}
+
 class CDefaultContextMenu :
     public CComObjectRootEx<CComMultiThreadModelNoCS>,
     public IContextMenu3,
@@ -104,10 +167,10 @@ class CDefaultContextMenu :
         CAtlList<StaticShellEntry> m_StaticEntries;
         UINT m_iIdSCMFirst; /* first static used id */
         UINT m_iIdSCMLast; /* last static used id */
-        UINT m_iIdCBFirst; /* first callback used id */
-        UINT m_iIdCBLast;  /* last callback used id */
+        UINT m_iIdCB1First, m_iIdCB2First; /* first callback used id */
         UINT m_iIdDfltFirst; /* first default part id */
         UINT m_iIdDfltLast; /* last default part id */
+        UINT m_idCmdFirst; /* id offset */ // FIXME: is this still used?
         HWND m_hwnd; /* window passed to callback */
 
         HRESULT _DoCallback(UINT uMsg, WPARAM wParam, LPVOID lParam);
@@ -117,7 +180,7 @@ class CDefaultContextMenu :
         BOOL IsShellExtensionAlreadyLoaded(REFCLSID clsid);
         HRESULT LoadDynamicContextMenuHandler(HKEY hKey, REFCLSID clsid);
         BOOL EnumerateDynamicContextHandlerForKey(HKEY hRootKey);
-        UINT AddShellExtensionsToMenu(HMENU hMenu, UINT* pIndexMenu, UINT idCmdFirst, UINT idCmdLast, UINT uFlags);
+        UINT AddShellExtensionsToMenu(HMENU hMenu, UINT IndexMenu, UINT idCmdFirst, UINT idCmdLast, UINT uFlags, UINT idAdjust);
         UINT AddStaticContextMenusToMenu(HMENU hMenu, UINT* IndexMenu, UINT iIdCmdFirst, UINT iIdCmdLast, UINT uFlags);
         HRESULT DoPaste(LPCMINVOKECOMMANDINFOEX lpcmi, BOOL bLink);
         HRESULT DoOpenOrExplore(LPCMINVOKECOMMANDINFOEX lpcmi);
@@ -135,7 +198,8 @@ class CDefaultContextMenu :
         HRESULT TryToBrowse(LPCMINVOKECOMMANDINFOEX lpcmi, LPCITEMIDLIST pidl, DWORD wFlags);
         HRESULT InvokePidl(LPCMINVOKECOMMANDINFOEX lpcmi, LPCITEMIDLIST pidl, PStaticShellEntry pEntry);
         PDynamicShellEntry GetDynamicEntry(UINT idCmd);
-        BOOL MapVerbToCmdId(PVOID Verb, PUINT idCmd, BOOL IsUnicode);
+        BOOL MapVerbStringToFCIDM(LPCVOID Verb, PUINT idCmd, BOOL IsUnicode);
+        CMDTYPE GetCommandFromHostCmdId(WORD HostCmdId, UINT &Details, LPCMINVOKECOMMANDINFOEX lpcmi);
 
     public:
         CDefaultContextMenu();
@@ -163,6 +227,19 @@ class CDefaultContextMenu :
             return IUnknown_QueryService(m_site, svc, riid, ppv);
         }
 
+        static inline UINT UpdateNextId(UINT &iIdCmdFirst, HRESULT Result)
+        {
+            //DbgPrint("UpdateNextId HR %d vs %d\n", iIdCmdFirst, Result);
+            if (SUCCEEDED(Result))
+                iIdCmdFirst = max(HRESULT_CODE(Result), iIdCmdFirst);
+            return iIdCmdFirst;
+        }
+        static inline UINT UpdateNextId(UINT &iIdCmdFirst, const QCMINFO &qcmi)
+        {
+            //DbgPrint("UpdateNextId QCMINFO\n");
+            return iIdCmdFirst = max(qcmi.idCmdFirst, iIdCmdFirst);
+        }
+
         BEGIN_COM_MAP(CDefaultContextMenu)
         COM_INTERFACE_ENTRY_IID(IID_IContextMenu, IContextMenu)
         COM_INTERFACE_ENTRY_IID(IID_IContextMenu2, IContextMenu2)
@@ -187,10 +264,11 @@ CDefaultContextMenu::CDefaultContextMenu() :
     m_iIdSHELast(0),
     m_iIdSCMFirst(0),
     m_iIdSCMLast(0),
-    m_iIdCBFirst(0),
-    m_iIdCBLast(0),
+    m_iIdCB1First(0),
+    m_iIdCB2First(0),
     m_iIdDfltFirst(0),
     m_iIdDfltLast(0),
+    m_idCmdFirst(0),
     m_hwnd(NULL)
 {
 }
@@ -269,6 +347,44 @@ HRESULT CDefaultContextMenu::_DoCallback(UINT uMsg, WPARAM wParam, LPVOID lParam
     }
 
     return E_FAIL;
+}
+
+CMDTYPE CDefaultContextMenu::GetCommandFromHostCmdId(WORD HostCmdId, UINT &Details, LPCMINVOKECOMMANDINFOEX lpcmi)
+{
+    UINT CmdId = HostCmdId;
+
+    DbgPrint("GetCommandFromHostCmdId h=%d me=%d\n", HostCmdId, CmdId);
+
+    if (CmdId < m_iIdSHELast && CmdId >= m_iIdSHEFirst)
+    {
+        // PDynamicShellEntry GetDynamicEntry
+        DbgPrint("FIXME GetDynamicEntry of %d might be %d\n", CmdId, CmdId - m_iIdSHEFirst);
+        //Details = CmdId;???? CmdId - m_iIdSHEFirst?
+        if (lpcmi)
+            lpcmi->lpVerb = MAKEINTRESOURCEA(CmdId);
+        return CT_DYNAMIC;
+    }
+    else if (CmdId < m_iIdSCMLast && CmdId >= m_iIdSCMFirst)
+    {
+        Details = CmdId - m_iIdSCMFirst;
+        if (lpcmi)
+            lpcmi->lpVerb = MAKEINTRESOURCEA(Details);
+        return CT_STATICVERB;
+    }
+    else if (CmdId < m_iIdDfltLast && CmdId >= m_iIdDfltFirst)
+    {
+        Details = CmdId - m_iIdDfltFirst + DCM_FCIDM_SHVIEW_OFFSET; // FCIDM_*
+        return CT_FCIDM;
+    }
+    else if (CmdId >= m_iIdCB1First && CmdId <= 0xffff)
+    {
+        Details = CmdId - (CmdId < m_iIdCB2First ? m_iIdCB1First : m_iIdCB2First);
+        return CT_CALLBACK;
+    }
+    else
+    {
+        return CT_UNKNOWN;
+    }
 }
 
 void CDefaultContextMenu::AddStaticEntry(const HKEY hkeyClass, const WCHAR *szVerb, UINT uFlags)
@@ -459,32 +575,40 @@ CDefaultContextMenu::EnumerateDynamicContextHandlerForKey(HKEY hRootKey)
 }
 
 UINT
-CDefaultContextMenu::AddShellExtensionsToMenu(HMENU hMenu, UINT* pIndexMenu, UINT idCmdFirst, UINT idCmdLast, UINT uFlags)
+CDefaultContextMenu::AddShellExtensionsToMenu(HMENU hMenu, UINT IndexMenu, UINT idCmdFirst, UINT idCmdLast, UINT uFlags, UINT idAdjust)
 {
-    UINT cIds = 0;
+    UINT idCmdNext = idCmdFirst;
 
     if (m_DynamicEntries.IsEmpty())
-        return cIds;
+        return idCmdNext;
 
     POSITION it = m_DynamicEntries.GetHeadPosition();
-    while (it != NULL)
-    {
+    while (it != NULL && idCmdNext < idCmdLast)
+    {POSITION dbgit = it;
         DynamicShellEntry& info = m_DynamicEntries.GetNext(it);
 
-        HRESULT hr = info.pCM->QueryContextMenu(hMenu, *pIndexMenu, idCmdFirst + cIds, idCmdLast, uFlags);
+        // We don't trust shell extensions to return the next id so each extension gets its own range
+        UINT avail = idCmdLast - idCmdNext, base = 0;
+        if (avail < 1)
+            break;
+
+        HRESULT hr = info.pCM->QueryContextMenu(hMenu, IndexMenu, base, base + avail, uFlags);
         if (SUCCEEDED(hr))
         {
-            info.iIdCmdFirst = cIds;
-            info.NumIds = HRESULT_CODE(hr);
-            (*pIndexMenu) += info.NumIds;
-
-            cIds += info.NumIds;
-            if (idCmdFirst + cIds >= idCmdLast)
-                break;
+            UINT count = HRESULT_CODE(hr);
+            info.iIdCmdFirst = idCmdNext - idAdjust;
+            info.iIdCmdEnd = UpdateNextId(idCmdNext, hr) - idAdjust;
+            WCHAR b[99];
+            StringFromGUID2(info.ClassID, b, 39);
+            DbgPrint("ShellEx QCM %d..%d IT=%d %ls hr=%d\n", info.iIdCmdFirst, info.iIdCmdEnd, dbgit, b, hr);
         }
-        TRACE("pEntry hr %x contextmenu %p cmdfirst %x num ids %x\n", hr, info.pCM.p, info.iIdCmdFirst, info.NumIds);
+        else
+        {
+            info.iIdCmdEnd = 0;
+        }
+        TRACE("pEntry hr %x contextmenu %p cmdfirst %x end %x\n", hr, info.pCM.p, info.iIdCmdFirst, info.iIdCmdEnd);
     }
-    return cIds;
+    return idCmdNext;
 }
 
 UINT
@@ -520,7 +644,7 @@ CDefaultContextMenu::AddStaticContextMenusToMenu(
             fState |= MFS_DEFAULT;
             first = false;
         }
-
+DbgPrint("verb#%u: %ls\n", cIds, (LPWSTR)info.Verb.GetString());
         if (info.Verb.CompareNoCase(L"open") == 0)
         {
             idResource = IDS_OPEN_VERB;
@@ -633,18 +757,18 @@ CDefaultContextMenu::AddStaticContextMenusToMenu(
         {
             if (cmdFlags & ECF_SEPARATORBEFORE)
             {
-                if (InsertMenuItemAt(hMenu, *pIndexMenu, MF_SEPARATOR))
+                if (InsertMenuSeparatorAt(hMenu, *pIndexMenu))
                     (*pIndexMenu)++;
             }
 
             mii.fState = fState;
-            mii.wID = iIdCmdFirst + cIds;
+            mii.wID = iIdCmdFirst + cIds;DbgPrint("verb insert with win32id=%d\n", mii.wID);
             if (InsertMenuItemW(hMenu, forceFirstPos ? indexFirst : *pIndexMenu, TRUE, &mii))
                 (*pIndexMenu)++;
 
             if (cmdFlags & ECF_SEPARATORAFTER)
             {
-                if (InsertMenuItemAt(hMenu, *pIndexMenu, MF_SEPARATOR))
+                if (InsertMenuSeparatorAt(hMenu, *pIndexMenu))
                     (*pIndexMenu)++;
             }
         }
@@ -653,8 +777,8 @@ CDefaultContextMenu::AddStaticContextMenusToMenu(
         if (mii.wID >= iIdCmdLast)
             break;
     }
-
-    return cIds;
+DbgPrint("Static ret=%d menuidx:%d=>%d\n", cIds, indexFirst, *pIndexMenu);
+    return iIdCmdFirst + cIds;
 }
 
 void WINAPI _InsertMenuItemW(
@@ -737,62 +861,55 @@ WINAPI
 CDefaultContextMenu::QueryContextMenu(
     HMENU hMenu,
     UINT IndexMenu,
-    UINT idCmdFirst,
+    UINT idOrgCmdFirst,
     UINT idCmdLast,
     UINT uFlags)
 {
+    m_idCmdFirst = idOrgCmdFirst;
+    const UINT BaseAdjust = idOrgCmdFirst;
     HRESULT hr;
-    UINT idCmdNext = idCmdFirst;
-    UINT cIds = 0;
+    UINT placeholders = 0, placepos = IndexMenu;
+    bool loadFileVerbs = m_pmcb || m_pfnmcb;
 
-    TRACE("BuildShellItemContextMenu entered\n");
+    TRACE("BuildShellItemContextMenu entered\n");DbgPrint("QueryContextMenu %d %d..%d %#x\n", IndexMenu, idOrgCmdFirst, idCmdLast, uFlags);
 
-    /* Load static verbs and shell extensions from registry */
-    for (UINT i = 0; i < m_cKeys && !(uFlags & CMF_NOVERBS); i++)
+    UINT ntver = RosGetProcessEffectiveVersion();
+    if (ntver >= _WIN32_WINNT_WIN7)
     {
-        AddStaticEntriesForKey(m_aKeys[i], uFlags);
-        EnumerateDynamicContextHandlerForKey(m_aKeys[i]);
+        SIZE_T newflags = uFlags;
+        if (SUCCEEDED(_DoCallback(DFM_MODIFYQCMFLAGS, uFlags, &newflags)))
+            uFlags = (UINT)newflags;
     }
 
-    /* Add static context menu handlers */
-    cIds = AddStaticContextMenusToMenu(hMenu, &IndexMenu, idCmdFirst, idCmdLast, uFlags);
-    m_iIdSCMFirst = 0; // FIXME: This should be = idCmdFirst?
-    m_iIdSCMLast = cIds;
-    idCmdNext = idCmdFirst + cIds;
-
-    /* Add dynamic context menu handlers */
-    cIds += AddShellExtensionsToMenu(hMenu, &IndexMenu, idCmdNext, idCmdLast, uFlags);
-    m_iIdSHEFirst = m_iIdSCMLast;
-    m_iIdSHELast = cIds;
-    idCmdNext = idCmdFirst + cIds;
-    TRACE("SH_LoadContextMenuHandlers first %x last %x\n", m_iIdSHEFirst, m_iIdSHELast);
-
-    /* Now let the callback add its own items */
-    QCMINFO qcminfo = {hMenu, IndexMenu, idCmdNext, idCmdLast, NULL};
-    if (SUCCEEDED(_DoCallback(DFM_MERGECONTEXTMENU, uFlags, &qcminfo)))
+    if (idCmdLast - idOrgCmdFirst > DCM_INTERNALMENUITEMIDCOUNT && !(uFlags & CMF_DEFAULTONLY))
     {
-        UINT added = qcminfo.idCmdFirst - idCmdNext;
-        cIds += added;
-        IndexMenu += added;
-        m_iIdCBFirst = m_iIdSHELast;
-        m_iIdCBLast = cIds;
-        idCmdNext = idCmdFirst + cIds;
+        placeholders = idCmdLast;
+        idCmdLast -= DCM_INTERNALMENUITEMIDCOUNT;
+        InsertMenuItemAt(hMenu, placepos++, DCM_INTERNALID_PLACEHOLDER(placeholders), DCM_INTERNALTEXT(L"MiddleStart"));
+        InsertMenuItemAt(hMenu, placepos++, DCM_INTERNALID_MIDDLESTART(placeholders), NULL);
+        InsertMenuItemAt(hMenu, placepos++, DCM_INTERNALID_PLACEHOLDER(placeholders), DCM_INTERNALTEXT(L"MiddleEnd"));
+        InsertMenuItemAt(hMenu, placepos++, DCM_INTERNALID_MIDDLEEND(placeholders), NULL);
     }
+    QCMINFO_IDMAP_PLACEMENT idmap[] = {
+        { 0, 2 }, // Dummy + QCMINFO_IDMAP.nMaxIds
+        { DCM_INTERNALID_MIDDLEEND(placeholders), QCMINFO_PLACE_BEFORE }, // DCM_QCMIIDMAPIDX_MIDDLE
+        { DCM_INTERNALID_BOTTOMEND(placeholders), QCMINFO_PLACE_BEFORE }  // DCM_QCMIIDMAPIDX_BOTTOM
+    };
+    QCMINFO qcmi = { hMenu, IndexMenu, idOrgCmdFirst, idCmdLast, placeholders ? (QCMINFO_IDMAP*)&idmap[0].fFlags: NULL };
+    UINT &idCmdFirst = qcmi.idCmdFirst;
 
-    //TODO: DFM_MERGECONTEXTMENU_BOTTOM
-
-    UINT idDefaultOffset = 0;
+    int idProperties = 0, posProperties = -1;
     BOOL isBackgroundMenu = !m_cidl;
     if (!(uFlags & CMF_VERBSONLY) && !isBackgroundMenu)
     {
         /* Get the attributes of the items */
-        SFGAOF rfg = SFGAO_BROWSABLE | SFGAO_CANCOPY | SFGAO_CANLINK | SFGAO_CANMOVE | SFGAO_CANDELETE | SFGAO_CANRENAME | SFGAO_HASPROPSHEET | SFGAO_FILESYSTEM | SFGAO_FOLDER;
+        SFGAOF rfg = SFGAO_CANCOPY | SFGAO_CANLINK | SFGAO_CANMOVE | SFGAO_CANDELETE | SFGAO_CANRENAME | SFGAO_HASPROPSHEET | SFGAO_FILESYSTEM;
         hr = m_psf->GetAttributesOf(m_cidl, m_apidl, &rfg);
         if (FAILED_UNEXPECTEDLY(hr))
-            return MAKE_HRESULT(SEVERITY_SUCCESS, 0, cIds);
+            rfg = 0;
 
         /* Add the default part of the menu */
-        HMENU hmenuDefault = LoadMenu(_AtlBaseModule.GetResourceInstance(), L"MENU_SHV_FILE");
+        HMENU hmenuDefault = LoadMenu(_AtlBaseModule.GetResourceInstance(), MAKEINTRESOURCEW(IDM_DFM));
 
         /* Remove uneeded entries */
         if (!(rfg & SFGAO_CANMOVE))
@@ -810,20 +927,104 @@ CDefaultContextMenu::QueryContextMenu(
         if (!(rfg & SFGAO_HASPROPSHEET))
             DeleteMenu(hmenuDefault, IDM_PROPERTIES, MF_BYCOMMAND);
 
-        idDefaultOffset = idCmdNext;
-        UINT idMax = Shell_MergeMenus(hMenu, GetSubMenu(hmenuDefault, 0), IndexMenu, idCmdNext, idCmdLast, 0);
-        m_iIdDfltFirst = cIds;
-        cIds += idMax - idCmdNext;
-        m_iIdDfltLast = cIds;
-
+        UINT idMax = Shell_MergeMenus(hMenu, GetSubMenu(hmenuDefault, 0), placepos, idCmdFirst, idCmdLast, 0);
+        posProperties = GetMenuPosFromID(hMenu, idCmdFirst + IDM_PROPERTIES);
+        if (posProperties != -1)
+            idProperties = idCmdFirst + IDM_PROPERTIES;
+        DbgPrint("DFM_CMD ids=%d..%d idProps=%d\n", idCmdFirst, idMax, idCmdFirst + IDM_PROPERTIES);
+        m_iIdDfltFirst = idCmdFirst - BaseAdjust;
+        m_iIdDfltLast = UpdateNextId(idCmdFirst, idMax) - BaseAdjust;
         DestroyMenu(hmenuDefault);
     }
+    if (placeholders)
+    {
+        placepos = posProperties != -1 ? posProperties : 0x7fffffff;
+        InsertMenuItemAt(hMenu, placepos, DCM_INTERNALID_BOTTOMSTART(placeholders), NULL);
+        InsertMenuItemAt(hMenu, placepos, DCM_INTERNALID_PLACEHOLDER(placeholders), DCM_INTERNALTEXT(L"BottomEnd"));
+        InsertMenuItemAt(hMenu, placepos, DCM_INTERNALID_BOTTOMEND(placeholders), NULL);
+        InsertMenuItemAt(hMenu, placepos, DCM_INTERNALID_PLACEHOLDER(placeholders), DCM_INTERNALTEXT(L"BottomStart"));
+    }
 
-    TryPickDefault(hMenu, idCmdFirst, idDefaultOffset, uFlags);
+    /* Now let the callback add its own items */
+    m_iIdCB1First = qcmi.idCmdFirst - BaseAdjust;
+    hr = _DoCallback(DFM_MERGECONTEXTMENU, uFlags, &qcmi);
+    loadFileVerbs = hr == S_OK;
+    /* BOTTOM items are inserted before DFM_CMD_PROPERTIES */
+    if (!idProperties || int(qcmi.indexMenu = GetMenuPosFromID(hMenu, idProperties)) == -1)
+        qcmi.indexMenu = GetMenuItemCount(hMenu);
+    hr = _DoCallback(DFM_MERGECONTEXTMENU_BOTTOM, uFlags, &qcmi);
+    loadFileVerbs = loadFileVerbs || hr == S_OK;
+    UpdateNextId(idCmdFirst, qcmi);
+    DbgPrint("MERGECONTEXTMENU ids=%d..%d\n", m_iIdCB1First, idCmdFirst);
 
-    // TODO: DFM_MERGECONTEXTMENU_TOP
+    /* Load static verbs and shell extensions from registry */
+    // FIXME: If loadFileVerbs is false, we should not load everything
+    for (UINT i = 0; i < m_cKeys && !(uFlags & CMF_NOVERBS); i++)
+    {
+        AddStaticEntriesForKey(m_aKeys[i], uFlags);
+        EnumerateDynamicContextHandlerForKey(m_aKeys[i]);
+    }
 
-    return MAKE_HRESULT(SEVERITY_SUCCESS, 0, cIds);
+    /* Add static context menu handlers */ DbgPrint("AddStatic @ %d first=%d\n", IndexMenu, idCmdFirst);
+    //cIds += 
+    hr = AddStaticContextMenusToMenu(hMenu, &IndexMenu, idCmdFirst, idCmdLast, uFlags);
+    if (SUCCEEDED(hr))
+    {
+        m_iIdSCMFirst = idCmdFirst - BaseAdjust;
+        m_iIdSCMLast = UpdateNextId(idCmdFirst, hr) - BaseAdjust;
+        DbgPrint("AddStatic ids=%d..%d IndexMenu=%d hr=%d\n", m_iIdSCMFirst, m_iIdSCMLast, IndexMenu, hr);
+    }
+    //m_iIdSCMFirst = idCmdFirst;
+    //m_iIdSCMLast = cIds;
+    //idCmdFirst = cIds;
+
+    /* Add dynamic context menu handlers */ DbgPrint("AddShellEx @ %d\n", IndexMenu);
+    //cIds += 
+    hr = AddShellExtensionsToMenu(hMenu, IndexMenu, idCmdFirst, idCmdLast, uFlags, BaseAdjust);
+    if (SUCCEEDED(hr))
+    {
+        m_iIdSHEFirst = idCmdFirst - BaseAdjust;
+        m_iIdSHELast = UpdateNextId(idCmdFirst, hr) - BaseAdjust;
+        DbgPrint("AddShellEx ids=%d..%d\n", m_iIdSHEFirst, m_iIdSHELast);
+    }
+    //*/m_iIdSHEFirst = m_iIdSCMLast;
+    //m_iIdSHELast = cIds;
+    //idCmdFirst = cIds;
+    TRACE("DFM Shell %d..%d ShellEx %d..%d\n", m_iIdSCMFirst, m_iIdSCMLast, m_iIdSHEFirst, m_iIdSHELast);
+
+    TryPickDefault(hMenu, idCmdFirst, m_iIdDfltFirst, uFlags);
+
+    qcmi.indexMenu = 0;
+    m_iIdCB2First = qcmi.idCmdFirst - BaseAdjust;
+    _DoCallback(DFM_MERGECONTEXTMENU_TOP, uFlags, &qcmi);
+    UpdateNextId(idCmdFirst, qcmi);
+
+    if (placeholders /*DBG:*/ && GetKeyState(VK_SHIFT) >= 0 /**/)
+    {
+        for (;;) // Remove our placeholders and duplicate separators below us
+        {
+            int pos = GetMenuPosFromID(hMenu, DCM_INTERNALID_PLACEHOLDER(placeholders));
+            if (pos == -1 || !DeleteMenu(hMenu, pos, MF_BYPOSITION))
+                break;
+            for (UINT i = 0; MenuItemIsSeparator(hMenu, pos, MF_BYPOSITION); ++i)
+            {
+                BOOL remove = MenuItemIsSeparator(hMenu, ++pos, MF_BYPOSITION) ||
+                              pos >= GetMenuItemCount(hMenu) || i == 0;
+                if (!remove || !DeleteMenu(hMenu, --pos, MF_BYPOSITION))
+                    break;
+            }
+        }
+        for (;;) // And the separators at the bottom
+        {
+            int pos = GetMenuItemCount(hMenu);
+            if (pos > 0 && MenuItemIsSeparator(hMenu, --pos, MF_BYPOSITION))
+                DeleteMenu(hMenu, pos, MF_BYPOSITION);
+            else
+                break;
+        }
+    }
+    DbgPrint("HRret=%d with nextid=%d\n", idCmdFirst, idCmdFirst);
+    return MAKE_HRESULT(SEVERITY_SUCCESS, 0, idCmdFirst);
 }
 
 HRESULT CDefaultContextMenu::DoPaste(LPCMINVOKECOMMANDINFOEX lpcmi, BOOL bLink)
@@ -969,15 +1170,7 @@ HRESULT
 CDefaultContextMenu::DoProperties(
     LPCMINVOKECOMMANDINFOEX lpcmi)
 {
-    HRESULT hr = _DoCallback(DFM_INVOKECOMMAND, DFM_CMD_PROPERTIES, NULL);
-
-    // We are asked to run the default property sheet
-    if (hr == S_FALSE)
-    {
-        return Shell_DefaultContextMenuCallBack(m_psf, m_pDataObj);
-    }
-
-    return hr;
+    return Shell_DefaultContextMenuCallBack(m_psf, m_pDataObj);
 }
 
 HRESULT
@@ -1088,22 +1281,28 @@ PDynamicShellEntry CDefaultContextMenu::GetDynamicEntry(UINT idCmd)
     POSITION it = m_DynamicEntries.GetHeadPosition();
     while (it != NULL)
     {
+POSITION dbgit = it;
         DynamicShellEntry& info = m_DynamicEntries.GetNext(it);
+WCHAR b[99];
+StringFromGUID2(info.ClassID, b, 39);
 
-        if (idCmd >= info.iIdCmdFirst + info.NumIds)
-            continue;
+        DbgPrint("GDE %d < %d && %d >= %d IT=%d %ls\n", idCmd, info.iIdCmdEnd, idCmd, info.iIdCmdFirst, dbgit, b);
 
-        if (idCmd < info.iIdCmdFirst || idCmd > info.iIdCmdFirst + info.NumIds)
-            return NULL;
-
-        return &info;
+        if (idCmd < info.iIdCmdEnd && idCmd >= info.iIdCmdFirst)
+        {DbgPrint("Yes, that GDE\n");
+            return &info;
+        }
+        else if (idCmd < info.iIdCmdFirst)
+        {
+            ERR("Unexpected idCmd");
+            break;
+        }
     }
-
     return NULL;
 }
 
 BOOL
-CDefaultContextMenu::MapVerbToCmdId(PVOID Verb, PUINT idCmd, BOOL IsUnicode)
+CDefaultContextMenu::MapVerbStringToFCIDM(LPCVOID Verb, PUINT idCmd, BOOL IsUnicode)
 {
     WCHAR UnicodeStr[MAX_VERB];
 
@@ -1143,11 +1342,13 @@ CDefaultContextMenu::InvokeShellExt(
 
     UINT idCmd = LOWORD(lpcmi->lpVerb);
     PDynamicShellEntry pEntry = GetDynamicEntry(idCmd);
+    DbgPrint("ShellEx %d=>%p\n", idCmd, pEntry);
     if (!pEntry)
         return E_FAIL;
 
     /* invoke the dynamic context menu */
     lpcmi->lpVerb = MAKEINTRESOURCEA(idCmd - pEntry->iIdCmdFirst);
+    lpcmi->lpVerbW = MAKEINTRESOURCEW(lpcmi->lpVerb);
     return pEntry->pCM->InvokeCommand((LPCMINVOKECOMMANDINFO)lpcmi);
 }
 
@@ -1270,7 +1471,7 @@ CDefaultContextMenu::InvokeRegVerb(
     UINT i;
 
     POSITION it = m_StaticEntries.FindIndex(iCmd);
-
+DbgPrint("InvokeRegVerb %d=>%d\n", iCmd, it);
     if (it == NULL)
         return E_INVALIDARG;
 
@@ -1347,7 +1548,8 @@ CDefaultContextMenu::InvokeCommand(
 {
     CMINVOKECOMMANDINFOEX LocalInvokeInfo = {};
     HRESULT Result;
-    UINT CmdId;
+    UINT CmdId, Details;
+    CMDTYPE ct = CT_UNKNOWN;
 
     /* Take a local copy of the fixed members of the
        struct as we might need to modify the verb */
@@ -1356,40 +1558,59 @@ CDefaultContextMenu::InvokeCommand(
     /* Check if this is a string verb */
     if (!IS_INTRESOURCE(LocalInvokeInfo.lpVerb))
     {
-        /* Get the ID which corresponds to this verb, and update our local copy */
-        if (MapVerbToCmdId((LPVOID)LocalInvokeInfo.lpVerb, &CmdId, FALSE))
-            LocalInvokeInfo.lpVerb = MAKEINTRESOURCEA(CmdId);
+        LPCVOID StringVerb = LocalInvokeInfo.lpVerb;
+        BOOL unicode = FALSE;
+        if (IsUnicode(LocalInvokeInfo) && !IS_INTRESOURCE(LocalInvokeInfo.lpVerbW))
+        {
+            StringVerb = LocalInvokeInfo.lpVerbW;
+        }
+        if (MapVerbStringToFCIDM(StringVerb, &CmdId, unicode)) // FIXME: This should map string verbs from all sources
+        {
+            Details = CmdId;
+            ct = CT_FCIDM;
+        }
+        else
+        {
+            ERR("Could not map string verb\n");
+            return E_INVALIDARG;
+        }
+    }
+    else
+    {
+        ct = GetCommandFromHostCmdId(LOWORD(LocalInvokeInfo.lpVerb), Details, &LocalInvokeInfo);
     }
 
-    CmdId = LOWORD(LocalInvokeInfo.lpVerb);
+    switch((UINT)ct)
+    {
+        case CT_STATICVERB: DbgPrint("InvokeRegVerb %d\n", Details);
+            Result = InvokeRegVerb(&LocalInvokeInfo);
+            // TODO: if (FAILED(Result) && !(lpcmi->fMask & CMIC_MASK_FLAG_NO_UI)) SHELL_ErrorBox(m_pSite, Result);
+            return Result;
+        case CT_DYNAMIC: DbgPrint("InvokeShellExt %d\n", Details);
+            return InvokeShellExt(&LocalInvokeInfo);
+        case CT_UNKNOWN:
+            ERR("Unhandled Verb %xl\n", LOWORD(LocalInvokeInfo.lpVerb));
+            return E_INVALIDARG;
+    }
+
+/*
+    CmdId = LOWORD(LocalInvokeInfo.lpVerb) + m_idCmdFirst;
+    DbgPrint("InvokeCommand mapped cmd to %d (from %p)\n", CmdId, lpcmi->lpVerb);
 
     if (!m_DynamicEntries.IsEmpty() && CmdId >= m_iIdSHEFirst && CmdId < m_iIdSHELast)
-    {
+    {DbgPrint("InvokeShellExt\n");
         LocalInvokeInfo.lpVerb -= m_iIdSHEFirst;
         Result = InvokeShellExt(&LocalInvokeInfo);
         return Result;
     }
 
     if (!m_StaticEntries.IsEmpty() && CmdId >= m_iIdSCMFirst && CmdId < m_iIdSCMLast)
-    {
+    {DbgPrint("InvokeRegVerb\n");
         LocalInvokeInfo.lpVerb -= m_iIdSCMFirst;
         Result = InvokeRegVerb(&LocalInvokeInfo);
         // TODO: if (FAILED(Result) && !(lpcmi->fMask & CMIC_MASK_FLAG_NO_UI)) SHELL_ErrorBox(m_pSite, Result);
         return Result;
-    }
-
-    if (m_iIdCBFirst != m_iIdCBLast && CmdId >= m_iIdCBFirst && CmdId < m_iIdCBLast)
-    {
-        Result = _DoCallback(DFM_INVOKECOMMAND, CmdId - m_iIdCBFirst, NULL);
-        return Result;
-    }
-
-    if (m_iIdDfltFirst != m_iIdDfltLast && CmdId >= m_iIdDfltFirst && CmdId < m_iIdDfltLast)
-    {
-        CmdId -= m_iIdDfltFirst;
-        /* See the definitions of IDM_CUT and co to see how this works */
-        CmdId += DCM_FCIDM_SHVIEW_OFFSET;
-    }
+    }*/
 
     if (LocalInvokeInfo.cbSize >= sizeof(CMINVOKECOMMANDINFOEX) && (LocalInvokeInfo.fMask & CMIC_MASK_PTINVOKE))
     {
@@ -1399,8 +1620,32 @@ CDefaultContextMenu::InvokeCommand(
         }
     }
 
+/*
+    int CallbackCmdId;
+    / * See the definitions of IDM_CUT and co to see how this works * /
+    UINT FCIDMCmd = CmdId - m_iIdDfltFirst + DCM_FCIDM_SHVIEW_OFFSET;
+    bool IsFCIDM = CmdId >= m_iIdDfltFirst && CmdId < m_iIdDfltLast;
+    if (IsFCIDM)
+        CallbackCmdId = MapFCIDMToDFMCMD(FCIDMCmd);
+    else
+        CallbackCmdId = CmdId - (CmdId < m_iIdCB2First ? m_iIdCB1First : m_iIdCB2First);
+*/
+    UINT FCIDMCmd = Details;
+    bool IsFCIDM = ct == CT_FCIDM;
+    int CallbackCmdId = IsFCIDM ? MapFCIDMToDFMCMD(Details) : Details;
+    DbgPrint("IsFCIDM=%d FCIDMCmd=%#x CallbackCmdId=%p Details=%d\n", IsFCIDM, FCIDMCmd, (SIZE_T)CallbackCmdId, Details);
+    if (!IsFCIDM || CallbackCmdId)
+    {
+        DbgPrint("_DoCallback DFM_INVOKECOMMAND %d(%p) (IsFCIDM=%d)\n", CallbackCmdId, (SIZE_T)CallbackCmdId, IsFCIDM);
+        Result = _DoCallback(DFM_INVOKECOMMAND, CallbackCmdId, NULL);
+        DbgPrint("returned %#x\n", Result);
+        if (!IsFCIDM || (Result == S_OK && CallbackCmdId == (int)DFM_CMD_PROPERTIES)) // FIXME: (!IsFCIDM || Result != S_FALSE)
+            return Result;
+    }
+
+    DbgPrint("Perform FCIDM %#x\n", Details);
     /* Check if this is a Id */
-    switch (CmdId)
+    switch (CmdId = Details)
     {
     case FCIDM_SHVIEW_INSERT:
         Result = DoPaste(&LocalInvokeInfo, FALSE);
@@ -1466,7 +1711,7 @@ CDefaultContextMenu::GetCommandString(
         return E_NOTIMPL;
     }
 
-    UINT CmdId = LOWORD(idCommand);
+    UINT CmdId = LOWORD(idCommand); //FIXME: m_idCmdFirst?
 
     if (!m_DynamicEntries.IsEmpty() && CmdId >= m_iIdSHEFirst && CmdId < m_iIdSHELast)
     {

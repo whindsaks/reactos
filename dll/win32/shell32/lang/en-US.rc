@@ -59,7 +59,7 @@ BEGIN
 END
 
 /* shellview item menu */
-MENU_SHV_FILE MENU
+IDM_DFM MENU
 BEGIN
     POPUP ""
     BEGIN

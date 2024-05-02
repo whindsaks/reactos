@@ -52,7 +52,7 @@ typedef struct
 
 // For the context menu of the def view, the id of the items are based on 1 because we need
 // to call TrackPopupMenu and let it use the 0 value as an indication that the menu was canceled
-#define CONTEXT_MENU_BASE_ID 1
+#define CONTEXT_MENU_BASE_ID max(1, FCIDM_SHVIEWFIRST)
 
 static UINT
 GetContextMenuFlags(IShellBrowser *pSB, SFGAOF sfgao)
@@ -1585,7 +1585,7 @@ HRESULT CDefView::OpenSelectedItems()
         ERR("GetMenuDefaultItem returned -1\n");
         return E_FAIL;
     }
-
+DbgPrint("OpenSelectedItems calling InvokeContextMenuCommand(%d)\n", uCommand);
     InvokeContextMenuCommand(pCM, MAKEINTRESOURCEA(uCommand), NULL);
 
     return hResult;
@@ -1679,10 +1679,10 @@ LRESULT CDefView::OnContextMenu(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &b
                               pt.x, pt.y, 0, m_hWnd, NULL);
     if (uCommand == 0)
         return 0;
-
+DbgPrint("TrackPopupMenu ret %d\n", uCommand);
     if (uCommand == FCIDM_SHVIEW_OPEN && OnDefaultCommand() == S_OK)
         return 0;
-
+DbgPrint("Calling InvokeContextMenuCommand cmdid=%d\n", MAKEINTRESOURCEA(uCommand - CONTEXT_MENU_BASE_ID));
     InvokeContextMenuCommand(m_pCM, MAKEINTRESOURCEA(uCommand - CONTEXT_MENU_BASE_ID), &pt);
 
     return 0;
@@ -1700,7 +1700,7 @@ LRESULT CDefView::OnExplorerCommand(UINT uCommand, BOOL bUseSelection)
 
     MenuCleanup _(pCM, hMenu);
 
-    if ((uCommand != FCIDM_SHVIEW_DELETE) && (uCommand != FCIDM_SHVIEW_RENAME))
+    if ((uCommand != FCIDM_SHVIEW_DELETE) && (uCommand != FCIDM_SHVIEW_RENAME)) // FIXME: Why are these special?
     {
         hMenu = CreatePopupMenu();
         if (!hMenu)
@@ -1732,6 +1732,7 @@ LRESULT CDefView::OnExplorerCommand(UINT uCommand, BOOL bUseSelection)
     }
 
     // FIXME: We should probably use the objects position?
+    DbgPrint("OnExplorerCommand with probably a FCIDM %x(%d)\n", uCommand, uCommand);
     InvokeContextMenuCommand(pCM, MAKEINTRESOURCEA(uCommand), NULL);
     return 0;
 }

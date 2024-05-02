@@ -295,7 +295,7 @@ CSendToMenu::QueryContextMenu(HMENU hMenu,
     TRACE("%p %p %u %u %u %u\n", this,
           hMenu, indexMenu, idCmdFirst, idCmdLast, uFlags);
 
-    if (uFlags & (CMF_NOVERBS | CMF_VERBSONLY))
+    if (uFlags & (CMF_NOVERBS | CMF_VERBSONLY | CMF_DEFAULTONLY))
         return MAKE_HRESULT(SEVERITY_SUCCESS, 0, idCmdFirst);
 
     HMENU hSubMenu = CreateMenu();
