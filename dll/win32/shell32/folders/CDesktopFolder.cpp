@@ -25,6 +25,22 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(shell);
 
+
+#define SFGAO_COMMONFIXED SFGAO_HASPROPSHEET | SFGAO_CANRENAME
+static const FIXEDREGITEM g_FixedItems[] = {
+    { CLSID_MyComputer, L"explorer.exe", 0, 0x50, IDS_MYCOMPUTER, SFGAO_COMMONFIXED | SFGAO_FOLDER | SFGAO_HASSUBFOLDER | SFGAO_DROPTARGET | SFGAO_CANDELETE | SFGAO_FILESYSANCESTOR, L"sysdm.cpl" },
+    { CLSID_NetworkPlaces, L"shell32.dll", 17, 0x58, IDS_NETWORKPLACE, SFGAO_COMMONFIXED | SFGAO_FOLDER | SFGAO_HASSUBFOLDER | SFGAO_DROPTARGET | SFGAO_CANDELETE | SFGAO_FILESYSANCESTOR, L"ncpa.cpl" },
+    { CLSID_Internet, L"shell32.dll", -512, 0x68, 0, SFGAO_COMMONFIXED | SFGAO_BROWSABLE, L"inetcpl.cpl" },
+};
+C_ASSERT(_countof(g_FixedItems) <= REGFOLDER_MAXFIXEDREGITEMS);
+
+static const CLSID* IsDesktopRegItem(LPCITEMIDLIST pidl)
+{
+    if (pidl && pidl->mkid.cb >= 2 + 1 + 1 + 16 && pidl->mkid.abID[0] == 0x1F)
+        return (GUID*)((BYTE*)pidl + pidl->mkid.cb - 16);
+    return NULL;
+}
+
 STDMETHODIMP
 CDesktopFolder::ShellUrlParseDisplayName(
     HWND hwndOwner,
@@ -311,9 +327,8 @@ HRESULT WINAPI CDesktopFolder::FinalConstruct()
     HRESULT hr;
 
     /* Create the root pidl */
-    pidlRoot = _ILCreateDesktop();
-    if (!pidlRoot)
-        return E_OUTOFMEMORY;
+    static const DWORD pidldata = 0;
+    pidlRoot = (LPITEMIDLIST)&pidldata;
 
     /* Create the inner fs folder */
     hr = SHELL32_CoCreateInitSF(pidlRoot,
@@ -332,10 +347,12 @@ HRESULT WINAPI CDesktopFolder::FinalConstruct()
         return hr;
 
     /* Create the inner reg folder */
+    static const FIXEDREGITEMS fixeditems = { g_FixedItems, _countof(g_FixedItems), 0x1F, 0x1F };
     hr = CRegFolder_CreateInstance(&CLSID_ShellDesktop,
                                    pidlRoot,
                                    L"",
                                    L"Desktop",
+                                   &fixeditems,
                                    IID_PPV_ARG(IShellFolder2, &m_regFolder));
     if (FAILED_UNEXPECTEDLY(hr))
         return hr;
@@ -668,13 +685,17 @@ HRESULT WINAPI CDesktopFolder::CompareIDs(LPARAM lParam, PCUIDLIST_RELATIVE pidl
         return E_INVALIDARG;
     }
 
-    bIsDesktopFolder1 = _ILIsDesktop(pidl1);
-    bIsDesktopFolder2 = _ILIsDesktop(pidl2);
+    bIsDesktopFolder1 = !pidl1->mkid.cb;
+    bIsDesktopFolder2 = !pidl2->mkid.cb;
     if (bIsDesktopFolder1 || bIsDesktopFolder2)
         return MAKE_COMPARE_HRESULT(bIsDesktopFolder1 - bIsDesktopFolder2);
 
-    if (_ILIsSpecialFolder(pidl1) || _ILIsSpecialFolder(pidl2))
+    const CLSID *pclsid1 = IsDesktopRegItem(pidl1);
+    const CLSID *pclsid2 = IsDesktopRegItem(pidl2);
+    if (((SIZE_T)pclsid1 | (SIZE_T)pclsid2) != 0)
+    {
         return m_regFolder->CompareIDs(lParam, pidl1, pidl2);
+    }
 
     return m_DesktopFSFolder->CompareIDs(lParam, pidl1, pidl2);
 }

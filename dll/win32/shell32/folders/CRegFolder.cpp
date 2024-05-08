@@ -22,6 +22,14 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL (shell);
 
+#define DEFAULTSORTORDER 0x80 // Geoff Chappell
+
+struct FIXEDREGITEMATTRIBUTES // These can be changed by registry values
+{
+    BYTE SortOrder;
+    SFGAOF sfgao;
+};
+
 HRESULT CALLBACK RegFolderContextMenuCallback(IShellFolder *psf,
                                               HWND         hwnd,
                                               IDataObject  *pdtobj,
@@ -315,14 +323,18 @@ class CRegFolder :
         CAtlStringW m_rootPath;
         CAtlStringW m_enumKeyName;
         CComHeapPtr<ITEMIDLIST> m_pidlRoot;
+        const FIXEDREGITEMS *m_pFixed;
+        FIXEDREGITEMATTRIBUTES m_FixedAttributes[REGFOLDER_MAXFIXEDREGITEMS];
 
+        const CLSID* IsRegItem(LPCITEMIDLIST pidl);
+        int IsFixedItem(REFCLSID clsid);
         HRESULT GetGuidItemAttributes (LPCITEMIDLIST pidl, LPDWORD pdwAttributes);
         BOOL _IsInNameSpace(_In_ LPCITEMIDLIST pidl);
 
     public:
         CRegFolder();
         ~CRegFolder();
-        HRESULT WINAPI Initialize(const GUID *pGuid, LPCITEMIDLIST pidlRoot, LPCWSTR lpszPath, LPCWSTR lpszEnumKeyName);
+        HRESULT WINAPI Initialize(const GUID *pGuid, LPCITEMIDLIST pidlRoot, LPCWSTR lpszPath, LPCWSTR lpszEnumKeyName, const FIXEDREGITEMS *pFixed);
 
         // IShellFolder
         STDMETHOD(ParseDisplayName)(HWND hwndOwner, LPBC pbc, LPOLESTR lpszDisplayName, ULONG *pchEaten, PIDLIST_RELATIVE *ppidl, ULONG *pdwAttributes) override;
@@ -363,9 +375,16 @@ CRegFolder::~CRegFolder()
 {
 }
 
-HRESULT WINAPI CRegFolder::Initialize(const GUID *pGuid, LPCITEMIDLIST pidlRoot, LPCWSTR lpszPath, LPCWSTR lpszEnumKeyName)
+HRESULT WINAPI CRegFolder::Initialize(const GUID *pGuid, LPCITEMIDLIST pidlRoot, LPCWSTR lpszPath, LPCWSTR lpszEnumKeyName, const FIXEDREGITEMS *pFixed)
 {
     memcpy(&m_guid, pGuid, sizeof(m_guid));
+
+    m_pFixed = pFixed;
+    for (UINT i = 0; i < pFixed->Count; ++i)
+    {
+        m_FixedAttributes[i].sfgao = pFixed[i].sfgao;
+        m_FixedAttributes[i].SortOrder = pFixed[i].SortOrder;
+    }
 
     m_rootPath = lpszPath;
     if (!m_rootPath)
@@ -382,23 +401,54 @@ HRESULT WINAPI CRegFolder::Initialize(const GUID *pGuid, LPCITEMIDLIST pidlRoot,
     return S_OK;
 }
 
-HRESULT CRegFolder::GetGuidItemAttributes (LPCITEMIDLIST pidl, LPDWORD pdwAttributes)
+const CLSID* IsRegItem(LPCITEMIDLIST pidl)
 {
-    DWORD dwAttributes = *pdwAttributes;
+    if (pidl && pidl->mkid.cb >= 2 + 1 + 1 + 16)
+    {
+        if (pidl->mkid.abID[0] >= m_pFixed->MagicFirst && pidl->mkid.abID[0] <= m_pFixed->MagicLast)
+            return (GUID*)((BYTE*)pidl + pidl->mkid.cb - 16);
+    }
+    return NULL;
+}
 
-    /* First try to get them from the registry */
+int IsFixedItem(REFCLSID clsid)
+{
+    for (UINT i = 0, c = m_pFixed->Count; i < c; ++i)
+    {
+        if (m_pFixed->Items[i].clsid == clsid)
+            return i;
+    }
+    return -1;
+}
+
+HRESULT CRegFolder::GetGuidItemAttributes(LPCITEMIDLIST pidl, LPDWORD pdwAttributes)
+{
+    const DWORD dwAttributes = *pdwAttributes;
+    const CLSID *pclsid = IsRegItem(pidl);
+    int fixed = pclsid ? IsFixedItem(*pclsid) : -1;
+
+    if (fixed >= 0)
+    {
+        if (m_FixedAttributes[fixed].sfgao & SFGAO_VALIDATE)
+        {
+            *pdwAttributes = m_FixedAttributes[fixed].sfgao & (dwAttributes & ~SFGAO_VALIDATE); // Cached
+            goto process_attributes;
+        }
+        *pdwAttributes = 0xffffffff & ~SFGAO_VALIDATE; // Ask the registry for everything so we can cache
+    }
+
     if (!HCR_GetFolderAttributes(pidl, pdwAttributes))
     {
         /* We couldn't get anything */
         *pdwAttributes = 0;
     }
-
-    /* Items have more attributes when on desktop */
-    if (_ILIsDesktop(m_pidlRoot))
+    if (fixed >= 0)
     {
-        *pdwAttributes |= (dwAttributes & (SFGAO_CANLINK|SFGAO_CANDELETE|SFGAO_CANRENAME|SFGAO_HASPROPSHEET));
+        m_FixedAttributes[fixed].sfgao = SFGAO_VALIDATE | *pdwAttributes; // Cache
+        *pdwAttributes &= dwAttributes;
     }
 
+process_attributes:
     /* In any case, links can be created */
     if (*pdwAttributes == NULL)
     {
@@ -452,7 +502,7 @@ HRESULT WINAPI CRegFolder::ParseDisplayName(HWND hwndOwner, LPBC pbc, LPOLESTR l
         return E_FAIL;
     }
 
-    CComHeapPtr<ITEMIDLIST> pidlTemp(_ILCreateGuid(PT_GUID, clsid));
+    CComHeapPtr<ITEMIDLIST> pidlTemp(_ILCreateGuid(m_pFixed->MagicLast, clsid));
     if (!pidlTemp)
         return E_OUTOFMEMORY;
 
@@ -515,7 +565,30 @@ HRESULT WINAPI CRegFolder::BindToStorage(PCUIDLIST_RELATIVE pidl, LPBC pbcReserv
 
 HRESULT WINAPI CRegFolder::CompareIDs(LPARAM lParam, PCUIDLIST_RELATIVE pidl1, PCUIDLIST_RELATIVE pidl2)
 {
-    if (!pidl1 || !pidl2 || pidl1->mkid.cb == 0 || pidl2->mkid.cb == 0)
+    const CLSID *pclsid1 = IsRegItem(pidl1);
+    const CLSID *pclsid2 = IsRegItem(pidl2);
+    if (!pclsid1 || !pclsid2)
+    {
+        ERR("Got an invalid pidl!\n");
+        return E_INVALIDARG;
+    }
+
+    short sort1 = (WORD)pidl1->mkid.abID[1];
+    if (!sort1)
+        sort1 = DEFAULTSORTORDER;
+    short sort2 = (WORD)pidl2->mkid.abID[1];
+    if (!sort2)
+        sort2 = DEFAULTSORTORDER;
+    WORD cmp = MAKE_COMPARE_HRESULT(sort1 - sort2);
+    if (cmp)
+        return cmp;
+
+    if (memcmp(pclsid1, pclsid2, sizeof(GUID)))
+        return SHELL32_CompareDetails(this, lParam, pidl1, pidl2);
+    return SHELL32_CompareChildren(this, lParam, pidl1, pidl2);
+
+
+/*    if (!pidl1 || !pidl2 || pidl1->mkid.cb == 0 || pidl2->mkid.cb == 0)
     {
         ERR("Got an empty pidl!\n");
         return E_INVALIDARG;
@@ -538,7 +611,7 @@ HRESULT WINAPI CRegFolder::CompareIDs(LPARAM lParam, PCUIDLIST_RELATIVE pidl1, P
     }
 
     /* Guid folders come first compared to everything else */
-    /* And Drives come before folders in My Computer */
+    /* And Drives come before folders in My Computer * /
     if (_ILIsMyComputer(m_pidlRoot))
     {
         return MAKE_COMPARE_HRESULT(clsid1 ? 1 : -1);
@@ -546,7 +619,7 @@ HRESULT WINAPI CRegFolder::CompareIDs(LPARAM lParam, PCUIDLIST_RELATIVE pidl1, P
     else
     {
         return MAKE_COMPARE_HRESULT(clsid1 ? -1 : 1);
-    }
+    }*/
 }
 
 HRESULT WINAPI CRegFolder::CreateViewObject(HWND hwndOwner, REFIID riid, LPVOID *ppvOut)
@@ -564,7 +637,7 @@ HRESULT WINAPI CRegFolder::GetAttributesOf(UINT cidl, PCUITEMID_CHILD_ARRAY apid
 
     while(cidl > 0 && *apidl)
     {
-        if (_ILIsSpecialFolder(*apidl))
+        if (IsRegItem(*apidl))
             GetGuidItemAttributes(*apidl, rgfInOut);
         else
             ERR("Got unknown pidl\n");
@@ -873,7 +946,7 @@ HRESULT WINAPI CRegFolder::MapColumnToSCID(UINT column, SHCOLUMNID *pscid)
 }
 
 /* In latest windows version this is exported but it takes different arguments! */
-HRESULT CRegFolder_CreateInstance(const GUID *pGuid, LPCITEMIDLIST pidlRoot, LPCWSTR lpszPath, LPCWSTR lpszEnumKeyName, REFIID riid, void **ppv)
+HRESULT CRegFolder_CreateInstance(const GUID *pGuid, LPCITEMIDLIST pidlRoot, LPCWSTR lpszPath, LPCWSTR lpszEnumKeyName, const FIXEDREGITEMS *pFixed, REFIID riid, void **ppv)
 {
     return ShellObjectCreatorInit<CRegFolder>(pGuid, pidlRoot, lpszPath, lpszEnumKeyName, riid, ppv);
 }

@@ -627,11 +627,13 @@ HRESULT WINAPI CControlPanelFolder::Initialize(PCIDLIST_ABSOLUTE pidl)
     pidlRoot = ILClone(pidl);
 
     /* Create the inner reg folder */
+    static const FIXEDREGITEMS fixeditems = { NULL, 0, 0x70, 0x71, true }; // FIXME
     HRESULT hr;
     hr = CRegFolder_CreateInstance(&CLSID_ControlPanel,
                                    pidlRoot,
                                    L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}\\::{21EC2020-3AEA-1069-A2DD-08002B30309D}",
                                    L"ControlPanel",
+                                   &fixeditems,
                                    IID_PPV_ARG(IShellFolder2, &m_regFolder));
     if (FAILED_UNEXPECTEDLY(hr))
         return hr;

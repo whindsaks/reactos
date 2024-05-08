@@ -47,6 +47,27 @@ https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nf-shobjidl_co
 #define SHFSF_COL_FATTS         4 // File attributes
 #define SHFSF_COL_COMMENT       5
 
+#define REGFOLDER_MAXFIXEDREGITEMS 3
+struct FIXEDREGITEM
+{
+    REFCLSID clsid;
+    LPCWSTR IconFile;
+    SHORT IconIndex;
+    BYTE SortOrder;
+    WORD ResName;
+    SFGAOF sfgao;
+    LPCWSTR CPL;
+};
+struct FIXEDREGITEMS
+{
+    const FIXEDREGITEM *Items;
+    UINT Count;
+    BYTE MagicFirst, MagicLast; // PT_*
+    BYTE SortAlphabetical; //FIXME: ControlPanel needs to sort alphabetical
+};
+HRESULT CRegFolder_CreateInstance(const GUID *pGuid, LPCITEMIDLIST pidlRoot, LPCWSTR lpszPath,
+                LPCWSTR lpszEnumKeyName, const FIXEDREGITEMS *pFixed, REFIID riid, void **ppv);
+
 #define GET_SHGDN_FOR(dwFlags)         ((DWORD)dwFlags & (DWORD)0x0000FF00)
 #define GET_SHGDN_RELATION(dwFlags)    ((DWORD)dwFlags & (DWORD)0x000000FF)
 

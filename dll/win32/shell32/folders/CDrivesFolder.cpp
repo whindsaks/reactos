@@ -642,10 +642,12 @@ HRESULT WINAPI CDrivesFolder::FinalConstruct()
     if (pidlRoot == NULL)
         return E_OUTOFMEMORY;
 
+    static const FIXEDREGITEMS fixeditems = { NULL, 0, 0x2E, 0x2E }; // FIXME
     HRESULT hr = CRegFolder_CreateInstance(&CLSID_MyComputer,
                                            pidlRoot,
                                            L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}",
                                            L"MyComputer",
+                                           &fixeditems,
                                            IID_PPV_ARG(IShellFolder2, &m_regFolder));
 
     return hr;
