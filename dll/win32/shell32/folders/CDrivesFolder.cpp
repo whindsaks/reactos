@@ -66,6 +66,17 @@ BOOL _ILGetDriveType(LPCITEMIDLIST pidl)
     return ::GetDriveTypeA(szDrive);
 }
 
+const CLSID* GetDrivesRegItem(PCUITEMID_CHILD pidl)
+{
+#if 0 // FIXME: Drives RegItems are supposed to be 0x2E (PT_SHELLEXT), not 0x1F
+    if (pidl && pidl->mkid.cb == 2 + 2 + 16 && pidl->mkid.abID[0] == 0x2E)
+        return (CLSID*)((BYTE*)pidl + 2 + 2);
+    return NULL;
+#else
+    return _ILGetGUIDPointer(pidl);
+#endif
+}
+
 /***********************************************************************
 *   IShellFolder implementation
 */
@@ -594,15 +605,31 @@ class CDrivesFolderEnum :
             }
 
             /* Enumerate the items of the reg folder */
+            SetFilter(ShouldShow);
             AppendItemsFromEnumerator(pRegEnumerator);
 
             return S_OK;
         }
 
+        static HRESULT WINAPI ShouldShow(PCUITEMID_CHILD pidlItem);
+
         BEGIN_COM_MAP(CDrivesFolderEnum)
         COM_INTERFACE_ENTRY_IID(IID_IEnumIDList, IEnumIDList)
         END_COM_MAP()
 };
+
+HRESULT WINAPI CDrivesFolderEnum::ShouldShow(PCUITEMID_CHILD pidlItem)
+{
+    static const WCHAR path[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\HideMyComputerIcons";
+    const CLSID *pclsid = GetDrivesRegItem(pidlItem);
+    if (pclsid)
+    {
+        WCHAR guidstr[39];
+        StringFromGUID2(*pclsid, guidstr, _countof(guidstr));
+        return SHRegGetBoolUSValueW(path, guidstr, FALSE, FALSE) ? S_FALSE : S_OK;
+    }
+    return S_OK;
+}
 
 /***********************************************************************
 *   IShellFolder [MyComputer] implementation

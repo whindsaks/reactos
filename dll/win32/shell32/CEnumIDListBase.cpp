@@ -25,13 +25,19 @@ WINE_DEFAULT_DEBUG_CHANNEL(shell);
 CEnumIDListBase::CEnumIDListBase() :
     mpFirst(NULL),
     mpLast(NULL),
-    mpCurrent(NULL)
+    mpCurrent(NULL),
+    mfpFilter(NULL)
 {
 }
 
 CEnumIDListBase::~CEnumIDListBase()
 {
     DeleteList();
+}
+
+HRESULT CEnumIDListBase::ShouldShow(PCUITEMID_CHILD pidlItem)
+{
+    return mfpFilter ? mfpFilter(pidlItem) : S_OK;
 }
 
 /**************************************************************************
@@ -43,7 +49,7 @@ BOOL CEnumIDListBase::AddToEnumList(LPITEMIDLIST pidl)
 
     TRACE("(%p)->(pidl=%p)\n", this, pidl);
 
-    if (!pidl)
+    if (!pidl || ShouldShow((PCUITEMID_CHILD)pidl) != S_OK)
         return FALSE;
 
     pNew = static_cast<ENUMLIST *>(SHAlloc(sizeof(ENUMLIST)));

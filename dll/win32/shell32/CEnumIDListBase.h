@@ -31,6 +31,12 @@ private:
 	ENUMLIST				*mpFirst;
 	ENUMLIST				*mpLast;
 	ENUMLIST				*mpCurrent;
+	HRESULT 		(WINAPI *mfpFilter)(PCUITEMID_CHILD);
+
+protected:
+	HRESULT ShouldShow(PCUITEMID_CHILD pidlItem);
+	template<class F> void SetFilter(F func) { mfpFilter = func; }
+
 public:
 	CEnumIDListBase();
 	virtual ~CEnumIDListBase();
