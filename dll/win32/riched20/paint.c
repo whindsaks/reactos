@@ -185,6 +185,15 @@ static int calc_y_offset( const ME_Context *c, ME_Style *style )
     return offs;
 }
 
+#ifdef __REACTOS__
+static COLORREF get_back_color( ME_Context *c, ME_Style *style, BOOL highlight );
+static BOOL similar_colors(COLORREF c1, COLORREF c2)
+{
+    UINT mask = 0xffffffff & ~0x00070707;
+    return (mask & c1) == (mask & c2);
+}
+#endif
+
 static COLORREF get_text_color( ME_Context *c, ME_Style *style, BOOL highlight )
 {
     COLORREF color;
@@ -192,7 +201,16 @@ static COLORREF get_text_color( ME_Context *c, ME_Style *style, BOOL highlight )
     if (highlight)
         color = ITextHost_TxGetSysColor( c->editor->texthost, COLOR_HIGHLIGHTTEXT );
     else if ((style->fmt.dwMask & CFM_LINK) && (style->fmt.dwEffects & CFE_LINK))
+    {
+#ifdef __REACTOS__
+        COLORREF back = get_back_color(c, style, highlight);
+        COLORREF htxt = ITextHost_TxGetSysColor( c->editor->texthost, COLOR_HOTLIGHT );
+        if (similar_colors(back, color = htxt) && similar_colors(back, color = RGB(0,0,255))) /*TODO: Verify if Windows does this! */
+            color = ITextHost_TxGetSysColor( c->editor->texthost, highlight ? COLOR_HIGHLIGHTTEXT :COLOR_WINDOWTEXT );
+#else
         color = RGB(0,0,255);
+#endif
+    }
     else if ((style->fmt.dwMask & CFM_COLOR) && (style->fmt.dwEffects & CFE_AUTOCOLOR))
         color = ITextHost_TxGetSysColor( c->editor->texthost, COLOR_WINDOWTEXT );
     else
