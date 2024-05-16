@@ -713,7 +713,8 @@ LRESULT CBaseBarSite::OnCustomDraw(LPNMCUSTOMDRAW pnmcd)
             {
                 REBARBANDINFO info;
                 WCHAR wszTitle[MAX_PATH];
-                DWORD index;
+                DWORD index, btnarea = 22;
+                UINT pad = GetSystemMetrics(SM_CXEDGE), leftpad = max(pad * 2, 4);
                 RECT rt;
                 HFONT newFont, oldFont;
 
@@ -722,20 +723,22 @@ LRESULT CBaseBarSite::OnCustomDraw(LPNMCUSTOMDRAW pnmcd)
                 ZeroMemory(wszTitle, sizeof(wszTitle));
                 DrawEdge(pnmcd->hdc, &pnmcd->rc, EDGE_ETCHED, BF_BOTTOM);
                 // We also resize our close button
-                ::SetWindowPos(toolbarWnd, HWND_TOP, pnmcd->rc.right - 22, 0, 20, 18, SWP_SHOWWINDOW);
+                ::SetWindowPos(toolbarWnd, HWND_TOP, pnmcd->rc.right - btnarea, 0, 20, 18, SWP_SHOWWINDOW);
                 // Draw the text
                 info.cch = MAX_PATH;
                 info.lpText = wszTitle;
                 rt = pnmcd->rc;
-                rt.right -= 24;
-                rt.left += 2;
+                rt.right -= btnarea;
+                rt.left += leftpad;
                 rt.bottom -= 1;
                 if (FAILED_UNEXPECTEDLY(GetInternalBandInfo(index, &info, RBBIM_TEXT)))
                     return CDRF_SKIPDEFAULT;
                 newFont = GetTitleFont();
                 if (newFont)
                     oldFont = (HFONT)SelectObject(pnmcd->hdc, newFont);
+                COLORREF orgclrtxt = SetTextColor(pnmcd->hdc, GetSysColor(COLOR_BTNTEXT));
                 DrawText(pnmcd->hdc, info.lpText, -1, &rt, DT_SINGLELINE | DT_LEFT | DT_VCENTER);
+                SetTextColor(pnmcd->hdc, orgclrtxt);
                 SelectObject(pnmcd->hdc, oldFont);
                 DeleteObject(newFont);
                 return CDRF_SKIPDEFAULT;

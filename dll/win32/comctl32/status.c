@@ -199,6 +199,9 @@ STATUSBAR_DrawPart (const STATUS_INFO *infoPtr, HDC hdc, const STATUSWINDOWPART 
 	dis.itemData = (ULONG_PTR)part->text;
         SendMessageW (infoPtr->Notify, WM_DRAWITEM, dis.CtlID, (LPARAM)&dis);
     } else {
+#ifdef __REACTOS__
+        COLORREF orgclrtxt = SetTextColor(hdc, comctl32_color.clrBtnText);
+#endif
         r.left += x;
 #ifdef __REACTOS__
         if (!theme)
@@ -212,6 +215,7 @@ STATUSBAR_DrawPart (const STATUS_INFO *infoPtr, HDC hdc, const STATUSWINDOWPART 
             r.right -= 2;
             DrawThemeText(theme, hdc, SP_PANE, 0, part->text, -1, DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX, 0, &r);
         }
+        SetTextColor(hdc, orgclrtxt);
 #else
         DrawStatusTextW (hdc, &r, part->text, SBT_NOBORDERS);
 #endif
