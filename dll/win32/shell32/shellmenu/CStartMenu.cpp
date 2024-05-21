@@ -20,6 +20,7 @@
 #include "shellmenu.h"
 
 #include "CMergedFolder.h"
+#include "../shfldr.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(CStartMenu);
 
@@ -398,34 +399,19 @@ private:
 
     HRESULT OnExec(LPSMDATA psmd)
     {
-        WCHAR szPath[MAX_PATH];
-
-        // HACK: Because our ShellExecute can't handle CLSID components in paths, we can't launch the paths using the "open" verb.
-        // FIXME: Change this back to using the path as the filename and the "open" verb, once ShellExecute can handle CLSID path components.
-
-        if (psmd->uId == IDM_CONTROLPANEL)
-            ShellExecuteW(NULL, NULL, L"explorer.exe", L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}\\::{21EC2020-3AEA-1069-A2DD-08002B30309D}", NULL, SW_SHOWNORMAL);
-        else if (psmd->uId == IDM_NETWORKCONNECTIONS)
-            ShellExecuteW(NULL, NULL, L"explorer.exe", L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}\\::{21EC2020-3AEA-1069-A2DD-08002B30309D}\\::{7007ACC7-3202-11D1-AAD2-00805FC1270E}", NULL, SW_SHOWNORMAL);
-        else if (psmd->uId == IDM_PRINTERSANDFAXES)
-            ShellExecuteW(NULL, NULL, L"explorer.exe", L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}\\::{21EC2020-3AEA-1069-A2DD-08002B30309D}\\::{2227A280-3AEA-1069-A2DE-08002B30309D}", NULL, SW_SHOWNORMAL);
-        else if (psmd->uId == IDM_MYDOCUMENTS)
+        int csidl = -1;
+        switch (psmd->uId)
         {
-            if (SHGetSpecialFolderPathW(NULL, szPath, CSIDL_PERSONAL, FALSE))
-                ShellExecuteW(NULL, NULL, szPath, NULL, NULL, SW_SHOWNORMAL);
-            else
-                ERR("SHGetSpecialFolderPathW failed\n");
+            case IDM_CONTROLPANEL:       csidl = CSIDL_CONTROLS;    break;
+            case IDM_NETWORKCONNECTIONS: csidl = CSIDL_CONNECTIONS; break;
+            case IDM_PRINTERSANDFAXES:   csidl = CSIDL_PRINTERS;    break;
+            case IDM_MYDOCUMENTS:        csidl = CSIDL_PERSONAL;    break;
+            case IDM_MYPICTURES:         csidl = CSIDL_MYPICTURES;  break;
         }
-        else if (psmd->uId == IDM_MYPICTURES)
-        {
-            if (SHGetSpecialFolderPathW(NULL, szPath, CSIDL_MYPICTURES, FALSE))
-                ShellExecuteW(NULL, NULL, szPath, NULL, NULL, SW_SHOWNORMAL);
-            else
-                ERR("SHGetSpecialFolderPathW failed\n");
-        }
+        if (csidl >= 0)
+            return SHELL32_OpenFolder(NULL, (LPITEMIDLIST)csidl, SW_SHOWNORMAL);
         else
             PostMessageW(m_hwndTray, WM_COMMAND, psmd->uId, 0);
-
         return S_OK;
     }
 

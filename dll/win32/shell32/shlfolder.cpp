@@ -392,6 +392,46 @@ HRESULT WINAPI SHCreateLinks( HWND hWnd, LPCSTR lpszDir, IDataObject * lpDataObj
     return E_NOTIMPL;
 }
 
+static HRESULT SHELL32_OpenNewFolderWindow(HWND hWnd, PCIDLIST_ABSOLUTE pidl, UINT Flags)
+{
+    SHELLEXECUTEINFOW sei = { sizeof(sei), SEE_MASK_IDLIST | SEE_MASK_FLAG_DDEWAIT };
+    sei.hwnd = hWnd;
+    sei.lpIDList = const_cast<PIDLIST_ABSOLUTE>(pidl);
+    sei.nShow = Flags & 0xf; // The lower nibble of OFF_ is reserved for SW_
+    if (Flags & OFF_NOERRORUI)
+        sei.fMask |= SEE_MASK_FLAG_NO_UI;
+    return ShellExecuteExW(&sei) ? S_OK : HResultFromWin32(GetLastError());
+}
+
+static HRESULT SHELL32_OpenFolderEx(HWND hWnd,
+                                    PCIDLIST_ABSOLUTE pidl,
+                                    UINT Flags,
+                                    const IID *priid,
+                                    void **ppv)
+{
+    HRESULT hr;
+    if (IS_INTRESOURCE(pidl))
+    {
+        PIDLIST_ABSOLUTE special;
+        hr = SHGetSpecialFolderLocation(NULL, (UINT)(SIZE_T)pidl, &special);
+        if (SUCCEEDED(hr))
+            hr = SHELL32_OpenFolderEx(hWnd, special, Flags, priid, ppv);
+        ILFree(special);
+        return hr;
+    }
+
+    if (!(Flags & OFF_FORCENEWWINDOW) || priid)
+    {
+        // FIXME: Use IShellWindows::FindWindowSW
+    }
+    return SHELL32_OpenNewFolderWindow(hWnd, pidl, Flags);
+}
+
+HRESULT SHELL32_OpenFolder(HWND hWnd, PCIDLIST_ABSOLUTE pidl, UINT Flags)
+{
+    return SHELL32_OpenFolderEx(hWnd, pidl, Flags, NULL, NULL);
+}
+
 /***********************************************************************
  *  SHOpenFolderAndSelectItems
  *
@@ -405,10 +445,18 @@ SHOpenFolderAndSelectItems(PCIDLIST_ABSOLUTE pidlFolder,
                            DWORD dwFlags)
 {
     ERR("SHOpenFolderAndSelectItems() is hackplemented\n");
+    if (cidl != 1)
+        dwFlags &= ~OFASI_EDIT; // "For multiple item selections, it is ignored"
     CComHeapPtr<ITEMIDLIST> freeItem;
     PCIDLIST_ABSOLUTE pidlItem;
     if (cidl)
     {
+        /* Allow the empty child hack */
+        if (cidl == 1 && _ILIsEmpty(apidl[0]) && pidlFolder)
+        {
+            return SHELL32_OpenFolder(NULL, pidlFolder, SW_SHOWNORMAL);
+        }
+
         /* Firefox sends a full pidl here dispite the fact it is a PCUITEMID_CHILD_ARRAY -_- */
         if (!ILIsSingle(apidl[0]))
         {
@@ -425,6 +473,28 @@ SHOpenFolderAndSelectItems(PCIDLIST_ABSOLUTE pidlFolder,
     else
     {
         pidlItem = pidlFolder;
+    }
+
+#define DESKTOPCDID_SELECTITEM 0x00010000 // Must stay in sync with CDesktopBrowser.cpp
+    if ((dwFlags & OFASI_OPENDESKTOP) && !pidlFolder)
+    {
+        HWND hDesktopBrowser = GetShellWindow();
+        COPYDATASTRUCT cds = { DESKTOPCDID_SELECTITEM | SVSI_SELECT | SVSI_DESELECTOTHERS };
+        for (UINT i = cidl; cidl && hDesktopBrowser;)
+        {
+            if (--i == 0)
+            {
+                cds.dwData |= SVSI_FOCUSED | SVSI_ENSUREVISIBLE;
+                if (dwFlags & OFASI_EDIT)
+                    cds.dwData |= SVSI_EDIT;
+                SetForegroundWindow(hDesktopBrowser);
+            }
+            cds.lpData = (void*)apidl[i];
+            cds.cbData = apidl[i]->mkid.cb + sizeof(WORD);
+            SendMessageW(hDesktopBrowser, WM_COPYDATA, 0, (LPARAM)&cds); // CDesktopBrowser HACK
+            cds.dwData &= ~SVSI_DESELECTOTHERS;
+        }
+        return hDesktopBrowser ? S_OK : E_FAIL;
     }
 
     CComPtr<IShellFolder> psfDesktop;
@@ -453,8 +523,8 @@ SHOpenFolderAndSelectItems(PCIDLIST_ABSOLUTE pidlFolder,
     sei.fMask = SEE_MASK_WAITFORINPUTIDLE;
     sei.lpFile = L"explorer.exe";
     sei.lpParameters = wszParams;
-
-    if (ShellExecuteExW(&sei))
+    sei.nShow = SW_SHOWNORMAL;
+    if (ShellExecuteExW(&sei)) // FIXME: Reuse existing window if possible
         return S_OK;
     else
         return E_FAIL;

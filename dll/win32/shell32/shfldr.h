@@ -123,4 +123,8 @@ HRESULT inline SHSetStrRet(LPSTRRET pStrRet, DWORD resId)
 
 #endif
 
+#define OFF_NOERRORUI           0x80000000
+#define OFF_FORCENEWWINDOW      0x40000000
+HRESULT SHELL32_OpenFolder(HWND hWnd, PCIDLIST_ABSOLUTE pidl, UINT Flags);
+
 #endif /* _SHFLDR_H_ */

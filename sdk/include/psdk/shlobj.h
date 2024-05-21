@@ -348,6 +348,8 @@ SHObjectProperties(
   _In_ LPCWSTR,
   _In_opt_ LPCWSTR);
 
+#define OFASI_EDIT          0x0001
+#define OFASI_OPENDESKTOP   0x0002
 HRESULT
 WINAPI
 SHOpenFolderAndSelectItems(

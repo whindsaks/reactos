@@ -30,6 +30,8 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(desktop);
 
+#define DESKTOPCDID_SELECTITEM 0x00010000 // Hack used by OFASI_OPENDESKTOP
+
 static const WCHAR szProgmanClassName[]  = L"Progman";
 static const WCHAR szProgmanWindowName[] = L"Program Manager";
 
@@ -86,6 +88,7 @@ public:
     LRESULT OnClose(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled);
     LRESULT OnOpenNewWindow(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled);
     LRESULT OnCommand(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled);
+    LRESULT OnCopyData(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled);
     LRESULT OnSetFocus(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled);
     LRESULT OnGetChangeNotifyServer(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled);
     LRESULT OnDeviceChange(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled);
@@ -101,6 +104,7 @@ BEGIN_MSG_MAP(CBaseBar)
     MESSAGE_HANDLER(WM_CLOSE, OnClose)
     MESSAGE_HANDLER(WM_EXPLORER_OPEN_NEW_WINDOW, OnOpenNewWindow)
     MESSAGE_HANDLER(WM_COMMAND, OnCommand)
+    MESSAGE_HANDLER(WM_COPYDATA, OnCopyData)
     MESSAGE_HANDLER(WM_SETFOCUS, OnSetFocus)
     MESSAGE_HANDLER(WM_DESKTOP_GET_CNOTIFY_SERVER, OnGetChangeNotifyServer)
     MESSAGE_HANDLER(WM_DEVICECHANGE, OnDeviceChange)
@@ -386,6 +390,17 @@ LRESULT CDesktopBrowser::OnCommand(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL
     return 0;
 }
 
+LRESULT CDesktopBrowser::OnCopyData(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled)
+{
+    if (!lParam)
+        return lParam;
+    COPYDATASTRUCT &cds = *(COPYDATASTRUCT*)lParam;
+    if (HIWORD(cds.dwData) == HIWORD(DESKTOPCDID_SELECTITEM) && m_ShellView && cds.cbData > 2)
+    {
+        m_ShellView->SelectItem((LPITEMIDLIST)cds.lpData, LOWORD(cds.dwData));
+    }
+    return 0;
+}
 
 LRESULT CDesktopBrowser::OnEraseBkgnd(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled)
 {
