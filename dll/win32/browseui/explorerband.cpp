@@ -149,6 +149,7 @@ CExplorerBand::CExplorerBand()
     : m_pSite(NULL)
     , m_fVisible(FALSE)
     , m_mtxBlockNavigate(0)
+    , m_bExpandedFirstNavigation(false)
     , m_dwBandID(0)
     , m_isEditing(FALSE)
     , m_pidlCurrent(NULL)
@@ -834,6 +835,19 @@ BOOL CExplorerBand::NavigateToPIDL(LPITEMIDLIST dest, HTREEITEM *item, BOOL bExp
         {
             if (bSelect)
                 TreeView_SelectItem(m_hWnd, current);
+            if (!m_bExpandedFirstNavigation)
+            {
+                m_bExpandedFirstNavigation = true;
+                if (bExpand)
+                {
+                    TreeView_Expand(m_hWnd, current, TVE_EXPAND);
+                    // When a Cabinet window is opened without the tree
+                    // and later when the tree is shown, we are also supposed
+                    // to expand but the TreeView denies our request so
+                    // we have to delay it with a PostMessage.
+                    PostMessage(TVM_EXPAND, TVE_EXPAND, (LPARAM)current);
+                }
+            }
             *item = current;
             return TRUE;
         }
