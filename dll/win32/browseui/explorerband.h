@@ -87,7 +87,6 @@ private:
 
     // *** ATL event handlers ***
     LRESULT OnContextMenu(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled);
-    LRESULT ContextMenuHack(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled);
     LRESULT OnShellEvent(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled);
     LRESULT OnSetFocus(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled);
     LRESULT OnKillFocus(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled);
@@ -204,7 +203,6 @@ public:
     BEGIN_MSG_MAP(CExplorerBand)
         MESSAGE_HANDLER(WM_CONTEXTMENU, OnContextMenu)
         MESSAGE_HANDLER(WM_USER_SHELLEVENT, OnShellEvent)
-        MESSAGE_HANDLER(WM_RBUTTONDOWN, ContextMenuHack)
         MESSAGE_HANDLER(WM_SETFOCUS, OnSetFocus)
         // MESSAGE_HANDLER(WM_KILLFOCUS, OnKillFocus)
     END_MSG_MAP()

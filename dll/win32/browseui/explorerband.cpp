@@ -448,7 +448,7 @@ void CExplorerBand::OnTreeItemDragging(LPNMTREEVIEW pnmtv, BOOL isRightClick)
 // *** ATL event handlers ***
 LRESULT CExplorerBand::OnContextMenu(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled)
 {
-    HTREEITEM                           item;
+    HTREEITEM                           item, orgitem;
     NodeInfo                            *info;
     HMENU                               treeMenu;
     POINT                               pt;
@@ -460,15 +460,10 @@ LRESULT CExplorerBand::OnContextMenu(UINT uMsg, WPARAM wParam, LPARAM lParam, BO
     UINT                                cmdBase = max(FCIDM_SHVIEWFIRST, 1);
     UINT                                cmf = CMF_EXPLORE;
     SFGAOF                              attr = SFGAO_CANRENAME;
-    BOOL                                startedRename = FALSE;
 
     treeMenu = NULL;
-    item = TreeView_GetSelection(m_hWnd);
+    orgitem = item = TreeView_GetSelection(m_hWnd);
     bHandled = TRUE;
-    if (!item)
-    {
-        goto Cleanup;
-    }
 
     pt.x = LOWORD(lParam);
     pt.y = HIWORD(lParam);
@@ -482,6 +477,15 @@ LRESULT CExplorerBand::OnContextMenu(UINT uMsg, WPARAM wParam, LPARAM lParam, BO
         }
         ClientToScreen(&pt);
     }
+    else
+    {
+        TVHITTESTINFO hti = { pt, TVHT_ONITEM };
+        ScreenToClient(&hti.pt);
+        TreeView_HitTest(m_hWnd, &hti);
+        item = hti.hItem;
+    }
+    if (!item)
+        goto Cleanup;
 
     info = GetNodeInfo(item);
     if (!info)
@@ -527,10 +531,15 @@ LRESULT CExplorerBand::OnContextMenu(UINT uMsg, WPARAM wParam, LPARAM lParam, BO
         // Do DFM_CMD_RENAME in the treeview
         if ((cmf & CMF_CANRENAME) && SHELL_IsVerb(contextMenu, uCommand, L"rename"))
         {
-            HTREEITEM oldSelected = m_oldSelected;
+            // The treeview disables drawing of the edited item so we must make sure
+            // the correct item is selected (on right-click -> rename on not-current folder).
+            // TVN_ENDLABELEDIT becomes responsible for restoring the selection.
             SetFocus();
-            startedRename = TreeView_EditLabel(m_hWnd, item) != NULL;
-            m_oldSelected = oldSelected; // Restore after TVN_BEGINLABELEDIT
+            ++m_mtxBlockNavigate;
+            TreeView_SelectItem(m_hWnd, item);
+            if (TreeView_EditLabel(m_hWnd, item))
+                m_oldSelected = orgitem;
+            --m_mtxBlockNavigate;
             goto Cleanup;
         }
 
@@ -542,42 +551,7 @@ Cleanup:
         IUnknown_SetSite(contextMenu, NULL);
     if (treeMenu)
         DestroyMenu(treeMenu);
-    if (startedRename)
-    {
-        // The treeview disables drawing of the edited item so we must make sure
-        // the correct item is selected (on right-click -> rename on not-current folder).
-        // TVN_ENDLABELEDIT becomes responsible for restoring the selection.
-    }
-    else
-    {
-        ++m_mtxBlockNavigate;
-        TreeView_SelectItem(m_hWnd, m_oldSelected);
-        --m_mtxBlockNavigate;
-    }
     return TRUE;
-}
-
-LRESULT CExplorerBand::ContextMenuHack(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled)
-{
-    bHandled = FALSE;
-    if (uMsg == WM_RBUTTONDOWN)
-    {
-        TVHITTESTINFO info;
-        info.pt.x = LOWORD(lParam);
-        info.pt.y = HIWORD(lParam);
-        info.flags = TVHT_ONITEM;
-        info.hItem = NULL;
-
-        // Save the current location
-        m_oldSelected = TreeView_GetSelection(m_hWnd);
-
-        // Move to the item selected by the treeview (don't change right pane)
-        TreeView_HitTest(m_hWnd, &info);
-        ++m_mtxBlockNavigate;
-        TreeView_SelectItem(m_hWnd, info.hItem);
-        --m_mtxBlockNavigate;
-    }
-    return FALSE; /* let the wndproc process the message */
 }
 
 LRESULT CExplorerBand::OnShellEvent(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled)
@@ -1396,7 +1370,6 @@ HRESULT STDMETHODCALLTYPE CExplorerBand::OnWinEvent(HWND hWnd, UINT uMsg, WPARAM
                     if (theResult)
                         *theResult = 0;
                     m_isEditing = TRUE;
-                    m_oldSelected = NULL;
                 }
                 return S_OK;
             }
@@ -1418,7 +1391,7 @@ HRESULT STDMETHODCALLTYPE CExplorerBand::OnWinEvent(HWND hWnd, UINT uMsg, WPARAM
                     *theResult = 0;
                 if (dispInfo->item.pszText)
                 {
-                    LPITEMIDLIST pidlNew;
+                    CComHeapPtr<ITEMIDLIST_ABSOLUTE> pidlNew;
                     CComPtr<IShellFolder> pParent;
                     LPCITEMIDLIST pidlChild;
                     BOOL RenamedCurrent = IsCurrentLocation(info->absolutePidl) == S_OK;
@@ -1428,7 +1401,7 @@ HRESULT STDMETHODCALLTYPE CExplorerBand::OnWinEvent(HWND hWnd, UINT uMsg, WPARAM
                         return E_FAIL;
 
                     hr = pParent->SetNameOf(m_hWnd, pidlChild, dispInfo->item.pszText, SHGDN_INFOLDER, &pidlNew);
-                    if(SUCCEEDED(hr) && pidlNew)
+                    if (SUCCEEDED(hr) && pidlNew)
                     {
                         CComPtr<IPersistFolder2> pPersist;
                         LPITEMIDLIST pidlParent, pidlNewAbs;
@@ -1442,20 +1415,14 @@ HRESULT STDMETHODCALLTYPE CExplorerBand::OnWinEvent(HWND hWnd, UINT uMsg, WPARAM
                             return E_FAIL;
                         pidlNewAbs = ILCombine(pidlParent, pidlNew);
 
-                        if (RenamedCurrent)
+                        if (RenamedCurrent && pidlNewAbs)
                         {
                             // Navigate to our new location
                             UpdateBrowser(pidlNewAbs);
                         }
-                        else
-                        {
-                            // Tell everyone in case SetNameOf forgot, this causes IShellView to update itself when we renamed a child
-                            SHChangeNotify(SHCNE_RENAMEFOLDER, SHCNF_IDLIST, info->absolutePidl, pidlNewAbs);
-                        }
 
                         ILFree(pidlParent);
                         ILFree(pidlNewAbs);
-                        ILFree(pidlNew);
                         if (theResult)
                             *theResult = 1;
                     }
