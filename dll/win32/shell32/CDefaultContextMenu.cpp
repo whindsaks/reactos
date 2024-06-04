@@ -38,6 +38,29 @@ static BOOL InsertMenuItemAt(HMENU hMenu, UINT Pos, UINT Flags)
     return InsertMenuItemW(hMenu, Pos, TRUE, &mii);
 }
 
+static HRESULT InsertCMMergeMenuItemEx(QCMINFO *pQCMI, UINT PosOrId, BOOL ByPos, UINT Win32Id, LPCWSTR dwTypeData, UINT MFTandMFS)
+{
+    enum { mft_mask = MFT_STRING | MFT_SEPARATOR | MFT_BITMAP | MFT_OWNERDRAW | MFT_RADIOCHECK, mfs_mask = 0x0108B };
+    if (!(MFTandMFS & MFT_SEPARATOR) && Win32Id > pQCMI->idCmdLast)
+        return S_FALSE;
+    if (_InsertMenuItemW(pQCMI->hmenu, PosOrId, ByPos, Win32Id, MFTandMFS & mft_mask, dwTypeData, MFTandMFS & mfs_mask))
+    {
+        if (!(MFTandMFS & MFT_SEPARATOR))
+            pQCMI->idCmdFirst = max(pQCMI->idCmdFirst, Win32Id + 1);
+        return S_OK;
+    }
+    return E_FAIL;
+}
+
+HRESULT InsertCMMergeMenuItem(QCMINFO *pQCMI, UINT *pindexMenu, UINT Win32Id, LPCWSTR dwTypeData, UINT MFTandMFS)
+{
+    UINT pos = pindexMenu ? *pindexMenu : pQCMI->indexMenu;
+    HRESULT hr = InsertCMMergeMenuItemEx(pQCMI, pos, TRUE, Win32Id, dwTypeData, MFTandMFS);
+    if (hr == S_OK && pindexMenu)
+        *pindexMenu += 1;
+    return hr;
+}
+
 typedef struct _DynamicShellEntry_
 {
     UINT iIdCmdFirst;
@@ -207,6 +230,7 @@ CDefaultContextMenu::CDefaultContextMenu() :
 
 CDefaultContextMenu::~CDefaultContextMenu()
 {
+    IUnknown_SetSite(m_pmcb, NULL);
     m_DynamicEntries.RemoveAll();
     m_StaticEntries.RemoveAll();
 
@@ -667,7 +691,7 @@ CDefaultContextMenu::AddStaticContextMenusToMenu(
     return cIds;
 }
 
-void WINAPI _InsertMenuItemW(
+BOOL WINAPI _InsertMenuItemW(
     HMENU hMenu,
     UINT indexMenu,
     BOOL fByPosition,
@@ -693,7 +717,7 @@ void WINAPI _InsertMenuItemW(
             else
             {
                 ERR("failed to load string %p\n", dwTypeData);
-                return;
+                return FALSE;
             }
         }
         else
@@ -703,7 +727,7 @@ void WINAPI _InsertMenuItemW(
 
     mii.wID = wID;
     mii.fType = fType;
-    InsertMenuItemW(hMenu, indexMenu, fByPosition, &mii);
+    return InsertMenuItemW(hMenu, indexMenu, fByPosition, &mii);
 }
 
 void
@@ -755,6 +779,13 @@ CDefaultContextMenu::QueryContextMenu(
     UINT cIds = 0;
 
     TRACE("BuildShellItemContextMenu entered\n");
+
+    // FIXME: The correct order to add items in is DFM_CMD_*(!CMF_VERBSONLY), DFM_MERGECONTEXTMENU,
+    //        DFM_MERGECONTEXTMENU_BOTTOM, Shell, ShellEx, CMF_INCLUDESTATIC, DFM_MERGECONTEXTMENU_TOP
+
+    UINT_PTR tmp = uFlags;
+    if (SUCCEEDED(_DoCallback(DFM_MODIFYQCMFLAGS, uFlags, &tmp)))
+        uFlags = (UINT)tmp;
 
     /* Load static verbs and shell extensions from registry */
     for (UINT i = 0; i < m_cKeys && !(uFlags & CMF_NOVERBS); i++)
@@ -899,6 +930,7 @@ HRESULT CDefaultContextMenu::DoCreateLink(LPCMINVOKECOMMANDINFOEX lpcmi)
     if (!m_cidl || !m_pDataObj)
         return E_FAIL;
 
+    // FIXME: Use SHCreateLinks (When m_psf is CControlPanelFolder, SHCreateLinks will retry on the desktop)
     CComPtr<IDropTarget> pDT;
     HRESULT hr = m_psf->CreateViewObject(NULL, IID_PPV_ARG(IDropTarget, &pDT));
     if (FAILED_UNEXPECTEDLY(hr))
@@ -1214,6 +1246,10 @@ CDefaultContextMenu::TryToBrowse(
     if (FAILED(hr))
         return hr;
 
+    // Not all RegItem folders are actually folders (executing "Folder options" + "Fonts" in Control Panel)
+    if (m_psf && !SHGetAttributes(m_psf, pidlChild, SFGAO_BROWSABLE | SFGAO_FOLDER | SFGAO_FILESYSANCESTOR))
+        return E_FAIL;
+
     PIDLIST_ABSOLUTE pidl;
     hr = SHILCombine(m_pidlFolder, pidlChild, &pidl);
     if (FAILED_UNEXPECTEDLY(hr))
@@ -1254,9 +1290,9 @@ CDefaultContextMenu::InvokePidl(LPCMINVOKECOMMANDINFOEX lpcmi, LPCITEMIDLIST pid
     sei.hwnd = lpcmi->hwnd;
     sei.nShow = SW_SHOWNORMAL;
     sei.lpVerb = pEntry->Verb;
-    sei.lpDirectory = wszDir;
+    sei.lpDirectory = *wszDir ? wszDir : NULL;
     sei.lpIDList = pidlFull;
-    sei.hkeyClass = pEntry->hkClass;
+    sei.hkeyClass = pEntry->hkClass; // FIXME: This breaks executing "Folder Options" + "Taskbar Options" in Control Panel || Check XP RegMon
     sei.fMask = SEE_MASK_CLASSKEY | SEE_MASK_IDLIST;
     if (bHasPath)
     {
@@ -1655,6 +1691,7 @@ WINAPI
 CDefaultContextMenu::SetSite(IUnknown *pUnkSite)
 {
     m_site = pUnkSite;
+    IUnknown_SetSite(m_pmcb, pUnkSite);
     return S_OK;
 }
 

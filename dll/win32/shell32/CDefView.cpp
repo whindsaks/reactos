@@ -293,7 +293,7 @@ public:
     HRESULT FillArrangeAsMenu(HMENU hmenuArrange);
     HRESULT CheckViewMode(HMENU hmenuView);
     LRESULT DoColumnContextMenu(LRESULT lParam);
-    UINT GetSelections();
+    UINT GetSelections(UINT SVGIOFlags = 0);
     HRESULT OpenSelectedItems();
     void OnDeactivate();
     void DoActivate(UINT uState);
@@ -1945,11 +1945,12 @@ LRESULT CDefView::DoColumnContextMenu(LPARAM lParam)
 * RETURNS
 *  number of selected items
 */
-UINT CDefView::GetSelections()
+UINT CDefView::GetSelections(UINT SVGIOFlags)
 {
     SHFree(m_apidl);
+    BOOL all = SVGIOFlags & SVGIO_ALLVIEW;
 
-    m_cidl = m_ListView.GetSelectedCount();
+    m_cidl = all ? m_ListView.GetItemCount() : m_ListView.GetSelectedCount();
     m_apidl = static_cast<PCUITEMID_CHILD*>(SHAlloc(m_cidl * sizeof(PCUITEMID_CHILD)));
     if (!m_apidl)
     {
@@ -1963,15 +1964,41 @@ UINT CDefView::GetSelections()
 
     UINT i = 0;
     int lvIndex = -1;
-    while ((lvIndex = m_ListView.GetNextItem(lvIndex,  LVNI_SELECTED)) > -1)
+    if (all)
     {
-        m_apidl[i] = _PidlByItem(lvIndex);
-        i++;
-        if (i == m_cidl)
-             break;
-        TRACE("-- selected Item found\n");
+        for (i = 0; i < m_cidl; ++i)
+        {
+            m_apidl[i] = _PidlByItem(i);
+        }
     }
-
+    else
+    {
+        while ((lvIndex = m_ListView.GetNextItem(lvIndex,  LVNI_SELECTED)) > -1)
+        {
+            m_apidl[i] = _PidlByItem(lvIndex);
+            if (++i == m_cidl)
+                 break;
+            TRACE("-- selected Item found\n");
+        }
+    }
+    if (!(SVGIOFlags & SVGIO_FLAG_VIEWORDER))
+    {
+        // IShellView::GetItemObject defaults to the focused item first
+        int focus = m_ListView.GetNextItem(-1, LVNI_FOCUSED);
+        if (focus >= 0)
+        {
+            PCUITEMID_CHILD pidlFocus = _PidlByItem(focus);
+            for (i = 0; i < m_cidl; ++i)
+            {
+                if (pidlFocus == m_apidl[i])
+                {
+                    m_apidl[i] = m_apidl[0];
+                    m_apidl[0] = pidlFocus;
+                    break;
+                }
+            }
+        }
+    }
     return m_cidl;
 }
 
@@ -3139,7 +3166,7 @@ HRESULT WINAPI CDefView::GetItemObject(UINT uItem, REFIID riid, LPVOID *ppvOut)
 
     *ppvOut = NULL;
 
-    switch (uItem)
+    switch (uItem & SVGIO_TYPE_MASK)
     {
         case SVGIO_BACKGROUND:
             if (IsEqualIID(riid, IID_IContextMenu))
@@ -3162,7 +3189,7 @@ HRESULT WINAPI CDefView::GetItemObject(UINT uItem, REFIID riid, LPVOID *ppvOut)
             }
             break;
         case SVGIO_SELECTION:
-            GetSelections();
+            GetSelections(uItem & ~SVGIO_TYPE_MASK);
             hr = m_pSFParent->GetUIObjectOf(m_hWnd, m_cidl, m_apidl, riid, 0, ppvOut);
             if (FAILED_UNEXPECTEDLY(hr))
                 return hr;

@@ -23,6 +23,249 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(shell);
 
+#define IsRegItem IsControlPanelRegItem
+const CLSID* IsControlPanelRegItem(PCUITEMID_CHILD pidl)
+{
+    if (pidl && pidl->mkid.cb >= 2 + 1 + 16)
+    {
+        // FIXME: PT_GUID should not be checked here, remove when CRegFolder is fixed
+        if (pidl->mkid.abID[0] == PT_GUID || pidl->mkid.abID[0] == 0x71)
+            return (CLSID*)(&pidl->mkid.abID[pidl->mkid.cb - (16 + 2)]); // CLSID is the last member
+    }
+    return NULL;
+}
+
+static HRESULT CreateLinks(HWND hWnd, PCIDLIST_ABSOLUTE pidlFolder, UINT cidl, PCUITEMID_CHILD_ARRAY apidl)
+{
+    FIXME("Use SHCreateLinks\n"); // FIXME: Use SHCreateLinks
+    CComPtr<IDataObject> pDataObj;
+    HRESULT hr = SHCreateDataObject(pidlFolder, cidl, apidl, NULL, IID_PPV_ARG(IDataObject, &pDataObj));
+    if (FAILED(hr))
+        return hr;
+    CComPtr<IShellFolder> psf;
+    CComPtr<IDropTarget> pDT;
+    if (FAILED(hr = SHGetDesktopFolder(&psf)))
+        return hr;
+    if (FAILED(hr = psf->CreateViewObject(hWnd, IID_PPV_ARG(IDropTarget, &pDT))))
+        return hr;
+    return SHSimulateDrop(pDT, pDataObj, MK_CONTROL | MK_SHIFT, NULL, NULL);
+}
+
+class CItemContextMenu :
+    public CComObjectRootEx<CComMultiThreadModelNoCS>,
+    public IContextMenuCB,
+    public IObjectWithSite
+{
+    enum { CMF_USEORGCMF = 0x80000000 };
+    IShellFolder *m_pRegFolder;
+    IContextMenu *m_pRegMenu;
+    IUnknown *m_pSite;
+    HMENU m_hRegMenu;
+    PITEMID_CHILD *m_apidl;
+    UINT m_cidl, m_cCpl, m_OrgCMF, m_RegLast;
+    bool m_Cpl; // The focused item is a .cpl and not a RegItem.
+public:
+    CItemContextMenu() : m_pRegFolder(NULL), m_pRegMenu(NULL), m_pSite(NULL), m_hRegMenu(NULL),
+                         m_apidl(NULL), m_cidl(0), m_cCpl(0), m_OrgCMF(0)
+    {
+    }
+    virtual ~CItemContextMenu()
+    {
+        IUnknown_SetSite(m_pRegMenu, NULL);
+        IUnknown_Set((IUnknown**)&m_pRegMenu, NULL);
+        IUnknown_Set((IUnknown**)&m_pRegFolder, NULL);
+        IUnknown_Set((IUnknown**)&m_pSite, NULL);
+        if (m_hRegMenu)
+            DestroyMenu(m_hRegMenu);
+        _ILFreeaPidl(m_apidl, m_cidl);
+    }
+    HRESULT WINAPI Initialize(IShellFolder *pRegFolder, UINT cidl, PCUITEMID_CHILD_ARRAY apidl)
+    {
+        if (cidl && ILFindLastID(apidl[0]) != apidl[0])
+            return E_INVALIDARG;
+        IUnknown_Set((IUnknown**)&m_pRegFolder, pRegFolder);
+        m_Cpl = cidl && !IsRegItem(apidl[0]);
+        m_apidl = _ILCopyaPidl(apidl, m_cidl = cidl);
+        if (!m_apidl)
+            return E_OUTOFMEMORY;
+        // We need to reorder the items so we can hide the .cpl items from CRegFolder
+        for (UINT i = 0; i < m_cidl; ++i)
+        {
+            if (IsRegItem(m_apidl[i]))
+            {
+                PITEMID_CHILD temp = m_apidl[0];
+                m_apidl[0] = m_apidl[i];
+                m_apidl[i] = temp;
+            }
+            else
+            {
+                m_cCpl++;
+            }
+        }
+        if (m_cCpl < m_cidl && !m_pRegFolder)
+            return E_INVALIDARG;
+        return S_OK;
+    }
+
+    STDMETHOD(CallBack)(IShellFolder *psf, HWND hWnd, IDataObject *pdo, UINT uMsg, WPARAM wParam, LPARAM lParam);
+    STDMETHOD(SetSite)(IUnknown*pUnkSite) override
+    {
+        IUnknown_Set(&m_pSite, pUnkSite);
+        return S_OK;
+    }
+    STDMETHOD(GetSite)(REFIID riid, void**ppv) override { return m_pSite ? m_pSite->QueryInterface(riid, ppv) : E_FAIL; }
+
+    static HRESULT Create(HWND hWnd, IShellFolder* psf, IShellFolder *pRegFolder, UINT cidl, PCUITEMID_CHILD_ARRAY apidl, REFIID riid, void **ppv)
+    {
+        CComPtr<IContextMenuCB> pcmcb;
+        HRESULT hr = ShellObjectCreatorInit<CItemContextMenu>(pRegFolder, cidl, apidl, IID_PPV_ARG(IContextMenuCB, &pcmcb));
+        if (FAILED(hr))
+            return hr;
+        DEFCONTEXTMENU dcm = { hWnd, pcmcb, NULL, psf, cidl, apidl };
+        return SHCreateDefaultContextMenu(&dcm, riid, ppv);
+    }
+
+    static LPCSTR GetVerbString(UINT_PTR Id)
+    {
+        switch (Id)
+        {
+            case CControlPanelFolder::IDC_OPEN: return "open";
+            case CControlPanelFolder::IDC_RUNAS: return "RunAs";
+            case CControlPanelFolder::IDC_CREATELINK: return "link"; // DFM_CMD_LINK
+            default: return NULL;
+        }
+    }
+
+    HRESULT MapRegMenuVerbToCplCmdId(LPCSTR verb)
+    {
+        char buf[MAX_PATH];
+        HRESULT hr = IS_INTRESOURCE(verb) ? E_FAIL : S_OK;
+        if (FAILED(hr) && m_pRegMenu)
+        {
+            hr = GetCommandStringA(m_pRegMenu, (SIZE_T)verb, GCS_VERB, buf, _countof(buf));
+            verb = buf;
+        }
+        UINT tmp;
+        if (SUCCEEDED(hr) && !lstrcmpiA(verb, GetVerbString(tmp = CControlPanelFolder::IDC_OPEN)))
+            return tmp;
+        if (SUCCEEDED(hr) && !lstrcmpiA(verb, GetVerbString(tmp = CControlPanelFolder::IDC_RUNAS)))
+            return tmp;
+        if (SUCCEEDED(hr) && MapVerbToDfmCmd(verb) == DFM_CMD_LINK)
+            return CControlPanelFolder::IDC_CREATELINK;
+        return SUCCEEDED(hr) ? HRESULT_FROM_WIN32(ERROR_INVALID_NAME) : hr;
+    }
+
+    BEGIN_COM_MAP(CItemContextMenu)
+    COM_INTERFACE_ENTRY_IID(IID_IContextMenuCB, IContextMenuCB)
+    COM_INTERFACE_ENTRY_IID(IID_IObjectWithSite, IObjectWithSite)
+    END_COM_MAP()
+};
+
+HRESULT WINAPI CItemContextMenu::CallBack(IShellFolder *psf, HWND hWnd, IDataObject *pdo, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+    switch (uMsg)
+    {
+        case DFM_MODIFYQCMFLAGS:
+        {
+            C_ASSERT(CMF_USEORGCMF & CMF_RESERVED);
+            m_OrgCMF = CMF_USEORGCMF | (UINT)wParam;
+            *(UINT*)lParam = ((UINT)wParam & ~CMF_CANRENAME) | CMF_VERBSONLY | CMF_NOVERBS | CMF_DEFAULTONLY; // We want to build the menu ourself
+            return S_OK;
+        }
+        case DFM_MERGECONTEXTMENU:
+        {
+            QCMINFO &qcmi = *(QCMINFO*)lParam;
+            UINT cmf = (m_OrgCMF & CMF_USEORGCMF) ? (m_OrgCMF & ~CMF_USEORGCMF) : (UINT)wParam;
+            UINT mfs_default = (cmf & CMF_NODEFAULT) ? 0 : MFS_DEFAULT, pos = 0, base = qcmi.idCmdFirst;
+            if (m_Cpl)
+            {
+                InsertCMMergeMenuItem(&qcmi, &pos, base + CControlPanelFolder::IDC_OPEN, MAKEINTRESOURCEW(IDS_OPEN_VERB), MFS_ENABLED | mfs_default);
+                if (!(cmf & CMF_DEFAULTONLY))
+                {
+                    if (cmf & CMF_EXTENDEDVERBS)
+                        InsertCMMergeMenuItem(&qcmi, &pos, base + CControlPanelFolder::IDC_RUNAS, MAKEINTRESOURCEW(IDS_RUNAS_VERB), MFS_ENABLED);
+                    InsertCMMergeMenuItem(&qcmi, &pos, IDC_STATIC, NULL, MFT_SEPARATOR | MFS_ENABLED);
+                    InsertCMMergeMenuItem(&qcmi, &pos, base + CControlPanelFolder::IDC_CREATELINK, MAKEINTRESOURCEW(IDS_CREATELINK), MFS_ENABLED);
+                }
+            }
+            if (m_cidl > m_cCpl)
+            {
+                HRESULT hr = m_pRegFolder->GetUIObjectOf(hWnd, m_cidl - m_cCpl, m_apidl, IID_NULL_PPV_ARG(IContextMenu, &m_pRegMenu));
+                if (SUCCEEDED(hr))
+                {
+                    IUnknown_SetSite(m_pRegMenu, m_pSite); // For CDefaultContextMenu::TryToBrowse
+                    UINT first = m_Cpl ? 1 : qcmi.idCmdFirst, last = m_Cpl ? 0x7fff : qcmi.idCmdLast;
+                    HMENU hMenu = qcmi.hmenu;
+                    if (m_Cpl)
+                    {
+                        hMenu = m_hRegMenu = CreatePopupMenu();
+                        cmf |= CMF_NODEFAULT | CMF_OPTIMIZEFORINVOKE;
+                    }
+                    hr = hMenu ? m_pRegMenu->QueryContextMenu(hMenu, Pos, first, last, cmf & ~(m_cCpl ? CMF_CANRENAME : 0)) : E_FAIL;
+                    m_RegLast = hr > 0 ? hr - 1 : 0;DbgDumpMenu(hMenu);
+                }
+                qcmi.idCmdFirst = qcmi.idCmdLast; // Ignore the HRESULT and claim the entire range instead
+            }
+            return S_FALSE; // Don't add more verbs (FIXME: CDefaultContextMenu does not respect this)
+        }
+        case DFM_INVOKECOMMAND:
+        {
+            CMINVOKECOMMANDINFOEX ici { sizeof(ici), CMIC_MASK_UNICODE, hWnd, (LPSTR)wParam };
+            ici.lpVerbW = (LPWSTR)ici.lpVerb;
+            ici.lpParametersW = (LPWSTR)lParam;
+            ici.nShow = SW_SHOW;
+            DFMICS dfmics = { sizeof(dfmics), ici.fMask, lParam, 0, 0, (LPCMINVOKECOMMANDINFO)&ici, m_pSite };
+            return CallBack(psf, hWnd, pdo, DFM_INVOKECOMMANDEX, wParam, (LPARAM)&dfmics);
+        }
+        case DFM_INVOKECOMMANDEX:
+        {
+            if (!lParam)
+                break;
+            CMINVOKECOMMANDINFOEX &ici = *(CMINVOKECOMMANDINFOEX*)(((DFMICS*)lParam)->pici);
+
+            // If the verb is "link", we want to invoke the command only once to avoid multiple questions about creating them on the desktop.
+            if ((m_Cpl ? wParam : MapRegMenuVerbToCplCmdId(ici.lpVerb)) == CControlPanelFolder::IDC_CREATELINK)
+            {
+                CreateLinks(hWnd, static_cast<CControlPanelFolder*>(psf)->pidlRoot, m_cidl, m_apidl);
+                return S_OK;
+            }
+
+            if (m_cidl > m_cCpl && m_pRegMenu)
+            {
+                WCHAR verbW[MAX_PATH];
+                if (m_Cpl) // We must try to map the .cpl verb to a RegItem verb
+                {
+                    ici.lpVerb = GetVerbString(wParam);
+                    ici.lpVerbW = SHAnsiToUnicode(ici.lpVerb, verbW, _countof(verbW)) ? verbW : NULL;
+#if 1               // FIXME: CDefaultContextMenu::InvokeCommand should handle all string verbs
+                    INT_PTR id = GetMenuIdFromVerbA(m_pRegMenu, ici.lpVerb, 0, m_RegLast);
+                    if (id != -1)
+                    {
+                        ici.lpVerb = MAKEINTRESOURCEA(id);
+                        ici.lpVerbW = MAKEINTRESOURCEW(id);
+                    }
+#endif
+                }
+                m_pRegMenu->InvokeCommand((CMINVOKECOMMANDINFO*)&ici);
+            }
+            UINT_PTR cplverb = wParam, mapped = 0;
+            for (UINT i = m_cidl - m_cCpl; i < m_cidl; ++i)
+            {
+                if (!mapped++ && !m_Cpl) // We must try to map the RegItem verb to a .cpl verb
+                {
+                    HRESULT hr = MapRegMenuVerbToCplCmdId(ici.lpVerb);
+                    if (FAILED(hr))
+                        break;
+                    cplverb = hr;
+                }
+                static_cast<CControlPanelFolder*>(psf)->InvokeCplItem(m_apidl[i], cplverb, *(CMINVOKECOMMANDINFO*)&ici);
+            }
+            return S_OK;
+        }
+    }
+    return SHELL32_DefaultContextMenuCallBack(psf, pdo, uMsg);
+}
+
 /***********************************************************************
 *   control panel implementation in shell namespace
 */
@@ -448,20 +691,7 @@ HRESULT WINAPI CControlPanelFolder::GetUIObjectOf(HWND hwndOwner,
         *ppvOut = NULL;
 
         if (IsEqualIID(riid, IID_IContextMenu) && (cidl >= 1)) {
-            /* HACK: We should use callbacks from CDefaultContextMenu instead of creating one on our own */
-            BOOL bHasCpl = FALSE;
-            for (UINT i = 0; i < cidl; i++)
-            {
-                if(_ILIsCPanelStruct(apidl[i]))
-                {
-                    bHasCpl = TRUE;
-                }
-            }
-
-            if (bHasCpl)
-                hr = ShellObjectCreatorInit<CCPLItemMenu>(cidl, apidl, riid, &pObj);
-            else
-                hr = m_regFolder->GetUIObjectOf(hwndOwner, cidl, apidl, riid, prgfInOut, &pObj);
+            hr = CItemContextMenu::Create(hwndOwner, static_cast<IShellFolder*>(this), m_regFolder, cidl, apidl, riid, &pObj);
         } else if (IsEqualIID(riid, IID_IDataObject) && (cidl >= 1)) {
             hr = IDataObject_Constructor(hwndOwner, pidlRoot, apidl, cidl, TRUE, (IDataObject **)&pObj);
         } else if ((IsEqualIID(riid, IID_IExtractIconA) || IsEqualIID(riid, IID_IExtractIconW)) && (cidl == 1)) {
@@ -652,125 +882,24 @@ HRESULT WINAPI CControlPanelFolder::GetCurFolder(PIDLIST_ABSOLUTE * pidl)
     return S_OK;
 }
 
-CCPLItemMenu::CCPLItemMenu()
+HRESULT CControlPanelFolder::InvokeCplItem(PCUITEMID_CHILD pidl, UINT_PTR CmdId, CMINVOKECOMMANDINFO &ICI)
 {
-    m_apidl = NULL;
-    m_cidl = 0;
-}
-
-HRESULT WINAPI CCPLItemMenu::Initialize(UINT cidl, PCUITEMID_CHILD_ARRAY apidl)
-{
-    m_cidl = cidl;
-    m_apidl = _ILCopyaPidl(apidl, m_cidl);
-    if (m_cidl && !m_apidl)
-        return E_OUTOFMEMORY;
-
-    return S_OK;
-}
-
-CCPLItemMenu::~CCPLItemMenu()
-{
-    _ILFreeaPidl(m_apidl, m_cidl);
-}
-
-HRESULT WINAPI CCPLItemMenu::QueryContextMenu(
-    HMENU hMenu,
-    UINT indexMenu,
-    UINT idCmdFirst,
-    UINT idCmdLast,
-    UINT uFlags)
-{
-    _InsertMenuItemW(hMenu, indexMenu++, TRUE, idCmdFirst, MFT_STRING, MAKEINTRESOURCEW(IDS_OPEN), MFS_DEFAULT);
-    _InsertMenuItemW(hMenu, indexMenu++, TRUE, IDC_STATIC, MFT_SEPARATOR, NULL, MFS_ENABLED);
-    _InsertMenuItemW(hMenu, indexMenu++, TRUE, idCmdFirst + 1, MFT_STRING, MAKEINTRESOURCEW(IDS_CREATELINK), MFS_ENABLED);
-
-    return MAKE_HRESULT(SEVERITY_SUCCESS, 0, 2);
-}
-
-EXTERN_C
-void WINAPI Control_RunDLLW(HWND hWnd, HINSTANCE hInst, LPCWSTR cmd, DWORD nCmdShow);
-
-/**************************************************************************
-* ICPanel_IContextMenu_InvokeCommand()
-*/
-HRESULT WINAPI CCPLItemMenu::InvokeCommand(LPCMINVOKECOMMANDINFO lpcmi)
-{
-    HRESULT hResult;
-
-    PIDLCPanelStruct *pCPanel = _ILGetCPanelPointer(m_apidl[0]);
-    if(!pCPanel)
-        return E_FAIL;
-
-    TRACE("(%p)->(invcom=%p verb=%p wnd=%p)\n", this, lpcmi, lpcmi->lpVerb, lpcmi->hwnd);
-
-    if (lpcmi->lpVerb == MAKEINTRESOURCEA(0))
+    HRESULT hr = E_INVALIDARG;
+    HWND hWnd = (ICI.fMask & CMIC_MASK_FLAG_NO_UI) ? NULL : ICI.hwnd;
+    if (PIDLCPanelStruct *pCPS = _ILGetCPanelPointer(pidl))
     {
-        /* Hardcode the command here; Executing a cpl file would be fine but we also need to run things like console.dll */
-        WCHAR wszParams[MAX_PATH];
-        PCWSTR wszFile = L"rundll32.exe";
-        PCWSTR wszFormat = L"shell32.dll,Control_RunDLL %s,%s";
-
-        wsprintfW(wszParams, wszFormat, pCPanel->szName, pCPanel->szName + pCPanel->offsDispName);
-
-        /* Note: we pass the applet name to Control_RunDLL to distinguish between multiple applets in one .cpl file */
-        ShellExecuteW(NULL, NULL, wszFile, wszParams, NULL, 0);
+        if (CmdId == IDC_OPEN || CmdId == IDC_RUNAS)
+        {
+            WCHAR params[MAX_PATH + MAX_PATH];
+            wsprintfW(params, L"%s,%s", pCPS->szName, pCPS->szName + pCPS->offsDispName);
+            hr = SHELL32_RunControlPanel(params, hWnd, CmdId == IDC_RUNAS);
+        }
+        else if (CmdId == IDC_CREATELINK)
+        {
+            hr = CreateLinks(hWnd, pidlRoot, 1, &pidl);
+        }
     }
-    else if (lpcmi->lpVerb == MAKEINTRESOURCEA(1)) //FIXME
-    {
-        CComPtr<IDataObject> pDataObj;
-        LPITEMIDLIST pidl = _ILCreateControlPanel();
-
-        hResult = SHCreateDataObject(pidl, m_cidl, m_apidl, NULL, IID_PPV_ARG(IDataObject, &pDataObj));
-        if (FAILED(hResult))
-            return hResult;
-
-        SHFree(pidl);
-
-        //FIXME: Use SHCreateLinks
-        CComPtr<IShellFolder> psf;
-        CComPtr<IDropTarget> pDT;
-
-        hResult = SHGetDesktopFolder(&psf);
-        if (FAILED(hResult))
-            return hResult;
-
-        hResult = psf->CreateViewObject(NULL, IID_PPV_ARG(IDropTarget, &pDT));
-        if (FAILED(hResult))
-            return hResult;
-
-        SHSimulateDrop(pDT, pDataObj, MK_CONTROL|MK_SHIFT, NULL, NULL);
-    }
-    return S_OK;
-}
-
-/**************************************************************************
- *  ICPanel_IContextMenu_GetCommandString()
- *
- */
-HRESULT WINAPI CCPLItemMenu::GetCommandString(
-    UINT_PTR idCommand,
-    UINT uFlags,
-    UINT* lpReserved,
-    LPSTR lpszName,
-    UINT uMaxNameLen)
-{
-    TRACE("(%p)->(idcom=%lx flags=%x %p name=%p len=%x)\n", this, idCommand, uFlags, lpReserved, lpszName, uMaxNameLen);
-
-    FIXME("unknown command string\n");
-    return E_FAIL;
-}
-
-/**************************************************************************
-* ICPanel_IContextMenu_HandleMenuMsg()
-*/
-HRESULT WINAPI CCPLItemMenu::HandleMenuMsg(
-    UINT uMsg,
-    WPARAM wParam,
-    LPARAM lParam)
-{
-    TRACE("ICPanel_IContextMenu_HandleMenuMsg (%p)->(msg=%x wp=%lx lp=%lx)\n", this, uMsg, wParam, lParam);
-
-    return E_NOTIMPL;
+    return hr;
 }
 
 /**************************************************************************

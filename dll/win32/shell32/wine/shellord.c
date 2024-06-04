@@ -48,6 +48,7 @@ WINE_DECLARE_DEBUG_CHANNEL(pidl);
 #ifdef __REACTOS__
 #include <comctl32_undoc.h>
 #include <shlwapi_undoc.h>
+#include <strsafe.h>
 #else
 /* FIXME: !!! move CREATEMRULIST and flags to header file !!! */
 /*        !!! it is in both here and comctl32undoc.c      !!! */
@@ -1457,6 +1458,30 @@ HRESULT WINAPI SHWinHelp(HWND hwnd, LPCWSTR pszHelp, UINT uCommand, ULONG_PTR dw
     }
     return TRUE;
 }
+
+#ifdef __REACTOS__
+HRESULT SHELL32_RunControlPanel(_In_ LPCWSTR commandLine, _In_opt_ HWND parent, _In_ BOOL RunAs)
+{
+    /*
+     * TODO: Run in-process when possible, using
+     * HKLM\Software\Microsoft\Windows\CurrentVersion\Explorer\ControlPanel\InProcCPLs
+     * and possibly some extra rules.
+     * See also https://docs.microsoft.com/en-us/windows/win32/api/shlobj/nf-shlobj-shruncontrolpanel
+     * "If the specified Control Panel item is already running, SHRunControlPanel
+     *  attempts to switch to that instance rather than opening a new instance."
+     */
+    WCHAR params[sizeof("shell32.dll,Control_RunDLLAsUserW") + MAX_PATH + MAX_PATH];
+    LPCSTR func = RunAs ? "Control_RunDLLAsUserW" : "Control_RunDLL";
+    if (FAILED(StringCchPrintfW(params, _countof(params), L"%s,%hs %s", L"shell32.dll", func, commandLine)))
+        return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
+    SHELLEXECUTEINFOW sei = { sizeof(sei), parent ? 0 : SEE_MASK_FLAG_NO_UI, parent,
+                              L"open", L"rundll32.exe", params, NULL, SW_SHOW };
+    if (ShellExecuteExW(&sei))
+        return S_OK;
+    DWORD error = GetLastError();
+    return HRESULT_FROM_WIN32(error);
+}
+#endif
 /*************************************************************************
  *  SHRunControlPanel [SHELL32.161]
  *
@@ -1465,21 +1490,11 @@ BOOL WINAPI SHRunControlPanel (_In_ LPCWSTR commandLine, _In_opt_ HWND parent)
 {
 #ifdef __REACTOS__
     /*
-     * TODO: Run in-process when possible, using
-     * HKLM\Software\Microsoft\Windows\CurrentVersion\Explorer\ControlPanel\InProcCPLs
-     * and possibly some extra rules.
-     * See also https://docs.microsoft.com/en-us/windows/win32/api/shlobj/nf-shlobj-shruncontrolpanel
-     * "If the specified Control Panel item is already running, SHRunControlPanel
-     *  attempts to switch to that instance rather than opening a new instance."
      * This function is not supported as of Windows Vista, where it always returns FALSE.
      * However we need to keep it "alive" even when ReactOS is compliled as NT6+
      * in order to keep control panel elements launch commands.
      */
-    WCHAR parameters[MAX_PATH] = L"shell32.dll,Control_RunDLL ";
-    TRACE("(%s, %p)n", debugstr_w(commandLine), parent);
-    wcscat(parameters, commandLine);
-
-    return ((INT_PTR)ShellExecuteW(parent, L"open", L"rundll32.exe", parameters, NULL, SW_SHOWNORMAL) > 32);
+    return SUCCEEDED(SHELL32_RunControlPanel(commandLine, parent, FALSE));
 #else
 	FIXME("(%s, %p): stub\n", debugstr_w(commandLine), parent);
 	return FALSE;

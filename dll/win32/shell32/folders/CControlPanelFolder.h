@@ -28,17 +28,19 @@ class CControlPanelFolder :
     public IShellFolder2,
     public IPersistFolder2
 {
+    friend class CItemContextMenu;
     private:
         /* both paths are parsible from the desktop */
         LPITEMIDLIST pidlRoot;  /* absolute pidl */
         int dwAttributes;       /* attributes returned by GetAttributesOf FIXME: use it */
         CComPtr<IShellFolder2> m_regFolder;
 
-        HRESULT WINAPI ExecuteFromIdList(LPCITEMIDLIST pidl);
-
     public:
         CControlPanelFolder();
         ~CControlPanelFolder();
+
+        enum { IDC_OPEN = 1, IDC_RUNAS, IDC_CREATELINK };
+        HRESULT InvokeCplItem(PCUITEMID_CHILD pidl, UINT_PTR CmdId, CMINVOKECOMMANDINFO &ICI);
 
         // IShellFolder
         STDMETHOD(ParseDisplayName)(HWND hwndOwner, LPBC pbc, LPOLESTR lpszDisplayName, DWORD *pchEaten, PIDLIST_RELATIVE *ppidl, DWORD *pdwAttributes) override;
@@ -82,33 +84,6 @@ class CControlPanelFolder :
         COM_INTERFACE_ENTRY_IID(IID_IPersistFolder2, IPersistFolder2)
         COM_INTERFACE_ENTRY_IID(IID_IPersist, IPersist)
         END_COM_MAP()
-};
-
-class CCPLItemMenu:
-    public CComObjectRootEx<CComMultiThreadModelNoCS>,
-    public IContextMenu2
-{
-private:
-    PITEMID_CHILD *m_apidl;
-    UINT m_cidl;
-
-public:
-    CCPLItemMenu();
-    ~CCPLItemMenu();
-    HRESULT WINAPI Initialize(UINT cidl, PCUITEMID_CHILD_ARRAY apidl);
-
-    // IContextMenu
-    STDMETHOD(QueryContextMenu)(HMENU hMenu, UINT indexMenu, UINT idCmdFirst, UINT idCmdLast, UINT uFlags) override;
-    STDMETHOD(InvokeCommand)(LPCMINVOKECOMMANDINFO lpcmi) override;
-    STDMETHOD(GetCommandString)(UINT_PTR idCommand, UINT uFlags, UINT *lpReserved, LPSTR lpszName, UINT uMaxNameLen) override;
-
-    // IContextMenu2
-    STDMETHOD(HandleMenuMsg)(UINT uMsg, WPARAM wParam, LPARAM lParam) override;
-
-    BEGIN_COM_MAP(CCPLItemMenu)
-    COM_INTERFACE_ENTRY_IID(IID_IContextMenu, IContextMenu)
-    COM_INTERFACE_ENTRY_IID(IID_IContextMenu2, IContextMenu2)
-    END_COM_MAP()
 };
 
 class COpenControlPanel :

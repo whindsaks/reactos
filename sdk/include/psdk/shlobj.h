@@ -2579,6 +2579,17 @@ CDefFolderMenu_Create2(
   _In_reads_opt_(nKeys) const HKEY *,
   _Outptr_ IContextMenu **);
 
+typedef struct
+{
+    DWORD cbSize;
+    DWORD fMask;   // CMIC_MASK_
+    LPARAM lParam;  // Same as lParam of DFM_INFOKECOMMAND
+    UINT idCmdFirst;
+    UINT idDefMax;
+    LPCMINVOKECOMMANDINFO pici;
+    IUnknown *punkSite;
+} DFMICS, *PDFMICS;
+
 #define DFM_MERGECONTEXTMENU         1
 #define DFM_INVOKECOMMAND            2
 #define DFM_INVOKECOMMANDEX          12

@@ -688,6 +688,8 @@ WINAPI
 Control_RunDLLAsUserW(HWND hwnd, HINSTANCE hInstance, LPWSTR pszCmdLine, int nCmdShow)
 {
     FIXME("Control_RunDLLAsUserW() stub\n");
+    if (hwnd && nCmdShow != SW_HIDE)
+        SHELL_ErrorBox(hwnd, ERROR_NOT_SUPPORTED);
 }
 
 /*
