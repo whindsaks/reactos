@@ -109,7 +109,13 @@ HRESULT CGuidItemContextMenu_CreateInstance(PCIDLIST_ABSOLUTE pidlFolder,
             CoTaskMemFree(pwszCLSID);
         }
     }
-    AddClassKeyToArray(L"Folder", hKeys, &cKeys);
+    UINT folderKey = TRUE;
+    SFGAOF att = SFGAO_FOLDER;
+    if (psf && SUCCEEDED(psf->GetAttributesOf(1, apidl, &att)))
+        folderKey = (att & SFGAO_FOLDER);
+
+    if (folderKey)
+        AddClassKeyToArray(L"Folder", hKeys, &cKeys);
 
     return CDefFolderMenu_Create2(pidlFolder, hwnd, cidl, apidl, psf, RegFolderContextMenuCallback, cKeys, hKeys, ppcm);
 }

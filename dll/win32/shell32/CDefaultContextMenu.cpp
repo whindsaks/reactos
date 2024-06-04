@@ -756,6 +756,9 @@ CDefaultContextMenu::QueryContextMenu(
 
     TRACE("BuildShellItemContextMenu entered\n");
 
+    // FIXME: The correct order to add items in is DFM_CMD_*(!CMF_VERBSONLY), DFM_MERGECONTEXTMENU,
+    //        DFM_MERGECONTEXTMENU_BOTTOM, Shell, ShellEx, CMF_INCLUDESTATIC, DFM_MERGECONTEXTMENU_TOP
+
     /* Load static verbs and shell extensions from registry */
     for (UINT i = 0; i < m_cKeys && !(uFlags & CMF_NOVERBS); i++)
     {
