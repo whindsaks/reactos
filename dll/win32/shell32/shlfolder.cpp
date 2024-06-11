@@ -381,18 +381,6 @@ HRESULT SH_GetApidlFromDataObject(IDataObject *pDataObject, PIDLIST_ABSOLUTE* pp
 }
 
 /***********************************************************************
- *  SHCreateLinks
- *
- *   Undocumented.
- */
-HRESULT WINAPI SHCreateLinks( HWND hWnd, LPCSTR lpszDir, IDataObject * lpDataObject,
-                              UINT uFlags, LPITEMIDLIST *lppidlLinks)
-{
-    FIXME("%p %s %p %08x %p\n", hWnd, lpszDir, lpDataObject, uFlags, lppidlLinks);
-    return E_NOTIMPL;
-}
-
-/***********************************************************************
  *  SHOpenFolderAndSelectItems
  *
  *   Unimplemented.

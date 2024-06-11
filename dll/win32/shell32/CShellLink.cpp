@@ -3222,3 +3222,165 @@ cleanup:
 
     return hNewIcon;
 }
+
+
+#define SHCLF_PREFIXNAME       0x01
+#define SHCLF_CREATEONDESKTOP  0x02
+#define SHCLF_CONFIRM          0x04
+//efine SHCLF_NOUNIQUE            ?
+static BOOL SHELL32_GetNewLinkInfo(LPCWSTR pszLinkTo, LPCWSTR pszDir, LPWSTR pszName, BOOL *pfMustCopy, UINT Flags)
+{
+    WCHAR path[MAX_PATH];
+    if (Flags & SHGNLI_PIDL) // FIXME: Wine SHGetNewLinkInfoW does not handle this
+    {
+        if (FAILED(SHGetNameAndFlagsW((LPCITEMIDLIST)pszLinkTo, SHGDN_FORPARSING, path, _countof(path), NULL))
+            return FALSE;
+        pszLinkTo = path;
+    }
+    return SHGetNewLinkInfoW(pszLinkTo, pszDir, pszName, *pfMustCopy, Flags);
+}
+
+static HRESULT SHELL32_CreateNewLink(PCUIDLIST_ABSOLUTE pidlLinkTo, LPCWSTR Dir, UINT Flags, LPITEMIDLIST *ppidlLink)
+{
+    UINT SHGNLIF = SHGNLI_PIDL;
+    if (Flags & SHCLF_PREFIXNAME)
+        SHGNLIF |= SHGNLI_PREFIXNAME;
+#ifdef SHCLF_NOUNIQUE
+    if (Flags & SHCLF_NOUNIQUE)
+        SHGNLIF |= SHGNLI_NOUNIQUE;
+#endif
+    WCHAR LnkPath[MAX_PATH + 255], *NewPath;
+    HRESULT hr = E_FAIL;
+    BOOL fMustCopy;
+    if (SHELL32_GetNewLinkInfo((LPWSTR)pidlLinkTo, Dir, LnkPath, &fMustCopy, SHGNLIF))
+    {
+        CComPtr<IShellLink> Link;
+        if (SHGNLIF & SHGNLI_NOUNIQUE)
+            PathCombineW(LnkPath, Dir, LnkPath); // It gave us just the name, build the full path we need
+
+        if (fMustCopy)
+        {
+            IShellFolder *pSF;
+            PCUITEMID_CHILD child;
+            if (SUCCEEDED(hr = SHBindToParent(pidlLinkTo, IID_PPV_ARG(IShellFolder, &pSF), &child)))
+            {
+                hr = pSF->GetUIObjectOf(NULL, 1, &child, IID_PPV_ARG(IShellLink, &Link));
+                pSF->Release();
+            }
+        }
+        else
+        {
+            hr = SHCoCreateInstance(NULL, &CLSID_ShellLink, NULL, IID_PPV_ARG(IShellLink, &Link));
+            if (SUCCEEDED(hr))
+                hr = Link.SetIDList(pidlLinkTo);
+        }
+        IPersistFile *pPF;
+        if (SUCCEEDED(hr) && SUCCEEDED(hr = Link.QueryInterface(IID_PPV_ARG(IPersistFile, &pPF)))
+        {
+            if (SUCCEEDED(hr = pPF->Save(LnkPath, TRUE)))
+            {
+                // A folder shortcut is really "folder\target.lnk", try to get the real path
+                if (SUCCEEDED(pPF->GetCurFile(&NewPath))
+                {
+                    hr = StringCchCopyW(LnkPath, _countof(LnkPath), NewPath))
+                    SHFree(NewPath);
+                }
+            }
+            pPF->Release();
+        }
+    }
+    if (ppidlLink)
+        *ppidlLink = SUCCEEDED(hr) ? ILCreateFromPathW(LnkPath) : NULL;
+    return hr;
+}
+
+HRESULT SHELL32_CreateLinks(HWND hWnd, LPCWSTR Dir, PCUIDLIST_ABSOLUTE pidlBase, UINT cidl,
+                            PCUIDLIST_RELATIVE *apidl, UINT Flags, LPITEMIDLIST *lppidlLinks)
+{
+    if (!pSF || !apidl)
+        return E_INVALIDARG;
+    if (!(Flags & SHCLF_CREATEONDESKTOP))
+        Flags |= SHCLF_CONFIRM;
+
+    HRESULT hr = S_OK;
+    WCHAR dirbuf[MAX_PATH;
+    dirbuf[0] = UNICODE_NULL;
+    if (Dir && FAILED(hr = StringCchCopyW(dirbuf, _countof(dirbuf), Dir)))
+            return hr;
+
+    for (UINT i = 0; i < cidl; ++i)
+    {
+        if (lppidlLinks)
+            lppidlLinks[i] = NULL;
+        PIDLIST_ABSOLUTE pidlTarget;
+        if (SUCCEEDED(hr) && SUCCEEDED(hr = SHILCombine(pidlBase, apidl[i], &pidlTarget)))
+        {
+            if (!*dirbuf)
+                hr = E_FAIL;
+            retry:
+            if (FAILED(hr) && hr != STG_E_MEDIUMFULL)
+            {
+                hr = S_OK;
+                if (Flags & SHCLF_CONFIRM)
+                {
+                    Flags &= ~SHCLF_CONFIRM;
+                    int id = MessageBoxW(hWnd, "Cannot create link here, create on the desktop instead?", 0, MB_YESNO | MB_ICONQUESTION);
+                    hr = (id == IDYES) ? S_OK : S_FALSE;
+                }
+                if (hr == S_OK)
+                {
+                    hr = SHGetSpecialFolderPath(hWnd, dirbuf, CSIDL_DESKTOPDIRECTORY, TRUE) ? S_OK : E_FAIL;
+                }
+            }
+            if (hr == S_OK)
+            {
+                hr = SHELL32_CreateNewLink(pidlTarget, dirbuf, Flags, &lppidlLinks[i]);
+                if (FAILED(hr) && (Flags & SHCLF_CONFIRM))
+                    goto retry;
+            }
+            if (FAILED(hr))
+            {
+                SHELL_ErrorBox(hWnd, hr);
+            }
+            ILFree(pidlTarget);
+        }
+    }
+    return hr;
+}
+
+HRESULT SHELL32_CreateLinksFromDataObject(HWND hWnd, void *Dir, IDataObject *pDO, UINT Flags, LPITEMIDLIST *lppidlLinks)
+{
+    if (!pDO)
+        return E_INVALIDARG;
+    CDataObjectHIDA cida(pDO);
+    HRESULT hr = cida.hr();
+    if (FAILED_UNEXPECTEDLY(hr))
+        return hr;
+
+    LPWSTR dir = (LPWSTR)Dir;
+    if (Flags & SHCLF_DIRISSHELLFOLDER)
+    {
+        CComHeapPtr<ITEMIDLIST_ABSOLUTE> pidlDir;
+        if (FAILED(hr = SHGetIDListFromObject((IUnknown*)Dir, &pidlDir)))
+            return hr;
+        if (FAILED(hr = SHGetNameFromIDList(pidlDir, SIGDN_FILESYSPATH, &dir))
+            return hr;
+    }
+    PCUIDLIST_ABSOLUTE pidlFolder = HIDA_GetPIDLFolder(cida);
+    PCUIDLIST_RELATIVE pidlFirstChild = HIDA_GetPIDLItem(cida, 0);
+    hr = SHELL32_CreateLinks(hWnd, dir, pidlFolder, cida->cidl, &pidlFirstChild, Flags, lppidlLinks);
+    if (dir != Dir)
+        SHFree(dir);
+    return hr;
+}
+
+/***********************************************************************
+ *  SHCreateLinks
+ *
+ *   Undocumented.
+ */
+HRESULT WINAPI SHCreateLinks(HWND hWnd, LPCWSTR lpszDir, IDataObject *lpDataObject, UINT uFlags, LPITEMIDLIST *lppidlLinks)
+{hello, i have never tested any of this properly
+    uFlags &= ~SHCLF_DIRISSHELLFOLDER;
+    return SHELL32_CreateLinksFromDataObject(hWnd, lpszDir, lpDataObject, uFlags, lppidlLinks);
+}

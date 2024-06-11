@@ -229,6 +229,15 @@ BOOL PathIsValidElement(_In_ LPCWSTR pszPath);
 BOOL PathIsDosDevice(_In_ LPCWSTR pszName);
 HRESULT SHILAppend(_Inout_ LPITEMIDLIST pidl, _Inout_ LPITEMIDLIST *ppidl);
 
+#define SHCLF_DIRISSHELLFOLDER 0x80000000 // Internal ROS flag
+HRESULT
+SHELL32_CreateLinksFromDataObject(
+    _In_ HWND hWnd,
+    _In_ void *Dir,
+    _In_ IDataObject *pDO,
+    _In_ UINT Flags,
+    _Out_LPITEMIDLIST *lppidlLinks);
+
 EXTERN_C HRESULT
 IUnknown_InitializeCommand(
     _In_ IUnknown *pUnk,

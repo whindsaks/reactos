@@ -621,6 +621,11 @@ static inline PCUIDLIST_RELATIVE HIDA_GetPIDLItem(CIDA const* pida, SIZE_T i)
     return (PCUIDLIST_RELATIVE)(((LPBYTE)pida) + (pida)->aoffset[i + 1]);
 }
 
+static inline PIDLIST_ABSOLUTE HIDA_GetAbsolute(CIDA const* pida, SIZE_T i)
+{
+    return ILCombine(HIDA_GetPIDLFolder(pida), HIDA_GetPIDLItem(pida, i));
+}
+
 
 #ifdef __cplusplus
 
