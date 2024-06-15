@@ -156,6 +156,7 @@
 #define IDS_INFO_UNINSTALLSTR     294
 #define IDS_INFO_MODIFYPATH       295
 #define IDS_INFO_INSTALLDATE      296
+#define IDS_INFO_MODIFYDATE       297
 
 /* Info for available apps */
 #define IDS_AINFO_VERSION            350

@@ -149,6 +149,7 @@ BEGIN
     IDS_INFO_UNINSTALLSTR "\nEltávolító parancs: "
     IDS_INFO_MODIFYPATH "\nMódosítási útvonal: "
     IDS_INFO_INSTALLDATE "\nTelepítés dátuma: "
+    IDS_INFO_MODIFYDATE "\nModified Date: "
     IDS_AINFO_PACKAGE_NAME "\nCsomagnév: "
 END
 

@@ -435,6 +435,17 @@ CInstalledApplicationInfo::ShowAppInfo(CAppRichEdit *RichEdit)
     AddApplicationRegString(RichEdit, IDS_INFO_INFOABOUT, L"URLInfoAbout", CFM_LINK);
     RichEdit->InsertTextWithString(IDS_INFO_COMMENTS, szComments, 0);
 
+    FILETIME ft;
+    if (RegQueryInfoKeyW(m_hKey.m_hKey, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &ft) == ERROR_SUCCESS)
+    {
+        SYSTEMTIME st;
+        if (FileTimeToSystemTime(&ft, &st))
+        {
+            WCHAR buf[200];
+            GetDateFormatW(LOCALE_USER_DEFAULT, 0, &st, NULL, buf, _countof(buf));
+            RichEdit->InsertTextWithString(IDS_INFO_MODIFYDATE, buf, 0);
+        }
+    }
     if (m_szInstallDate.IsEmpty())
     {
         RetrieveInstallDate();

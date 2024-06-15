@@ -151,6 +151,7 @@ BEGIN
     IDS_INFO_UNINSTALLSTR "\nKaldırma Dizesi: "
     IDS_INFO_MODIFYPATH "\nDeğiştirme Yolu: "
     IDS_INFO_INSTALLDATE "\nKurulum Zamanı: "
+    IDS_INFO_MODIFYDATE "\nModified Date: "
     IDS_AINFO_PACKAGE_NAME "\nPaket Adı: "
 END
 

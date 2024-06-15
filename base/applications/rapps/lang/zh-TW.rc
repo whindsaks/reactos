@@ -150,6 +150,7 @@ BEGIN
     IDS_INFO_UNINSTALLSTR "\n解除安裝字串："
     IDS_INFO_MODIFYPATH "\n修改路徑："
     IDS_INFO_INSTALLDATE "\n安裝日期："
+    IDS_INFO_MODIFYDATE "\nModified Date: "
     IDS_AINFO_PACKAGE_NAME "\n套件名稱："
 END
 

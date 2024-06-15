@@ -154,6 +154,7 @@ BEGIN
     IDS_INFO_UNINSTALLSTR "\nמחרוזת הסרה: "
     IDS_INFO_MODIFYPATH "\nנתיב שינוי: "
     IDS_INFO_INSTALLDATE "\nתאריך התקנה: "
+    IDS_INFO_MODIFYDATE "\nModified Date: "
     IDS_AINFO_PACKAGE_NAME "\nשם החבילה: "
 END
 

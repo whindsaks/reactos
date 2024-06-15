@@ -154,6 +154,7 @@ BEGIN
     IDS_INFO_UNINSTALLSTR "\nСтрока для удаления: "
     IDS_INFO_MODIFYPATH "\nСтрока для изменения: "
     IDS_INFO_INSTALLDATE "\nДата установки: "
+    IDS_INFO_MODIFYDATE "\nModified Date: "
     IDS_AINFO_PACKAGE_NAME "\nНазвание пакета: "
 END
 

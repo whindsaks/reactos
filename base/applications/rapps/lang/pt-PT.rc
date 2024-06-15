@@ -149,6 +149,7 @@ BEGIN
     IDS_INFO_UNINSTALLSTR "\nDesinstalar cadeia: "
     IDS_INFO_MODIFYPATH "\nModificar caminho: "
     IDS_INFO_INSTALLDATE "\nData da instalação: "
+    IDS_INFO_MODIFYDATE "\nModified Date: "
     IDS_AINFO_PACKAGE_NAME "\nNome do pacote: "
 END
 

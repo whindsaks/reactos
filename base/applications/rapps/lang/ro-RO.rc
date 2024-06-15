@@ -151,6 +151,7 @@ BEGIN
     IDS_INFO_UNINSTALLSTR "\nComanda pentru dezinstalare: "
     IDS_INFO_MODIFYPATH "\nComanda pentru modificare: "
     IDS_INFO_INSTALLDATE "\nData de instalare: "
+    IDS_INFO_MODIFYDATE "\nModified Date: "
     IDS_AINFO_PACKAGE_NAME "\nNumele pachetului: "
 END
 
