@@ -200,6 +200,8 @@ CAppDB::EnumerateRegistry(CAtlList<CAppInfo *> *List, LPCWSTR SearchOnly)
     ATLASSERT(List || SearchOnly);
     REGSAM wowsam;
     HKEY hRootKey;
+    if (SearchOnly && !*SearchOnly)
+        return NULL;
     for (UINT rki = 0; (hRootKey = EnumInstalledRootKey(rki, wowsam)); ++rki)
     {
         CRegKey hKey;

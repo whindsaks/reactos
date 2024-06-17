@@ -54,6 +54,8 @@ BEGIN
         MENUITEM "&Uninstall\tCtrl+Del", ID_UNINSTALL
         MENUITEM "&Modify", ID_MODIFY
         MENUITEM SEPARATOR
+        MENUITEM "Run", ID_RUNAPP
+        MENUITEM SEPARATOR
         MENUITEM "&Remove from Registry", ID_REGREMOVE
         MENUITEM SEPARATOR
         MENUITEM "&Refresh\tF5", ID_REFRESH

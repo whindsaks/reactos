@@ -21,6 +21,8 @@ BEGIN
         MENUITEM "&Bongkar\tCtrl+Del", ID_UNINSTALL
         MENUITEM "&Ubah", ID_MODIFY
         MENUITEM SEPARATOR
+        MENUITEM "Run", ID_RUNAPP
+        MENUITEM SEPARATOR
         MENUITEM "&Hapus dari Registri", ID_REGREMOVE
         MENUITEM SEPARATOR
         MENUITEM "&Segarkan\tF5", ID_REFRESH

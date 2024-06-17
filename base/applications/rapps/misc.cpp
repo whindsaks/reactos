@@ -71,8 +71,9 @@ ShowPopupMenuEx(HWND hwnd, HWND hwndOwner, UINT MenuID, UINT DefaultItem)
     GetCursorPos(&pt);
 
     SetForegroundWindow(hwnd);
+    g_ActiveContextMenu = hPopupMenu;
     TrackPopupMenu(hPopupMenu, 0, pt.x, pt.y, 0, hwndOwner, NULL);
-
+    g_ActiveContextMenu = NULL;
     if (hMenu)
     {
         DestroyMenu(hMenu);
@@ -237,7 +238,7 @@ WriteLogMessage(WORD wType, DWORD dwEventID, LPCWSTR lpMsg)
 }
 
 BOOL
-GetInstalledVersion_WowUser(CStringW *szVersionResult, const CStringW &szRegName, BOOL IsUserKey, REGSAM keyWow)
+GetInstalledVersion_WowUser(CStringW *szVersionResult, LPCWSTR szRegName, BOOL IsUserKey, REGSAM keyWow)
 {
     BOOL bHasSucceded = FALSE;
     ATL::CRegKey key;
@@ -274,13 +275,12 @@ GetInstalledVersion_WowUser(CStringW *szVersionResult, const CStringW &szRegName
 }
 
 BOOL
-GetInstalledVersion(CStringW *pszVersion, const CStringW &szRegName)
+GetInstalledVersion(CStringW *pszVersion, LPCWSTR szRegName)
 {
-    return (
-        !szRegName.IsEmpty() && (GetInstalledVersion_WowUser(pszVersion, szRegName, TRUE, KEY_WOW64_32KEY) ||
-                                 GetInstalledVersion_WowUser(pszVersion, szRegName, FALSE, KEY_WOW64_32KEY) ||
-                                 GetInstalledVersion_WowUser(pszVersion, szRegName, TRUE, KEY_WOW64_64KEY) ||
-                                 GetInstalledVersion_WowUser(pszVersion, szRegName, FALSE, KEY_WOW64_64KEY)));
+    return (*szRegName &&
+           (GetInstalledVersion_WowUser(pszVersion, szRegName, TRUE, 0) ||
+            GetInstalledVersion_WowUser(pszVersion, szRegName, FALSE, KEY_WOW64_32KEY) ||
+            GetInstalledVersion_WowUser(pszVersion, szRegName, FALSE, KEY_WOW64_64KEY)));
 }
 
 BOOL

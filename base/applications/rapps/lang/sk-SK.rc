@@ -21,6 +21,8 @@ BEGIN
         MENUITEM "O&dinštalovať\tCtrl+Del", ID_UNINSTALL
         MENUITEM "&Zmeniť", ID_MODIFY
         MENUITEM SEPARATOR
+        MENUITEM "Run", ID_RUNAPP
+        MENUITEM SEPARATOR
         MENUITEM "Odst&rániť z Registrov", ID_REGREMOVE
         MENUITEM SEPARATOR
         MENUITEM "&Obnoviť\tF5", ID_REFRESH

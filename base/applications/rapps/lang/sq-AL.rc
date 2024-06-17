@@ -21,6 +21,8 @@ BEGIN
         MENUITEM "&Uninstall\tCtrl+Del", ID_UNINSTALL
         MENUITEM "&Modifiko", ID_MODIFY
         MENUITEM SEPARATOR
+        MENUITEM "Run", ID_RUNAPP
+        MENUITEM SEPARATOR
         MENUITEM "Hiq nga Regjistri", ID_REGREMOVE
         MENUITEM SEPARATOR
         MENUITEM "&Rifresko\tF5", ID_REFRESH

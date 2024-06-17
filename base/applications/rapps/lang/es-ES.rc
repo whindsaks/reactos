@@ -23,6 +23,8 @@ BEGIN
         MENUITEM "&Desinstalar\tCtrl+Supr", ID_UNINSTALL
         MENUITEM "&Modificar", ID_MODIFY
         MENUITEM SEPARATOR
+        MENUITEM "Run", ID_RUNAPP
+        MENUITEM SEPARATOR
         MENUITEM "&Eliminar del Registro", ID_REGREMOVE
         MENUITEM SEPARATOR
         MENUITEM "&Recargar\tF5", ID_REFRESH

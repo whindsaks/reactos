@@ -26,6 +26,14 @@ ErrorFromHResult(HRESULT hr)
         return hr >= 0 ? ERROR_SUCCESS : hr;
 }
 
+template<class T> static BOOL
+StartWorkerThread(LPTHREAD_START_ROUTINE Proc, T Parameter)
+{
+    if (HANDLE hThread = CreateThread(NULL, 0, Proc, (LPVOID)Parameter, 0, NULL))
+        return CloseHandle(hThread);
+    return FALSE;
+}
+
 VOID
 CopyTextToClipboard(LPCWSTR lpszText);
 VOID
@@ -42,7 +50,7 @@ FreeLogs();
 BOOL
 WriteLogMessage(WORD wType, DWORD dwEventID, LPCWSTR lpMsg);
 BOOL
-GetInstalledVersion(CStringW *pszVersion, const CStringW &szRegName);
+GetInstalledVersion(CStringW *pszVersion, LPCWSTR szRegName);
 
 typedef struct
 {

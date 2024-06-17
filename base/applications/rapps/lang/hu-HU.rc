@@ -21,6 +21,8 @@ BEGIN
         MENUITEM "&Eltávolítás\tCtrl+Del", ID_UNINSTALL
         MENUITEM "&Módosítás", ID_MODIFY
         MENUITEM SEPARATOR
+        MENUITEM "Run", ID_RUNAPP
+        MENUITEM SEPARATOR
         MENUITEM "Eltávolítás a &registryből", ID_REGREMOVE
         MENUITEM SEPARATOR
         MENUITEM "&Frissítés\tF5", ID_REFRESH

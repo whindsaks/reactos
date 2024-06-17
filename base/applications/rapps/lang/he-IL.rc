@@ -23,6 +23,8 @@ BEGIN
         MENUITEM "הסרה\tCtrl+Del", ID_UNINSTALL
         MENUITEM "שינוי", ID_MODIFY
         MENUITEM SEPARATOR
+        MENUITEM "Run", ID_RUNAPP
+        MENUITEM SEPARATOR
         MENUITEM "הסרה מהרשום", ID_REGREMOVE
         MENUITEM SEPARATOR
         MENUITEM "רענון\tF5", ID_REFRESH

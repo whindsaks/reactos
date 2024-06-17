@@ -24,6 +24,8 @@ BEGIN
         MENUITEM "&Deinstallieren\tCtrl+Del", ID_UNINSTALL
         MENUITEM "&Ändern", ID_MODIFY
         MENUITEM SEPARATOR
+        MENUITEM "Run", ID_RUNAPP
+        MENUITEM SEPARATOR
         MENUITEM "Aus &Registry entfernen", ID_REGREMOVE
         MENUITEM SEPARATOR
         MENUITEM "&Aktualisieren\tF5", ID_REFRESH

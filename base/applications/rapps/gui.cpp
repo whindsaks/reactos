@@ -25,8 +25,7 @@
 #include <gdiplus.h>
 #include <math.h>
 
-#define SEARCH_TIMER_ID 'SR'
-#define TREEVIEW_ICON_SIZE 24
+HMENU g_ActiveContextMenu = NULL;
 
 // **** CSideTreeView ****
 
@@ -558,6 +557,13 @@ CMainWindow::OnCommand(WPARAM wParam, LPARAM lParam)
             case ID_RESETDB:
                 m_Db->RemoveCached();
                 UpdateApplicationsList(SelectedEnumType, bReload);
+                break;
+
+            case ID_RUNAPP:
+                if (CAppInfo *App = (CAppInfo *)m_ApplicationView->GetFocusedItemData())
+                {
+                    App->Run(m_hWnd);
+                }
                 break;
 
             case ID_HELP:

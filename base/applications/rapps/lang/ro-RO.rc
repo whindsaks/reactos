@@ -23,6 +23,8 @@ BEGIN
         MENUITEM "&Dezinstalează\tCtrl+Del", ID_UNINSTALL
         MENUITEM "&Modifică", ID_MODIFY
         MENUITEM SEPARATOR
+        MENUITEM "Run", ID_RUNAPP
+        MENUITEM SEPARATOR
         MENUITEM "&Elimină din registru", ID_REGREMOVE
         MENUITEM SEPARATOR
         MENUITEM "Împ&rospătează\tF5", ID_REFRESH

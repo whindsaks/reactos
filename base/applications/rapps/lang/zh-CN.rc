@@ -55,6 +55,8 @@ BEGIN
         MENUITEM "卸载(&U)\tCtrl+Del", ID_UNINSTALL
         MENUITEM "修改(&M)", ID_MODIFY
         MENUITEM SEPARATOR
+        MENUITEM "Run", ID_RUNAPP
+        MENUITEM SEPARATOR
         MENUITEM "从注册表删除(&E)", ID_REGREMOVE
         MENUITEM SEPARATOR
         MENUITEM "刷新(&R)\tF5", ID_REFRESH

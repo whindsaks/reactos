@@ -9,6 +9,7 @@
 
 #include "rapps.h"
 #include "appview.h"
+#include "appdb.h"
 
 CAppInfo::CAppInfo(const CStringW &Identifier, AppsCategories Category)
     : szIdentifier(Identifier), iCategory(Category)
@@ -64,6 +65,18 @@ CAvailableApplicationInfo::CAvailableApplicationInfo(
 CAvailableApplicationInfo::~CAvailableApplicationInfo()
 {
     delete m_Parser;
+}
+
+CInstalledApplicationInfo *
+CAvailableApplicationInfo::CreateInstalledAppInstance()
+{
+    CStringW szRegName;
+    m_Parser->GetString(DB_REGNAME, szRegName);
+    CInstalledApplicationInfo *pIAI;
+    pIAI = CAppDB::CreateInstalledAppByRegistryKey(szRegName);
+    if (!pIAI)
+        pIAI = CAppDB::CreateInstalledAppByRegistryKey(szDisplayName);
+    return pIAI;
 }
 
 VOID
@@ -385,6 +398,19 @@ CAvailableApplicationInfo::UninstallApplication(UninstallCommandFlags Flags)
     return FALSE;
 }
 
+BOOL
+CAvailableApplicationInfo::Run(HWND hWnd)
+{
+    CInstalledApplicationInfo *pIAI = CreateInstalledAppInstance();
+    if (pIAI)
+    {
+        BOOL ret = pIAI->Run(hWnd);
+        delete pIAI;
+        return ret;
+    }
+    return FALSE;
+}
+
 CInstalledApplicationInfo::CInstalledApplicationInfo(
     HKEY Key,
     const CStringW &KeyName,
@@ -401,6 +427,54 @@ CInstalledApplicationInfo::CInstalledApplicationInfo(
 
 CInstalledApplicationInfo::~CInstalledApplicationInfo()
 {
+}
+
+HRESULT
+CInstalledApplicationInfo::GetUninstallApp(LPWSTR Buf, UINT cchMax)
+{
+    HRESULT hr = HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
+    if (m_szUninstallString.IsEmpty())
+    {
+        RetrieveUninstallStrings();
+    }
+    if (!m_szUninstallString.IsEmpty())
+    {
+        LPCWSTR command = m_szUninstallString.GetBuffer();
+        BOOL quoted = *command == L'\"';
+        LPCWSTR end = quoted ? PathGetArgsW(command) : command + wcslen(command);
+        SIZE_T len = end - command;
+        if (len && len < cchMax)
+        {
+            CopyMemory(Buf, command, (len + 1) * sizeof(*Buf));
+            Buf[len] = UNICODE_NULL;
+            if (quoted)
+                PathRemoveArgsW(Buf);
+            PathUnquoteSpacesW(Buf);
+            hr = wcschr(Buf, L'\\') ? S_OK : S_FALSE;
+        }
+        m_szUninstallString.ReleaseBuffer();
+    }
+    return hr;
+}
+
+BOOL
+CInstalledApplicationInfo::GetInstallLocation(LPWSTR Buf, UINT cchMax)
+{
+    CStringW string;
+    if (GetApplicationRegString(L"InstallLocation", string) && !string.IsEmpty())
+    {
+        return SUCCEEDED(StringCchCopyW(Buf, cchMax, string));
+    }
+    else if (GetUninstallApp(Buf, cchMax))
+    {
+        LPWSTR name = const_cast<LPWSTR>(PathFindFileNameW(Buf));
+        if (name > Buf && lstrcmpi(name, L"msiexec.exe") && lstrcmpi(name, L"rundll32.exe"))
+        {
+            *name = UNICODE_NULL;
+            return TRUE;
+        }
+    }
+    return FALSE;
 }
 
 VOID
@@ -627,6 +701,24 @@ CInstalledApplicationInfo::UninstallApplication(UninstallCommandFlags Flags)
 }
 
 BOOL
+CInstalledApplicationInfo::Run(HWND hWnd)
+{
+    WCHAR location[MAX_PATH], uninstaller[MAX_PATH], app[MAX_PATH];
+    BOOL ret = FALSE;
+    if (GetInstallLocation(location, _countof(location)))
+    {
+        if (GetUninstallApp(uninstaller, _countof(uninstaller)) != S_OK)
+            uninstaller[0] = UNICODE_NULL;
+        if (GuessMainApp(location, uninstaller, app, _countof(app)))
+        {
+            SHELLEXECUTEINFOW sei = { sizeof(sei), SEE_MASK_FLAG_LOG_USAGE, hWnd, NULL, app, NULL, location, SW_SHOW };
+            ret = ShellExecuteExW(&sei);
+        }
+    }
+    return ret;
+}
+
+BOOL
 CInstalledApplicationInfo::GetApplicationRegString(LPCWSTR lpKeyName, CStringW &String)
 {
     ULONG nChars = 0;
@@ -683,4 +775,29 @@ CInstalledApplicationInfo::GetApplicationRegDword(LPCWSTR lpKeyName, DWORD *lpVa
     }
 
     return TRUE;
+}
+
+BOOL GuessMainApp(LPCWSTR Dir, LPCWSTR Uninstaller, LPWSTR Buf, UINT cchMax)
+{
+    BOOL valid = FALSE;
+    UINT count = 0;
+    CStringW path = BuildPath(Dir, L"*.exe");
+    WIN32_FIND_DATA wfd;
+    HANDLE hFind = FindFirstFileW(path, &wfd);
+    if (hFind != INVALID_HANDLE_VALUE)
+    {
+        Uninstaller = (Uninstaller && *Uninstaller) ? PathFindFileNameW(Uninstaller) : L"?";
+        do
+        {
+            if (lstrcmpi(Uninstaller, wfd.cFileName))
+            {
+                ++count;
+                path = BuildPath(Dir, wfd.cFileName);
+                valid = SUCCEEDED(StringCchCopyW(Buf, cchMax, path));
+            }
+        }
+        while (count < 2 && FindNextFileW(hFind, &wfd));
+        FindClose(hFind);
+    }
+    return count == 1 && valid;
 }

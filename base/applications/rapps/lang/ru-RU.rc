@@ -26,6 +26,8 @@ BEGIN
         MENUITEM "&Удалить\tCtrl+Del", ID_UNINSTALL
         MENUITEM "&Изменить", ID_MODIFY
         MENUITEM SEPARATOR
+        MENUITEM "Run", ID_RUNAPP
+        MENUITEM SEPARATOR
         MENUITEM "У&далить из реестра", ID_REGREMOVE
         MENUITEM SEPARATOR
         MENUITEM "&Обновить\tF5", ID_REFRESH

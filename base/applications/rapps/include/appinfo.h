@@ -88,6 +88,8 @@ enum InstallerType
 
 class CAppRichEdit;
 class CConfigParser;
+class CInstalledApplicationInfo;
+extern BOOL GuessMainApp(LPCWSTR Dir, LPCWSTR Uninstaller, LPWSTR Buf, UINT cchMax);
 
 class CAppInfo
 {
@@ -121,6 +123,8 @@ class CAppInfo
     GetInstallerType() const { return INSTALLER_UNKNOWN; }
     virtual BOOL
     UninstallApplication(UninstallCommandFlags Flags) = 0;
+    virtual BOOL
+    Run(HWND hWnd) = 0;
 };
 
 class CAvailableApplicationInfo : public CAppInfo
@@ -153,6 +157,8 @@ class CAvailableApplicationInfo : public CAppInfo
 
     CConfigParser *
     GetConfigParser() const { return m_Parser; }
+    CInstalledApplicationInfo *
+    CreateInstalledAppInstance();
 
     virtual BOOL
     Valid() const override;
@@ -172,6 +178,8 @@ class CAvailableApplicationInfo : public CAppInfo
     GetInstallerType() const override;
     virtual BOOL
     UninstallApplication(UninstallCommandFlags Flags) override;
+    virtual BOOL
+    Run(HWND hWnd) override;
 };
 
 class CInstalledApplicationInfo : public CAppInfo
@@ -199,6 +207,10 @@ class CInstalledApplicationInfo : public CAppInfo
     ~CInstalledApplicationInfo();
 
     CRegKey& GetRegKey() { return m_hKey; }
+    HRESULT
+    GetUninstallApp(LPWSTR Buf, UINT cchMax);
+    BOOL
+    GetInstallLocation(LPWSTR Buf, UINT cchMax);
 
     virtual BOOL
     Valid() const override;
@@ -218,6 +230,8 @@ class CInstalledApplicationInfo : public CAppInfo
     GetInstallerType() const override;
     virtual BOOL
     UninstallApplication(UninstallCommandFlags Flags) override;
+    virtual BOOL
+    Run(HWND hWnd) override;
 };
 
 BOOL

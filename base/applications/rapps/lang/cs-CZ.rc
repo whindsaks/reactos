@@ -21,6 +21,8 @@ BEGIN
         MENUITEM "&Odinstalovat\tCtrl+Del", ID_UNINSTALL
         MENUITEM "&Změnit", ID_MODIFY
         MENUITEM SEPARATOR
+        MENUITEM "Run", ID_RUNAPP
+        MENUITEM SEPARATOR
         MENUITEM "Odstranit z &registru", ID_REGREMOVE
         MENUITEM SEPARATOR
         MENUITEM "Ob&novit\tF5", ID_REFRESH

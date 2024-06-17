@@ -972,6 +972,76 @@ CAppInfoDisplay::~CAppInfoDisplay()
 // **** CAppInfoDisplay ****
 
 // **** CAppsListView ****
+static UINT g_AsyncTaskId = 0;
+
+struct UPDATEMENUITEM {
+    HMENU hMenu;
+    UINT Id;
+    MENUITEMINFOW *pmii;
+    PVOID ItemData;
+};
+
+struct CEnableRunThisItemTask {
+    HWND hNotify;
+    HMENU hMenu;
+    PVOID ItemData;
+    UINT TaskId;
+    WCHAR Uninstaller[MAX_PATH];
+    WCHAR Location[MAX_PATH];
+
+    void Free() { free(this); }
+    static void Start(HWND hNotify, HMENU hMenu, PVOID ItemData, BOOL Uninstaller);
+};
+
+static DWORD CALLBACK
+EnableRunThisItemProc(LPVOID Param)
+{
+    CEnableRunThisItemTask *task = (CEnableRunThisItemTask*)Param;
+    WCHAR app[MAX_PATH];
+    if (GuessMainApp(task->Location, task->Uninstaller, app, _countof(app)))
+    {
+        MENUITEMINFOW mii;
+        mii.cbSize = sizeof(mii);
+        mii.fMask = MIIM_STATE;
+        mii.fState = MFS_ENABLED;
+        UPDATEMENUITEM umi = { task->hMenu, ID_RUNAPP, &mii, task->ItemData };
+        if (!(GetFileAttributes(app) & FILE_ATTRIBUTE_DIRECTORY))
+            SendMessage(task->hNotify, WM_UPDATEMENUITEM, task->TaskId, (LPARAM)&umi);
+    }
+    return 0;
+}
+
+void
+CEnableRunThisItemTask::Start(HWND hNotify, HMENU hMenu, PVOID ItemData, BOOL Uninstaller)
+{
+    CAppInfo *AppInfo = (CAppInfo*)ItemData, *pDelete = NULL;
+    if (!AppInfo)
+        return;
+
+    if (!Uninstaller)
+    {
+        CAvailableApplicationInfo &aai = *static_cast<CAvailableApplicationInfo*>(AppInfo);
+        pDelete = AppInfo = aai.CreateInstalledAppInstance();
+        if (!AppInfo)
+            return;
+    }
+
+    CInstalledApplicationInfo &iai = *static_cast<CInstalledApplicationInfo*>(AppInfo);
+    CEnableRunThisItemTask *task = (CEnableRunThisItemTask*)malloc(sizeof(*task));
+    if (!task)
+        return;
+    task->hNotify = hNotify;
+    task->hMenu = hMenu;
+    task->ItemData = ItemData;
+    task->TaskId = g_AsyncTaskId;
+    BOOL valid = FALSE;
+    valid = iai.GetInstallLocation(task->Location, _countof(task->Location));
+    if (valid && iai.GetUninstallApp(task->Uninstaller, _countof(task->Uninstaller)) != S_OK)
+        task->Uninstaller[0] = UNICODE_NULL;
+    if (!valid || !StartWorkerThread(EnableRunThisItemProc, task))
+        task->Free();
+    delete pDelete;
+}
 
 struct CAsyncLoadIcon {
     CAsyncLoadIcon *pNext;
@@ -979,26 +1049,33 @@ struct CAsyncLoadIcon {
     CAppInfo *AppInfo; // Only used to find the item in the list, do not access on background thread
     UINT TaskId;
     bool Parse;
+    WORD InstallLocationOffset;
+    WORD UninstallerOffset;
     WCHAR Location[ANYSIZE_ARRAY];
 
     void Free() { free(this); }
-    static CAsyncLoadIcon* Queue(HWND hAppsList, CAppInfo &AppInfo, bool Parse);
+    static CAsyncLoadIcon* Queue(HWND hAppsList, CAppInfo &AppInfo, bool Parse, CInstalledApplicationInfo *pIAI = NULL);
     static void StartTasks();
 } *g_AsyncIconTasks = NULL;
-static UINT g_AsyncIconTaskId = 0;
 
 static DWORD CALLBACK
 AsyncLoadIconProc(LPVOID Param)
 {
     for (CAsyncLoadIcon *task = (CAsyncLoadIcon*)Param, *old; task; old->Free())
     {
-        if (task->TaskId == g_AsyncIconTaskId)
+        if (task->TaskId == g_AsyncTaskId)
         {
             HICON hIcon;
             if (!task->Parse)
                 hIcon = (HICON)LoadImageW(NULL, task->Location, IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE);
             else if (!ExtractIconExW(task->Location, PathParseIconLocationW(task->Location), &hIcon, NULL, 1))
                 hIcon = NULL;
+
+            LPCWSTR uninstaller = task->UninstallerOffset ? task->Location + task->UninstallerOffset : NULL;
+            UINT ofs = task->InstallLocationOffset;
+            WCHAR buf[MAX_PATH];
+            if (!hIcon && ofs && GuessMainApp(task->Location + ofs, uninstaller, buf, _countof(buf)))
+                ExtractIconExW(buf, 0, &hIcon, NULL, 1);
 
             if (hIcon)
             {
@@ -1013,22 +1090,43 @@ AsyncLoadIconProc(LPVOID Param)
 }
 
 CAsyncLoadIcon*
-CAsyncLoadIcon::Queue(HWND hAppsList, CAppInfo &AppInfo, bool Parse)
+CAsyncLoadIcon::Queue(HWND hAppsList, CAppInfo &AppInfo, bool Parse, CInstalledApplicationInfo *pIAI)
 {
     ATLASSERT(GetCurrentThreadId() == GetWindowThreadProcessId(hAppsList, NULL));
+
     CStringW szIconPath;
-    if (!AppInfo.RetrieveIcon(szIconPath))
-        return NULL;
-    SIZE_T cbstr = (szIconPath.GetLength() + 1) * sizeof(WCHAR);
-    CAsyncLoadIcon *task = (CAsyncLoadIcon*)malloc(sizeof(CAsyncLoadIcon) + cbstr);
+    BOOL valid = AppInfo.RetrieveIcon(szIconPath);
+    SIZE_T cbico = (szIconPath.GetLength() + 1) * sizeof(WCHAR), cbinstallloc = 0, cbuninstaller = 0;
+    WCHAR installloc[MAX_PATH], uninstaller[MAX_PATH];
+    if (!valid && pIAI && pIAI->GetInstallLocation(installloc, _countof(installloc)))
+    {
+        cbinstallloc = (wcslen(installloc) + 1) * sizeof(WCHAR);
+        valid = TRUE;
+        if (pIAI->GetUninstallApp(uninstaller, _countof(uninstaller)) == S_OK)
+            cbuninstaller = (wcslen(uninstaller) + 1) * sizeof(WCHAR);
+    }
+    SIZE_T cbstr = cbico + cbinstallloc + cbuninstaller;
+    CAsyncLoadIcon *task = valid ? (CAsyncLoadIcon*)malloc(sizeof(CAsyncLoadIcon) + cbstr) : NULL;
     if (!task)
         return NULL;
     task->hAppsList = hAppsList;
     task->AppInfo = &AppInfo;
-    task->TaskId = g_AsyncIconTaskId;
+    task->TaskId = g_AsyncTaskId;
     task->Parse = Parse;
-    CopyMemory(task->Location, szIconPath.GetBuffer(), cbstr);
+    task->InstallLocationOffset = 0;
+    task->UninstallerOffset = 0;
+    CopyMemory(task->Location, szIconPath.GetBuffer(), cbico);
     szIconPath.ReleaseBuffer();
+    if (cbinstallloc)
+    {
+        task->InstallLocationOffset = cbico / sizeof(WCHAR);
+        CopyMemory(task->Location + task->InstallLocationOffset, installloc, cbinstallloc);
+        if (cbuninstaller)
+        {
+            task->UninstallerOffset = task->InstallLocationOffset + cbinstallloc / sizeof(WCHAR);
+            CopyMemory(task->Location + task->UninstallerOffset, uninstaller, cbuninstaller);
+        }
+    }
     task->pNext = g_AsyncIconTasks;
     g_AsyncIconTasks = task;
     return task;
@@ -1039,9 +1137,7 @@ CAsyncLoadIcon::StartTasks()
 {
     CAsyncLoadIcon *tasks = g_AsyncIconTasks;
     g_AsyncIconTasks = NULL;
-    if (HANDLE hThread = CreateThread(NULL, 0, AsyncLoadIconProc, tasks, 0, NULL))
-        CloseHandle(hThread);
-    else
+    if (!StartWorkerThread(AsyncLoadIconProc, tasks))
         AsyncLoadIconProc(tasks); // Insist so we at least free the tasks
 }
 
@@ -1081,7 +1177,7 @@ CAppsListView::OnAsyncIcon(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandl
 {
     CAsyncLoadIcon *task = (CAsyncLoadIcon*)lParam;
     bHandled = TRUE;
-    if (task->TaskId == g_AsyncIconTaskId)
+    if (task->TaskId == g_AsyncTaskId)
     {
         LVITEM lvi;
         LVFINDINFO lvfi;
@@ -1312,7 +1408,7 @@ CAppsListView::GetFocusedItemData()
 BOOL
 CAppsListView::SetDisplayAppType(APPLICATION_VIEW_TYPE AppType)
 {
-    ++g_AsyncIconTaskId; // Stop loading icons that are now invalid
+    ++g_AsyncTaskId; // Stop loading icons that are now invalid
     if (!DeleteAllItems())
         return FALSE;
 
@@ -1410,7 +1506,7 @@ CAppsListView::AddApplication(CAppInfo *AppInfo, BOOL InitialCheckState)
         int Index = AddItem(ItemCount, IconIndex, AppInfo->szDisplayName, (LPARAM)AppInfo);
         if (Index == -1)
             return FALSE;
-        CAsyncLoadIcon::Queue(m_hWnd, *AppInfo, true);
+        CAsyncLoadIcon::Queue(m_hWnd, *AppInfo, true, static_cast<CInstalledApplicationInfo*>(AppInfo));
 
         SetItemText(Index, 1, AppInfo->szDisplayVersion.IsEmpty() ? L"---" : AppInfo->szDisplayVersion);
         SetItemText(Index, 2, AppInfo->szComments.IsEmpty() ? L"---" : AppInfo->szComments);
@@ -1574,7 +1670,7 @@ CApplicationView::ProcessWindowMessage(
                     {
                         if (((LPNMLISTVIEW)lParam)->iItem != -1)
                         {
-                            ShowPopupMenuEx(m_hWnd, m_hWnd, 0, ID_INSTALL);
+                            ShowPopupMenuEx(m_hWnd, m_hWnd, IDR_APPLICATIONMENU, ID_INSTALL);
                         }
                     }
                     break;
@@ -1613,6 +1709,41 @@ CApplicationView::ProcessWindowMessage(
             OnCommand(wParam, lParam);
         }
         break;
+
+        case WM_INITMENU:
+        {
+            HMENU hMenu = (HMENU)wParam;
+            BOOL uninst = ApplicationViewType == AppViewTypeInstalledApps;
+            if (g_ActiveContextMenu == hMenu)
+            {
+                if (uninst)
+                {
+                    DeleteMenu(hMenu, ID_INSTALL, MF_BYCOMMAND);
+                }
+                else
+                {
+                    DeleteMenu(hMenu, ID_UNINSTALL, MF_BYCOMMAND);
+                    DeleteMenu(hMenu, ID_MODIFY, MF_BYCOMMAND);
+                    DeleteMenu(hMenu, 3, MF_BYPOSITION); // ID_REGREMOVE separator
+                    DeleteMenu(hMenu, ID_REGREMOVE, MF_BYCOMMAND);
+                }
+                EnableMenuItem(hMenu, ID_RUNAPP, MF_GRAYED);
+                CEnableRunThisItemTask::Start(hwnd, hMenu, GetFocusedItemData(), uninst);
+            }
+            break;
+        }
+
+        case WM_UPDATEMENUITEM:
+        {
+            UPDATEMENUITEM &umi = *(UPDATEMENUITEM*)lParam;
+            if (wParam == g_AsyncTaskId && umi.ItemData == GetFocusedItemData())
+            {
+                SetMenuItemInfoW(umi.hMenu, umi.Id, FALSE, umi.pmii);
+                if (HWND hWndMenu = FindWindowW(L"#32768", NULL))
+                    ::InvalidateRect(hWndMenu, NULL, FALSE);
+            }
+            break;
+        }
     }
     return FALSE;
 }
@@ -1857,6 +1988,7 @@ CApplicationView::OnCommand(WPARAM wParam, LPARAM lParam)
         case ID_REGREMOVE:
         case ID_REFRESH:
         case ID_RESETDB:
+        case ID_RUNAPP:
         case ID_CHECK_ALL:
             m_MainWindow->SendMessageW(WM_COMMAND, wCommand, 0);
             break;
@@ -1896,10 +2028,7 @@ HWND
 CApplicationView::Create(HWND hwndParent)
 {
     RECT r = {0, 0, 0, 0};
-
-    HMENU menu = GetSubMenu(LoadMenuW(hInst, MAKEINTRESOURCEW(IDR_APPLICATIONMENU)), 0);
-
-    return CWindowImpl::Create(hwndParent, r, L"", WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, 0, menu);
+    return CWindowImpl::Create(hwndParent, r, L"", WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, 0);
 }
 
 BOOL
@@ -1912,26 +2041,15 @@ CApplicationView::SetDisplayAppType(APPLICATION_VIEW_TYPE AppType)
     ApplicationViewType = AppType;
     m_AppsInfo->SetWelcomeText();
 
-    HMENU hMenu = ::GetMenu(m_hWnd);
     switch (AppType)
     {
         case AppViewTypeInstalledApps:
-            EnableMenuItem(hMenu, ID_REGREMOVE, MF_ENABLED);
-            EnableMenuItem(hMenu, ID_INSTALL, MF_GRAYED);
-            EnableMenuItem(hMenu, ID_UNINSTALL, MF_ENABLED);
-            EnableMenuItem(hMenu, ID_MODIFY, MF_ENABLED);
-
             m_Toolbar->SendMessageW(TB_ENABLEBUTTON, ID_INSTALL, FALSE);
             m_Toolbar->SendMessageW(TB_ENABLEBUTTON, ID_UNINSTALL, TRUE);
             m_Toolbar->SendMessageW(TB_ENABLEBUTTON, ID_MODIFY, TRUE);
             break;
 
         case AppViewTypeAvailableApps:
-            EnableMenuItem(hMenu, ID_REGREMOVE, MF_GRAYED);
-            EnableMenuItem(hMenu, ID_INSTALL, MF_ENABLED);
-            EnableMenuItem(hMenu, ID_UNINSTALL, MF_GRAYED);
-            EnableMenuItem(hMenu, ID_MODIFY, MF_GRAYED);
-
             m_Toolbar->SendMessageW(TB_ENABLEBUTTON, ID_INSTALL, TRUE);
             m_Toolbar->SendMessageW(TB_ENABLEBUTTON, ID_UNINSTALL, FALSE);
             m_Toolbar->SendMessageW(TB_ENABLEBUTTON, ID_MODIFY, FALSE);

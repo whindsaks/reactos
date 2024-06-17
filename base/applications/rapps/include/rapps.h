@@ -13,4 +13,8 @@
 #include "misc.h"
 #include "configparser.h"
 
+#define WM_UPDATEMENUITEM (WM_APP + 1)
+
+extern HMENU g_ActiveContextMenu;
+
 #endif /* _RAPPS_H */
