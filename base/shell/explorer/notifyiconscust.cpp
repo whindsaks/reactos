@@ -31,6 +31,7 @@ INT_PTR CALLBACK CustomizeNotifyIconsProc(HWND hwnd, UINT Message, WPARAM wParam
            switch(LOWORD(wParam))
            {
                case IDOK:
+                   SHELL_ErrorBox(hwnd, ERROR_NOT_SUPPORTED);
                    EndDialog(hwnd, IDOK);
                break;
                case IDCANCEL:
