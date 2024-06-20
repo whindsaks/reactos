@@ -324,6 +324,7 @@ public:
     ~CShellBrowser();
     HRESULT Initialize();
 public:
+    void SaveViewState();
     HRESULT BrowseToPIDL(LPCITEMIDLIST pidl, long flags);
     HRESULT BrowseToPath(IShellFolder *newShellFolder, LPCITEMIDLIST absolutePIDL,
         FOLDERSETTINGS *folderSettings, long flags);
@@ -399,7 +400,7 @@ public:
     // *** IServiceProvider methods ***
     STDMETHOD(QueryService)(REFGUID guidService, REFIID riid, void **ppvObject) override;
 
-    // *** IShellBowserService methods ***
+    // *** IShellBrowserService methods ***
     STDMETHOD(GetPropertyBag)(long flags, REFIID riid, void **ppvObject) override;
 
     // *** IDispatch methods ***
@@ -823,6 +824,8 @@ HRESULT CShellBrowser::ApplyBrowserDefaultFolderSettings(IShellView *pvs)
     {
         m_settings.Reset();
         hr = CGlobalFolderSettings::ResetBrowserSettings();
+        if (SUCCEEDED(hr))
+            m_deffoldersettings.Load();
     }
     return hr;
 }
@@ -946,6 +949,13 @@ HRESULT IEGetNameAndFlags(LPITEMIDLIST pidl, SHGDNF uFlags, LPWSTR pszBuf, UINT 
     return IEGetNameAndFlagsEx(pidl, uFlags, 0, pszBuf, cchBuf, rgfInOut);
 }
 
+void CShellBrowser::SaveViewState()
+{
+    // TODO: Also respect EBO_NOPERSISTVIEWSTATE?
+    if (gCabinetState.fSaveLocalView && fCurrentShellView && !SHRestricted(REST_NOSAVESET))
+        fCurrentShellView->SaveViewState();
+}
+
 HRESULT CShellBrowser::BrowseToPath(IShellFolder *newShellFolder,
     LPCITEMIDLIST absolutePIDL, FOLDERSETTINGS *folderSettings, long flags)
 {
@@ -979,6 +989,7 @@ HRESULT CShellBrowser::BrowseToPath(IShellFolder *newShellFolder,
 
     if (fCurrentShellView)
     {
+        SaveViewState();
         fCurrentShellView->UIActivate(SVUIA_DEACTIVATE);
     }
 
@@ -2151,6 +2162,7 @@ HRESULT STDMETHODCALLTYPE CShellBrowser::Exec(const GUID *pguidCmdGroup, DWORD n
         switch (nCmdID)
         {
             case DVCMDID_RESET_DEFAULTFOLDER_SETTINGS:
+                ApplyBrowserDefaultFolderSettings(NULL);
                 IUnknown_Exec(fCurrentShellView, CGID_DefView, nCmdID, OLECMDEXECOPT_DODEFAULT, NULL, NULL);
                 break;
         }
@@ -3507,6 +3519,7 @@ LRESULT CShellBrowser::OnDestroy(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &
     {
         fToolbarProxy.Destroy();
 
+        SaveViewState();
         fCurrentShellView->DestroyViewWindow();
         fCurrentShellView->UIActivate(SVUIA_DEACTIVATE);
 
