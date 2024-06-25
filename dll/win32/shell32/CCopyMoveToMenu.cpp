@@ -72,6 +72,14 @@ BrowseCallbackProc(HWND hwnd, UINT uMsg, LPARAM lParam, LPARAM lpData)
             SetWindowLongPtr(hwnd, GWLP_USERDATA, lpData);
             this_ = reinterpret_cast<CCopyMoveToMenu *>(lpData);
 
+            // My Computer is always expanded
+            LPITEMIDLIST pidl = SHCloneSpecialIDList(NULL, CSIDL_DRIVES, FALSE);
+            if (pidl)
+            {
+                SendMessage(hwnd, BFFM_SETEXPANDED, FALSE, (LPARAM)pidl);
+                ILFree(pidl);
+            }
+
             // Select initial directory
             SendMessageW(hwnd, BFFM_SETSELECTION, FALSE,
                 reinterpret_cast<LPARAM>(static_cast<LPCITEMIDLIST>(this_->m_pidlFolder)));
@@ -113,6 +121,21 @@ BrowseCallbackProc(HWND hwnd, UINT uMsg, LPARAM lParam, LPARAM lpData)
 
             // the text box will be updated later soon, ignore it
             this_->m_bIgnoreTextBoxChange = TRUE;
+            break;
+        }
+        case BFFM_IUNKNOWN:
+        {
+            CComPtr<IFolderFilterSite> pFilterSite;
+            HRESULT hr = lParam ? ((IUnknown*)lParam)->QueryInterface(IID_PPV_ARG(IFolderFilterSite, &pFilterSite)) : E_FAIL;
+            if (SUCCEEDED(hr))
+            {
+                pFilterSite->SetFilter(static_cast<IFolderFilter*>(this_));
+                if (!this_->m_pDesktop)
+                {
+                    SHGetDesktopFolder(&this_->m_pDesktop);
+                    this_->m_pidlRecycle.Attach(SHCloneSpecialIDList(NULL, CSIDL_BITBUCKET, FALSE));
+                }
+            }
             break;
         }
     }
@@ -214,7 +237,6 @@ HRESULT CCopyMoveToMenu::DoAction(LPCMINVOKECOMMANDINFO lpici)
     strTitle.Format(GetActionTitleStringID(), static_cast<LPCWSTR>(strFileTitle));
 
     BROWSEINFOW info = { lpici->hwnd };
-    info.pidlRoot = NULL;
     info.lpszTitle = strTitle;
     info.ulFlags = BIF_RETURNONLYFSDIRS | BIF_USENEWUI;
     info.lpfn = BrowseCallbackProc;
@@ -397,4 +419,27 @@ CCopyMoveToMenu::GetSite(REFIID riid, void **ppvSite)
         return E_FAIL;
 
     return m_pSite->QueryInterface(riid, ppvSite);
+}
+
+STDMETHODIMP
+CCopyMoveToMenu::ShouldShow(IShellFolder *psf, PCIDLIST_ABSOLUTE pidlFolder, PCUITEMID_CHILD pidlItem)
+{
+    SFGAOF attr = SFGAO_FILESYSTEM | SFGAO_FILESYSANCESTOR | SFGAO_DROPTARGET;
+    HRESULT hr = psf->GetAttributesOf(1, &pidlItem, &attr);
+    if (SUCCEEDED(hr) && !attr)
+        return S_FALSE;
+    hr = S_OK;
+    if (PIDLIST_ABSOLUTE pidl = ILCombine(pidlFolder, pidlItem))
+    {
+        if (m_pidlRecycle && !m_pDesktop->CompareIDs(SHCIDS_CANONICALONLY, pidl, m_pidlRecycle))
+            hr = S_FALSE;
+        ILFree(pidl);
+    }
+    return hr;
+}
+
+STDMETHODIMP
+CCopyMoveToMenu::GetEnumFlags(IShellFolder *psf, PCIDLIST_ABSOLUTE pidlFolder, HWND *phwnd, DWORD *pgrfFlags)
+{
+    return E_NOTIMPL;
 }

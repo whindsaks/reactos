@@ -10,7 +10,8 @@ class CCopyMoveToMenu :
     public CComObjectRootEx<CComMultiThreadModelNoCS>,
     public IContextMenu2,
     public IObjectWithSite,
-    public IShellExtInit
+    public IShellExtInit,
+    public IFolderFilter
 {
 protected:
     CComPtr<IDataObject> m_pDataObject;
@@ -20,9 +21,10 @@ protected:
     HRESULT DoAction(LPCMINVOKECOMMANDINFO lpici);
 
 public:
-    CComHeapPtr<ITEMIDLIST> m_pidlFolder;
+    CComHeapPtr<ITEMIDLIST> m_pidlFolder, m_pidlRecycle;
     WNDPROC m_fnOldWndProc;
     BOOL m_bIgnoreTextBoxChange;
+    CComPtr<IShellFolder> m_pDesktop;
 
     CCopyMoveToMenu();
 
@@ -46,6 +48,10 @@ public:
     // IObjectWithSite
     STDMETHODIMP SetSite(IUnknown *pUnkSite) override;
     STDMETHODIMP GetSite(REFIID riid, void **ppvSite) override;
+
+    // IFolderFilter
+    STDMETHODIMP ShouldShow(IShellFolder *psf, PCIDLIST_ABSOLUTE pidlFolder, PCUITEMID_CHILD pidlItem) override;
+    STDMETHODIMP GetEnumFlags(IShellFolder *psf, PCIDLIST_ABSOLUTE pidlFolder, HWND *phwnd, DWORD *pgrfFlags) override;
 };
 
 class CCopyToMenu
@@ -72,6 +78,7 @@ public:
         COM_INTERFACE_ENTRY_IID(IID_IContextMenu, IContextMenu)
         COM_INTERFACE_ENTRY_IID(IID_IShellExtInit, IShellExtInit)
         COM_INTERFACE_ENTRY_IID(IID_IObjectWithSite, IObjectWithSite)
+        COM_INTERFACE_ENTRY_IID(IID_IFolderFilter, IFolderFilter)
     END_COM_MAP()
 
     UINT GetCaptionStringID() const override { return IDS_COPYITEMS; }
@@ -101,6 +108,7 @@ public:
         COM_INTERFACE_ENTRY_IID(IID_IContextMenu, IContextMenu)
         COM_INTERFACE_ENTRY_IID(IID_IShellExtInit, IShellExtInit)
         COM_INTERFACE_ENTRY_IID(IID_IObjectWithSite, IObjectWithSite)
+        COM_INTERFACE_ENTRY_IID(IID_IFolderFilter, IFolderFilter)
     END_COM_MAP()
 
     UINT GetCaptionStringID() const override { return IDS_MOVEITEMS; }

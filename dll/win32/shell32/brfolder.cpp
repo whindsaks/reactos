@@ -16,6 +16,48 @@ WINE_DEFAULT_DEBUG_CHANNEL(shell);
 
 #define SHV_CHANGE_NOTIFY (WM_USER + 0x1111)
 
+class CFolderFilterSite :
+    public CComObjectRootEx<CComMultiThreadModelNoCS>,
+    public IFolderFilterSite
+{
+    CComPtr<IFolderFilter> m_pFilter;
+public:
+    CFolderFilterSite() : m_pFilter(NULL) { }
+    IUnknown* GetCanonicalIUnknown() { return static_cast<IFolderFilterSite*>(this); }
+    IUnknown* HasFilter() { return m_pFilter; }
+
+    HRESULT ShouldShow(IShellFolder *psf, PCIDLIST_ABSOLUTE pidlFolder, PCUITEMID_CHILD pidlItem)
+    {
+        return m_pFilter ? m_pFilter->ShouldShow(psf, pidlFolder, pidlItem) : S_OK;
+    }
+
+    HRESULT GetEnumFlags(IShellFolder *psf, PCIDLIST_ABSOLUTE pidlFolder, HWND *phwnd, DWORD *pgrfFlags)
+    {
+        return m_pFilter ? m_pFilter->GetEnumFlags(psf, pidlFolder, phwnd, pgrfFlags) : S_FALSE;
+    }
+
+    // IFolderFilterSite
+    STDMETHODIMP SetFilter(IUnknown* punk) override
+    {
+        if (!punk)
+        {
+            m_pFilter = NULL;
+            return S_OK;
+        }
+        IFolderFilter *pFF;
+        HRESULT hr = punk->QueryInterface(IID_PPV_ARG(IFolderFilter, &pFF));
+        if (SUCCEEDED(hr))
+            m_pFilter.Attach(pFF);
+        return hr;
+    }
+
+DECLARE_NO_REGISTRY()
+DECLARE_NOT_AGGREGATABLE(CFolderFilterSite)
+BEGIN_COM_MAP(CFolderFilterSite)
+    COM_INTERFACE_ENTRY_IID(IID_IFolderFilterSite, IFolderFilterSite)
+END_COM_MAP()
+};
+
 struct BrFolder
 {
     LPBROWSEINFOW    lpBrowseInfo;
@@ -26,6 +68,8 @@ struct BrFolder
     SIZE             szMin;
     ULONG            hChangeNotify; // Change notification handle
     IContextMenu*    pContextMenu; // Active context menu
+    CComObject<CFolderFilterSite> filter;
+    DWORD            fCommonEnumFlags;
 };
 
 struct BrItemData
@@ -93,6 +137,34 @@ BrFolder_GetItemAttributes(BrFolder *info, HTREEITEM hItem, SFGAOF Att)
     return SUCCEEDED(hr) ? Att : 0;
 }
 
+static void
+BrFolder_FilterItems(BrFolder &info, HTREEITEM hStart)
+{
+    HWND hWndTree = info.hwndTreeView;
+    for (HTREEITEM hItem = hStart, hNext = NULL; hItem;)
+    {
+        hNext = TreeView_GetNextSibling(hWndTree, hItem);
+        BrItemData *pItem = BrFolder_GetItemData(&info, hItem);
+        if (pItem)
+        {
+            if (PIDLIST_ABSOLUTE pidlParent = ILClone(pItem->pidlFull))
+            {
+                ILRemoveLastID(pidlParent);
+                BOOL remove = info.filter.ShouldShow(pItem->lpsfParent, pidlParent, pItem->pidlChild) == S_FALSE;
+                ILFree(pidlParent);
+                if (remove)
+                {
+                    TreeView_DeleteItem(hWndTree, hItem);
+                    hItem = hNext;
+                    continue;
+                }
+            }
+        }
+        BrFolder_FilterItems(info, TreeView_GetChild(hWndTree, hItem));
+        hItem = hNext;
+    }
+}
+
 static HRESULT
 BrFolder_GetChildrenEnum(
     _In_ BrFolder *info,
@@ -118,8 +190,12 @@ BrFolder_GetChildrenEnum(
     if (FAILED_UNEXPECTEDLY(hr))
         return E_FAIL;
 
-    DWORD flags = BrowseFlagsToSHCONTF(info->lpBrowseInfo->ulFlags);
-    hr = psfChild->EnumObjects(info->hWnd, flags, &pEnumIL);
+    DWORD flags = info->fCommonEnumFlags | BrowseFlagsToSHCONTF(info->lpBrowseInfo->ulFlags);
+    DWORD filterflags = flags;
+    HWND hWnd = info->hWnd;
+    if (info->filter.GetEnumFlags(psfChild, pItemData->pidlFull, &hWnd, &filterflags) == S_OK)
+        flags = filterflags;
+    hr = psfChild->EnumObjects(hWnd, flags, &pEnumIL);
     if (hr == S_OK)
     {
         if ((pEnumIL->Skip(1) != S_OK) || FAILED(pEnumIL->Reset()))
@@ -188,7 +264,6 @@ BrFolder_InitTreeView(BrFolder *info)
         if (FAILED_UNEXPECTEDLY(hr))
             return;
     }
-
     TreeView_DeleteItem(info->hwndTreeView, TVI_ROOT);
     hItem = BrFolder_InsertItem(info, lpsfParent, pidlChild, pidlParent, TVI_ROOT);
     TreeView_Expand(info->hwndTreeView, hItem, TVE_EXPAND);
@@ -343,19 +418,26 @@ BrFolder_InsertItem(
     _In_ PCIDLIST_ABSOLUTE pidlParent,
     _In_ HTREEITEM hParent)
 {
+    if (info->filter.ShouldShow(lpsf, pidlParent, pidlChild) == S_FALSE)
+        return NULL;
+
     WCHAR szName[MAX_PATH];
     if (!BrFolder_GetName(lpsf, pidlChild, SHGDN_NORMAL, szName))
         return NULL;
 
+    PIDLIST_ABSOLUTE pidlFull = pidlParent ? ILCombine(pidlParent, pidlChild) : ILClone(pidlChild);
+    if (!pidlFull && !ILIsEmpty(pidlChild))
+        return NULL;
+
     BrItemData *pItemData = new BrItemData();
 
-    TVITEMW item = { TVIF_TEXT | TVIF_IMAGE | TVIF_SELECTEDIMAGE | TVIF_PARAM | TVIF_CHILDREN };
+    TVINSERTSTRUCTW tvins = { hParent };
+    TVITEMW &item = tvins.item;
+    item.mask = TVIF_TEXT | TVIF_IMAGE | TVIF_SELECTEDIMAGE | TVIF_PARAM | TVIF_CHILDREN;
     item.pszText    = szName;
     item.cchTextMax = _countof(szName);
     item.lParam     = (LPARAM)pItemData;
 
-    PIDLIST_ABSOLUTE pidlFull =
-        (pidlParent ? ILCombine(pidlParent, pidlChild) : ILClone(pidlChild));
     BrFolder_GetIconPair(pidlFull, &item);
 
     pItemData->lpsfParent = lpsf;
@@ -365,8 +447,6 @@ BrFolder_InsertItem(
     if (BrFolder_GetChildrenEnum(info, pItemData, NULL) == S_OK)
         item.cChildren = 1;
 
-    TVINSERTSTRUCTW tvins = { hParent };
-    tvins.item = item;
     return TreeView_InsertItem(info->hwndTreeView, &tvins);
 }
 
@@ -683,6 +763,14 @@ BrFolder_OnInitDialog(HWND hWnd, BrFolder *info)
     info->hWnd = hWnd;
     SetPropW(hWnd, L"__WINE_BRSFOLDERDLG_INFO", info);
 
+    SHELLSTATE ss;
+    ss.fShowAllObjects = FALSE;
+    ss.fShowSuperHidden = FALSE;
+    SHGetSetSettings(&ss, SSF_SHOWALLOBJECTS | SSF_SHOWSUPERHIDDEN, FALSE);
+    info->fCommonEnumFlags = ss.fShowAllObjects ? SHCONTF_INCLUDEHIDDEN : 0;
+    if (ss.fShowSuperHidden)
+        info->fCommonEnumFlags |= SHCONTF_INCLUDESUPERHIDDEN;
+
     if (lpBrowseInfo->ulFlags & BIF_NEWDIALOGSTYLE)
         FIXME("flags BIF_NEWDIALOGSTYLE partially implemented\n");
 
@@ -757,10 +845,18 @@ BrFolder_OnInitDialog(HWND hWnd, BrFolder *info)
                                                  SHCNE_ALLEVENTS,
                                                  SHV_CHANGE_NOTIFY, 1, &ntreg);
 
-    BrFolder_Callback(info->lpBrowseInfo, hWnd, BFFM_INITIALIZED, 0);
-
     SHAutoComplete(GetDlgItem(hWnd, IDC_BROWSE_FOR_FOLDER_FOLDER_TEXT),
                    (SHACF_FILESYS_ONLY | SHACF_URLHISTORY | SHACF_FILESYSTEM));
+
+    BrFolder_Callback(info->lpBrowseInfo, info->hWnd, BFFM_INITIALIZED, 0);
+    if (info->lpBrowseInfo->ulFlags & BIF_NEWDIALOGSTYLE)
+    {
+        BrFolder_Callback(info->lpBrowseInfo, info->hWnd, BFFM_IUNKNOWN, (LPARAM)info->filter.GetCanonicalIUnknown());
+        // By the time the filter has been installed, items have already been added. Filter those now.
+        if (info->filter.HasFilter())
+            BrFolder_FilterItems(*info, TreeView_GetRoot(info->hwndTreeView));
+    }
+
     return TRUE;
 }
 
@@ -1102,7 +1198,7 @@ BrFolder_OnDestroy(BrFolder *info)
         LayoutDestroy(info->layout);
         info->layout = NULL;
     }
-
+    info->filter.SetFilter(NULL);
     SHChangeNotifyDeregister(info->hChangeNotify);
 }
 
@@ -1353,21 +1449,17 @@ SHBrowseForFolderW(LPBROWSEINFOW lpbi)
 {
     TRACE("%p\n", lpbi);
 
+    COleInit oleinit;
     BrFolder info = { lpbi };
-
-    HRESULT hr = OleInitialize(NULL);
+    info.filter.AddRef(); // CComObject does not do this for us
 
     INT id = ((lpbi->ulFlags & BIF_USENEWUI) ? IDD_BROWSE_FOR_FOLDER_NEW : IDD_BROWSE_FOR_FOLDER);
     INT_PTR ret = DialogBoxParamW(shell32_hInstance, MAKEINTRESOURCEW(id), lpbi->hwndOwner,
                                   BrFolderDlgProc, (LPARAM)&info);
-    if (SUCCEEDED(hr))
-        OleUninitialize();
-
     if (ret != IDOK)
     {
         ILFree(info.pidlRet);
         return NULL;
     }
-
     return info.pidlRet;
 }
