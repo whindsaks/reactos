@@ -162,6 +162,8 @@ StartWithDesktop(IN HINSTANCE hInstance)
     if (!SetShellReadyEvent(L"msgina: ShellReadyEvent"))
         SetShellReadyEvent(L"Global\\msgina: ShellReadyEvent");
 
+    InitializeServerAdminUI();
+
     if (DoStartStartupItems(Tray))
     {
         ProcessStartupItems();

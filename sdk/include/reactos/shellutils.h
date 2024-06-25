@@ -444,13 +444,13 @@ HRESULT inline ShellObjectCreatorInit(T1 initArg1, T2 initArg2, T3 initArg3, T4 
     return hResult;
 }
 
-template<class P, class R> static HRESULT SHILClone(P pidl, R *ppOut)
+template<class R> static HRESULT SHILClone(LPCITEMIDLIST pidl, R *ppOut)
 {
     R r = *ppOut = (R)ILClone((PIDLIST_RELATIVE)pidl);
     return r ? S_OK : E_OUTOFMEMORY;
 }
 
-template<class B, class R> static HRESULT SHILCombine(B base, PCUIDLIST_RELATIVE sub, R *ppOut)
+template<class R> static HRESULT SHILCombine(LPCITEMIDLIST base, PCUIDLIST_RELATIVE sub, R *ppOut)
 {
     R r = *ppOut = (R)ILCombine((PCIDLIST_ABSOLUTE)base, sub);
     return r ? S_OK : E_OUTOFMEMORY;
@@ -532,7 +532,8 @@ static __inline void DbgDumpMenu(HMENU hmenu)
 static inline
 void DumpIdList(LPCITEMIDLIST pcidl)
 {
-    DbgPrint("Begin IDList Dump\n");
+    LPCITEMIDLIST pidlfirst = pcidl;
+    DbgPrint("Begin IDList Dump %p\n", pcidl);
 
     for (; pcidl != NULL; pcidl = ILGetNext(pcidl))
     {
@@ -580,24 +581,17 @@ void DumpIdList(LPCITEMIDLIST pcidl)
         }
         DbgPrint("End SHITEMID\n");
     }
-    DbgPrint("End IDList Dump.\n");
+    DbgPrint("End IDList Dump (%ub)\n", ILGetSize(pidlfirst));
 }
 
-struct CCoInit
+template<HRESULT(WINAPI*InitFunc)(void*), void(WINAPI*UninitFunc)()> struct CCoInitBase
 {
-    CCoInit()
-    {
-        hr = CoInitialize(NULL);
-    }
-    ~CCoInit()
-    {
-        if (SUCCEEDED(hr))
-        {
-            CoUninitialize();
-        }
-    }
     HRESULT hr;
+    CCoInitBase() : hr(InitFunc(NULL)) { }
+    ~CCoInitBase() { if (SUCCEEDED(hr)) UninitFunc(); }
 };
+typedef CCoInitBase<CoInitialize, CoUninitialize> CCoInit;
+typedef CCoInitBase<OleInitialize, OleUninitialize> COleInit;
 
 #endif /* __cplusplus */
 
