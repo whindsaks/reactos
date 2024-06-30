@@ -66,6 +66,206 @@ BOOL _ILGetDriveType(LPCITEMIDLIST pidl)
     return ::GetDriveTypeW(szDrive);
 }
 
+static USHORT GetNativeMachine()
+{
+    static USHORT g_cache = IMAGE_FILE_MACHINE_UNKNOWN;
+    if (g_cache == IMAGE_FILE_MACHINE_UNKNOWN)
+    {
+        typedef BOOL (WINAPI*IW64P2)(HANDLE, USHORT*, USHORT*);
+        IW64P2 IsWow64Process2func = (IW64P2) GetProcAddress(LoadLibraryW(L"KERNEL32"), "IsWow64Process2");
+        USHORT dummy;
+        if (!IsWow64Process2func || !IsWow64Process2func(GetCurrentProcess(), &dummy, &g_cache))
+        {
+#if defined(_M_IA64)
+            g_cache = IMAGE_FILE_MACHINE_IA64;
+#elif defined(_M_ARM)
+            g_cache = (sizeof(void*) > 4 || IsOS(OS_WOW6432)) ? IMAGE_FILE_MACHINE_ARM64 : IMAGE_FILE_MACHINE_ARMNT;
+#else
+            g_cache = (sizeof(void*) > 4 || IsOS(OS_WOW6432)) ? IMAGE_FILE_MACHINE_AMD64 : IMAGE_FILE_MACHINE_I386;
+#endif
+        }
+    }
+    return g_cache;
+}
+
+static BOOL IniSectionExists(LPCWSTR Ini, LPCWSTR Section)
+{
+    WCHAR buf[3];
+    UINT len = GetPrivateProfileStringW(Section, NULL, NULL, buf, _countof(buf), Ini);
+    return len == _countof(buf) - 2;
+}
+
+static UINT GetIniString(LPCWSTR Ini, LPCWSTR Section, LPCWSTR Name, LPWSTR Buffer, DWORD cch)
+{
+    if (cch)
+        Buffer[cch - 1] = '!';
+    UINT len = GetPrivateProfileStringW(Section, Name, NULL, Buffer, cch, Ini);
+    return (len + 1 < cch || !Buffer[cch - 1]) ? len : 0;
+}
+
+#define ARCONTENT_AUTORUNINF (0x00000002) // FIXME: Move to SDK header with IQueryCancelAutoPlay
+#define ARCONTENT_AUDIOCD (0x00000004)
+#define ARCONTENT_DVDMOVIE (0x00000008)
+#define ARCONTENT_PHASE_PRESNIFF (0x10000000)
+
+static BOOL SHELL32_MntptMgr_IsAudioCD(LPCWSTR Drive)
+{
+    return FALSE; // FIXME: https://community.osr.com/t/ioctl-cdrom-disk-type/1570
+}
+
+static BOOL SHELL32_MntptMgr_IsDvdMovie(int Drive)
+{
+    WCHAR buf[MAX_PATH];
+    wsprintfW(buf, L"%c:\\video_ts\\video_ts.ifo", 'A' + Drive);
+    return RealDriveType(Drive, FALSE) == DRIVE_CDROM && !(GetFileAttributesW(buf) & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+static BOOL SHELL32_MntptMgr_GetAutorunAssocSubKey(int Drive, LPWSTR Buf)
+{
+    if (Drive < 0)
+        return FALSE;
+    WCHAR drivepath[4], /*guid[50],*/ *subkey = drivepath;
+    PathBuildRootW(drivepath, Drive);
+    /*if (GetVolumeNameForVolumeMountPointW(drivepath, guid, _countof(guid)))
+    {
+        if (guid[2] == '?' && guid[4] == 'V')
+            subkey = guid + ?;
+    }*/
+    UINT cch = wsprintfW(Buf, L"MountPoints2\\%s", subkey);
+    Buf[cch - (subkey == drivepath ? 2 : 1)] = UNICODE_NULL; // Remove trailing symbols
+    return TRUE;
+}
+
+static HKEY SHELL32_MntptMgr_GetAutorunAssocKey(int Drive, BOOL Write = FALSE)
+{
+    WCHAR buf[MAX_PATH];
+    if (!SHELL32_MntptMgr_GetAutorunAssocSubKey(Drive, buf))
+        return NULL;
+    return SHGetShellKey(SHKEY_Root_HKCU | SHKEY_Key_Explorer, buf, Write);
+}
+
+static BOOL SHELL32_MntptMgr_IsAutorunAllowedByPolicy(int Drive)
+{
+    // learn.microsoft.com/en-us/windows/win32/shell/autoplay-reg
+    UINT drives = SHRestricted(REST_NODRIVEAUTORUN);
+    if (drives & (1 << Drive))
+        return FALSE;
+    UINT block = SHRestricted(REST_NODRIVETYPEAUTORUN), type = RealDriveType(Drive, TRUE);
+    if (!block)
+        block = ~((1 << DRIVE_CDROM) | (1 << DRIVE_FIXED) | (1 << DRIVE_RAMDISK));
+    return !((1 << type) & block);
+}
+
+void SHELL32_MntptMgr_NotifyAddRemoveVolume(UINT Info, int Drive)
+{
+    BOOL add = Info == SHCNE_MEDIAINSERTED;
+    HKEY hKey = SHELL32_MntptMgr_GetAutorunAssocKey(Drive, TRUE);
+    if (!hKey)
+        return;
+    WCHAR drivepath[5], inf[15];
+    PathBuildRootW(drivepath, Drive);
+    PathBuildRootW(inf, Drive);
+    PathAppendW(inf, L"AutoRun.inf");
+    BOOL autorun = add && SHELL32_MntptMgr_IsAutorunAllowedByPolicy(Drive);
+    DWORD contenttype = 0;
+
+    // TODO: IQueryCancelAutoPlay (MSDN Magazine November 2001 says applications have 3 seconds to decide)
+    // TODO: IHWEventHandler
+    // TODO: NoAutoRun policy? (https://en.wikipedia.org/wiki/AutoRun)
+
+    if (add)//journeyintoir.blogspot.com/2011/01/autoplay-and-autorun-exploit-artifacts.html
+    {
+        const DWORD errmode = SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX); // FIXME: Use SetThreadErrorMode
+        if (SHELL32_MntptMgr_IsAudioCD(drivepath))
+            contenttype |= ARCONTENT_AUDIOCD | ARCONTENT_PHASE_PRESNIFF;
+
+        LPCWSTR section = L"AutoRun", nativesection = NULL;
+        switch(GetNativeMachine())
+        {
+#if defined(_M_IA64)
+        case IMAGE_FILE_MACHINE_IA64: nativesection = L"AutoRun.IA64"; break;
+#else
+        case IMAGE_FILE_MACHINE_ARM64: nativesection = L"AutoRun.ARM64"; break;
+        case IMAGE_FILE_MACHINE_AMD64: nativesection = L"AutoRun.AMD64"; break;
+        case IMAGE_FILE_MACHINE_I386: nativesection = L"AutoRun.x86"; break;
+#endif
+        }
+        WritePrivateProfileString(NULL, NULL, NULL, inf); // Flush the ini cache
+        if (nativesection && IniSectionExists(inf, nativesection))
+            section = nativesection;
+
+        WCHAR buf[MAX_PATH * 3];
+        if (GetIniString(inf, section, L"shellexecute", buf, _countof(buf)) || GetIniString(inf, section, L"open", buf, _countof(buf)))
+        {
+            SHSetValueW(hKey, L"shell\\AutoRun\\command", NULL, REG_SZ, buf, (wcslen(buf) + 1) * sizeof(WCHAR)); // FIXME: Windows uses ShellExec_RunDLL for "shellexecute"
+            if (autorun && !(contenttype & ARCONTENT_AUDIOCD))
+            {
+                SHSetValueW(hKey, L"shell", NULL, REG_SZ, L"AutoRun", sizeof(L"AutoRun"));
+                contenttype |= ARCONTENT_AUTORUNINF;
+            }
+            else
+            {
+                SHSetValueW(hKey, L"shell\\AutoRun", L"NeverDefault", REG_NONE, buf, 0);
+            }
+        }
+        if (!(contenttype & ARCONTENT_AUDIOCD) && SHELL32_MntptMgr_IsDvdMovie(Drive))
+            contenttype |= ARCONTENT_DVDMOVIE | ARCONTENT_PHASE_PRESNIFF;
+        SetErrorMode(errmode);
+    }
+    else if (Info == SHCNE_MEDIAREMOVED || Info == SHCNE_DRIVEREMOVED)
+    {
+        SHDeleteKeyW(hKey, L"shell");
+        SHDeleteKeyW(hKey, L"_AutoRun");
+    }
+
+    BOOL puremediacontent = contenttype & (ARCONTENT_AUDIOCD | ARCONTENT_DVDMOVIE);
+    BOOL execute = add && (autorun || puremediacontent);
+    if (execute && GetKeyState(VK_SHIFT) >= 0)
+    {
+#if 1 // FIXME: SEE_MASK_INVOKEIDLIST would be better but does not currently work
+        SHELLEXECUTEINFOW sei = { sizeof(sei), SEE_MASK_CLASSKEY | SEE_MASK_FLAG_NO_UI };
+        sei.lpParameters = drivepath;
+        sei.lpDirectory = drivepath;
+        sei.hkeyClass = hKey;
+        sei.nShow = SW_SHOW;
+        if (puremediacontent)
+        {
+            LPCWSTR key = NULL;
+            if (contenttype & ARCONTENT_DVDMOVIE)
+                key = L"DVD";
+            if (contenttype & ARCONTENT_AUDIOCD)
+                key = L"AudioCD";
+            if (key)
+            {
+                sei.hkeyClass = NULL;
+                if (RegOpenKeyExW(HKEY_CLASSES_ROOT, key, 0, KEY_READ, &sei.hkeyClass) == ERROR_SUCCESS)
+                {
+                    RegCloseKey(hKey);
+                    hKey = sei.hkeyClass;
+                }
+            }
+        }
+        if (sei.hkeyClass)
+        {
+            HWND hWndApp = GetForegroundWindow();
+            if (!hWndApp || !SendMessage(hWndApp, RegisterWindowMessageW(L"QueryCancelAutoPlay"), Drive, contenttype))
+            {
+                ShellExecuteExW(&sei);
+            }
+        }
+#else
+        SHELLEXECUTEINFOW sei = { sizeof(sei), SEE_MASK_INVOKEIDLIST | SEE_MASK_FLAG_NO_UI, NULL, NULL,
+                                  drivepath, drivepath, drivepath, SW_SHOW };
+        HWND hWndApp = GetForegroundWindow();
+        if (!hWndApp || !SendMessage(hWndApp, RegisterWindowMessageW(L"QueryCancelAutoPlay"), Drive, contenttype))
+        {
+            ShellExecuteExW(&sei);
+        }
+#endif
+    }
+    RegCloseKey(hKey);
+}
+
 /***********************************************************************
 *   IShellFolder implementation
 */
@@ -424,12 +624,20 @@ HRESULT CDrivesContextMenu_CreateInstance(PCIDLIST_ABSOLUTE pidlFolder,
                                           IShellFolder *psf,
                                           IContextMenu **ppcm)
 {
-    HKEY hKeys[2];
+    HKEY hKeys[3];
     UINT cKeys = 0;
+    WCHAR buf[5];
+    if (cidl && _ILGetDrive(apidl[0], buf, _countof(buf)))
+    {
+        int drive = PathGetDriveNumberW(buf);
+        if (drive >= 0)
+            cKeys += (hKeys[cKeys] = SHELL32_MntptMgr_GetAutorunAssocKey(drive)) != NULL;
+    }
     AddClassKeyToArray(L"Drive", hKeys, &cKeys);
     AddClassKeyToArray(L"Folder", hKeys, &cKeys);
-
-    return CDefFolderMenu_Create2(pidlFolder, hwnd, cidl, apidl, psf, DrivesContextMenuCallback, cKeys, hKeys, ppcm);
+    HRESULT hr = CDefFolderMenu_Create2(pidlFolder, hwnd, cidl, apidl, psf, DrivesContextMenuCallback, cKeys, hKeys, ppcm);
+    CloseRegKeys(hKeys, cKeys);
+    return hr;
 }
 
 static HRESULT

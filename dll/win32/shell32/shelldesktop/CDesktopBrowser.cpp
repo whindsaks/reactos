@@ -27,6 +27,7 @@
 #endif
 
 #include <dbt.h>
+#include <shlwapi.h>
 
 WINE_DEFAULT_DEBUG_CHANNEL(desktop);
 
@@ -466,26 +467,53 @@ LRESULT CDesktopBrowser::OnGetChangeNotifyServer(UINT uMsg, WPARAM wParam, LPARA
     return (LRESULT)m_hwndChangeNotifyServer;
 }
 
+extern void SHELL32_MntptMgr_NotifyAddRemoveVolume(UINT Info, int Drive);
+static DWORD CALLBACK NotifyAutorun(LPVOID Param)
+{
+    SHELL32_MntptMgr_NotifyAddRemoveVolume(HIWORD(Param), LOBYTE(Param));
+    return 0;
+}
+
 // Detect DBT_DEVICEARRIVAL and DBT_DEVICEREMOVECOMPLETE
 LRESULT CDesktopBrowser::OnDeviceChange(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled)
-{
+{DbgPrint("OnDeviceChange %p %p\n", wParam, lParam);
     if (wParam != DBT_DEVICEARRIVAL && wParam != DBT_DEVICEREMOVECOMPLETE)
         return 0;
+
+    DEV_BROADCAST_HDR *pHdr = (DEV_BROADCAST_HDR*)lParam;
+    if (pHdr && pHdr->dbch_devicetype == DBT_DEVTYP_NET)
+    {
+        if (LPITEMIDLIST pidl = SHCloneSpecialIDList(NULL, CSIDL_NETHOOD, FALSE))
+        {
+            SHChangeNotify(SHCNE_UPDATEDIR, SHCNF_IDLIST, pidl, NULL);
+            ILFree(pidl);
+        }
+        return 0;
+    }
+    if (pHdr && pHdr->dbch_devicetype != DBT_DEVTYP_VOLUME)
+        return 0;
+
+    DEV_BROADCAST_VOLUME *pVol = (DEV_BROADCAST_VOLUME*)pHdr;
+    BOOL fIsMedia = pVol && (pVol->dbcv_flags & DBTF_MEDIA);
 
     DWORD dwDrives = ::GetLogicalDrives();
     for (INT iDrive = 0; iDrive <= 'Z' - 'A'; ++iDrive)
     {
         WCHAR szPath[MAX_PATH];
-        DWORD dwBit = (1 << iDrive);
+        DWORD dwBit = (1 << iDrive), notify = 0;
         if (!(m_dwDrives & dwBit) && (dwDrives & dwBit)) // The drive is added
-        {
+        {DbgPrint("VOL %ls %d f=%#x\n", szPath, iDrive, pVol->dbcv_flags);
             PathBuildRootW(szPath, iDrive);
-            SHChangeNotify(SHCNE_DRIVEADD, SHCNF_PATHW, szPath, NULL);
+            SHChangeNotify(notify = fIsMedia ? SHCNE_MEDIAINSERTED : SHCNE_DRIVEADD, SHCNF_PATHW, szPath, NULL);
         }
         else if ((m_dwDrives & dwBit) && !(dwDrives & dwBit)) // The drive is removed
         {
             PathBuildRootW(szPath, iDrive);
-            SHChangeNotify(SHCNE_DRIVEREMOVED, SHCNF_PATHW, szPath, NULL);
+            SHChangeNotify(notify = fIsMedia ? SHCNE_MEDIAREMOVED : SHCNE_DRIVEREMOVED, SHCNF_PATHW, szPath, NULL);
+        }
+        if (notify && fIsMedia)
+        {
+            SHCreateThread(NotifyAutorun, (void*)MAKELONG(iDrive, notify), CTF_INSIST | CTF_COINIT, NULL);
         }
     }
 
