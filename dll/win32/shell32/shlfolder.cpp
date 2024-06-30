@@ -274,6 +274,14 @@ HRESULT SHELL32_CompareDetails(IShellFolder2* isf, LPARAM lParam, LPCITEMIDLIST 
     return MAKE_COMPARE_HRESULT(ret);
 }
 
+void CloseRegKeys(HKEY* array, UINT cKeys)
+{
+#if 0 // FIXME: CDefContextMenu is broken, it should not be closing these keys
+    for (SIZE_T i = 0; i < cKeys; ++)
+        RegCloseKey(array[i]);
+#endif
+}
+
 LSTATUS AddClassKeyToArray(const WCHAR* szClass, HKEY* array, UINT* cKeys)
 {
     if (*cKeys >= 16)

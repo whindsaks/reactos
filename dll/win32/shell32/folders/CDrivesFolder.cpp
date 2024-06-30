@@ -66,6 +66,99 @@ BOOL _ILGetDriveType(LPCITEMIDLIST pidl)
     return ::GetDriveTypeW(szDrive);
 }
 
+static UINT GetIniString(LPCWSTR Ini, LPCWSTR Section, LPCWSTR Name, LPWSTR Buffer, DWORD cch)
+{
+    if (cch)
+        Buffer[cch - 1] = '!';
+    UINT len = GetPrivateProfileStringW(Section, Name, NULL, Buffer, cch, Ini);
+    return (len + 1 < cch || !Buffer[cch - 1]) ? len : 0;
+}
+
+static BOOL SHELL32_MntptMgr_GetAutorunAssocSubKey(int Drive, LPWSTR Buf)
+{
+    if (Drive < 0)
+        return FALSE;
+    WCHAR drivepath[4], /*guid[50],*/ *subkey = drivepath;
+    PathBuildRootW(drivepath, Drive);
+    /*if (GetVolumeNameForVolumeMountPointW(drivepath, guid, _countof(guid)))
+    {
+        if (guid[2] == '?' && guid[4] == 'V')
+            subkey = guid + 10?;
+    }*/
+    UINT cch = wsprintfW(Buf, L"MountPoints2\\%s", subkey);
+    Buf[cch - (subkey == drivepath ? 2 : 1)] = UNICODE_NULL; // Remove trailing symbols
+    return TRUE;
+}
+
+static HKEY SHELL32_MntptMgr_GetAutorunAssocKey(int Drive, BOOL Write = FALSE)
+{
+    WCHAR buf[MAX_PATH];
+    if (!SHELL32_MntptMgr_GetAutorunAssocSubKey(Drive, buf))
+        return NULL;
+    return SHGetShellKey(SHKEY_Root_HKCU | SHKEY_Key_Explorer, buf, Write);
+}
+
+static BOOL SHELL32_MntptMgr_IsAutorunAllowedByPolicy(int Drive)
+{
+    // learn.microsoft.com/en-us/windows/win32/shell/autoplay-reg
+    UINT drives = SHRestricted(REST_NODRIVEAUTORUN);
+    if (drives & (1 << Drive))
+        return FALSE;
+    UINT block = SHRestricted(REST_NODRIVETYPEAUTORUN), type = RealDriveType(Drive, TRUE);
+    if (!block)
+        block = ~((1 << DRIVE_CDROM) | (1 << DRIVE_FIXED) | (1 << DRIVE_RAMDISK));
+    return !((1 << type) & block);
+}
+
+void SHELL32_MntptMgr_NotifyAddRemoveVolume(UINT Info, int Drive)
+{
+    BOOL add = Info == SHCNE_DRIVEADD;
+    HKEY hKey = SHELL32_MntptMgr_GetAutorunAssocKey(Drive, TRUE);
+    if (!hKey)
+        return;
+    WCHAR inf[15];
+    PathBuildRootW(inf, Drive);
+    PathAppendW(inf, L"AutoRun.inf");
+    BOOL autorun = add && SHELL32_MntptMgr_IsAutorunAllowedByPolicy(Drive);
+
+    // TODO: IQueryCancelAutoPlay (MSDN Magazine November 2001 says applications have 3 seconds to decide)
+    // TODO: IHWEventHandler
+    // TODO: NoAutoRun policy? (https://en.wikipedia.org/wiki/AutoRun)
+
+    if (add)//journeyintoir.blogspot.com/2011/01/autoplay-and-autorun-exploit-artifacts.html
+    {
+        WCHAR buf[MAX_PATH * 3];
+        if (GetIniString(inf, L"AutoRun", L"shellexecute", buf, _countof(buf)) || GetIniString(inf, L"AutoRun", L"open", buf, _countof(buf)))
+        {
+            SHSetValueW(hKey, L"shell\\AutoRun\\command", NULL, REG_SZ, buf, (wcslen(buf) + 1) * sizeof(WCHAR));
+            if (autorun)
+                SHSetValueW(hKey, L"shell", NULL, REG_SZ, L"AutoRun", sizeof(L"AutoRun"));
+            else
+                SHSetValueW(hKey, L"shell\\AutoRun", L"NeverDefault", REG_NONE, buf, 0);
+        }
+    }
+    else
+    {
+        SHDeleteKeyW(hKey, NULL);
+    }
+
+    if (autorun && GetKeyState(VK_SHIFT) >= 0)
+    {
+        SHELLEXECUTEINFOW sei = { sizeof(sei), SEE_MASK_CLASSKEY | SEE_MASK_FLAG_NO_UI };
+        WCHAR dir[5];
+        PathBuildRootW(dir, Drive);
+        sei.lpDirectory = dir;
+        sei.hkeyClass = hKey;
+        sei.nShow = SW_SHOW;
+        HWND hWndApp = GetForegroundWindow();
+        if (!hWndApp || !SendMessage(hWndApp, RegisterWindowMessageW(L"QueryCancelAutoPlay"), Drive, 0/*FIXME: Content types*/))
+        {
+            ShellExecuteExW(&sei);
+        }
+    }
+    RegCloseKey(hKey);
+}
+
 /***********************************************************************
 *   IShellFolder implementation
 */
@@ -424,12 +517,20 @@ HRESULT CDrivesContextMenu_CreateInstance(PCIDLIST_ABSOLUTE pidlFolder,
                                           IShellFolder *psf,
                                           IContextMenu **ppcm)
 {
-    HKEY hKeys[2];
+    HKEY hKeys[3];
     UINT cKeys = 0;
+    WCHAR buf[5];
+    if (cidl && _ILGetDrive(apidl[0], buf, _countof(buf)))
+    {
+        int drive = PathGetDriveNumberW(buf);
+        if (drive >= 0)
+            cKeys += (hKeys[cKeys] = SHELL32_MntptMgr_GetAutorunAssocKey(drive)) != NULL;
+    }
     AddClassKeyToArray(L"Drive", hKeys, &cKeys);
     AddClassKeyToArray(L"Folder", hKeys, &cKeys);
-
-    return CDefFolderMenu_Create2(pidlFolder, hwnd, cidl, apidl, psf, DrivesContextMenuCallback, cKeys, hKeys, ppcm);
+    HRESULT hr = CDefFolderMenu_Create2(pidlFolder, hwnd, cidl, apidl, psf, DrivesContextMenuCallback, cKeys, hKeys, ppcm);
+    CloseRegKeys(hKeys, cKeys);
+    return hr;
 }
 
 static HRESULT
