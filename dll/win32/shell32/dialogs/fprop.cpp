@@ -111,7 +111,7 @@ SH_ShowPropertiesDialog(LPCWSTR pwszPath, IDataObject *pDataObj)
     }
 
     /* Handle drives */
-    if (_ILIsDrive(HIDA_GetPIDLItem(cida, 0)))
+    if (_ILIsDrive(HIDA_GetPIDLItem(cida, 0)) && ILIsMyComputer(HIDA_GetPIDLFolder(cida)))
         return SH_ShowDriveProperties(wszPath, pDataObj);
 
 

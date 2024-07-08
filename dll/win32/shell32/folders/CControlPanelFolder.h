@@ -39,6 +39,7 @@ class CControlPanelFolder :
     public:
         CControlPanelFolder();
         ~CControlPanelFolder();
+        static bool IsThisFolder(PCUIDLIST_ABSOLUTE pidl);
 
         // IShellFolder
         STDMETHOD(ParseDisplayName)(HWND hwndOwner, LPBC pbc, LPOLESTR lpszDisplayName, DWORD *pchEaten, PIDLIST_RELATIVE *ppidl, DWORD *pdwAttributes) override;
@@ -131,5 +132,11 @@ class COpenControlPanel :
         COM_INTERFACE_ENTRY_IID(IID_IOpenControlPanel, IOpenControlPanel)
         END_COM_MAP()
 };
+
+
+static inline bool ILIsControlPanel(PCUIDLIST_ABSOLUTE pidl)
+{
+    return CControlPanelFolder::IsThisFolder(pidl);
+}
 
 #endif /* _SHFLDR_CPANEL_H_ */

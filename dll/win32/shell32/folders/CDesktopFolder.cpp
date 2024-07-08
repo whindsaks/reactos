@@ -762,7 +762,7 @@ HRESULT WINAPI CDesktopFolder::GetAttributesOf(
             pdump(*apidl);
             if (_ILIsDesktop(*apidl))
                 *rgfInOut &= dwDesktopAttributes;
-            else if (_ILIsMyComputer(apidl[i]))
+            else if (ILIsMyComputer(apidl[i]))
                 *rgfInOut &= dwMyComputerAttributes;
             else if (_ILIsNetHood(apidl[i]))
                 *rgfInOut &= dwMyNetPlacesAttributes;

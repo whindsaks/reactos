@@ -263,6 +263,14 @@ CControlPanelFolder::~CControlPanelFolder()
     SHFree(pidlRoot);
 }
 
+bool CControlPanelFolder::IsThisFolder(PCUIDLIST_ABSOLUTE pidl)
+{
+    // In My Computer or on the Desktop depending on the Windows version
+    if (_ILIsMyComputer(pidl)) // Note: Relies on the fact that this does not check for children
+        pidl = (PCUIDLIST_ABSOLUTE)ILGetNext(pidl);
+    return _ILIsControlPanel(pidl) && _ILIsPidlSimple(pidl);
+}
+
 /**************************************************************************
 *    CControlPanelFolder::ParseDisplayName
 */

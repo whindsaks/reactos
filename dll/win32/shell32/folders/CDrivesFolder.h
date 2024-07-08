@@ -39,6 +39,7 @@ class CDrivesFolder :
         CDrivesFolder();
         ~CDrivesFolder();
         HRESULT WINAPI FinalConstruct();
+        static bool IsThisFolder(PCUIDLIST_ABSOLUTE pidl) { return _ILIsMyComputer(pidl) && _ILIsPidlSimple(pidl); } // MyComputer is always a root item
 
         // IShellFolder
         STDMETHOD(ParseDisplayName)(HWND hwndOwner, LPBC pbc, LPOLESTR lpszDisplayName, DWORD *pchEaten, PIDLIST_RELATIVE *ppidl, DWORD *pdwAttributes) override;
@@ -87,5 +88,10 @@ class CDrivesFolder :
         COM_INTERFACE_ENTRY_IID(IID_IContextMenuCB, IContextMenuCB)
         END_COM_MAP()
 };
+
+static inline bool ILIsMyComputer(PCUIDLIST_ABSOLUTE pidl)
+{
+    return CDrivesFolder::IsThisFolder(pidl);
+}
 
 #endif /* _CDRIVESFOLDER_H_ */
