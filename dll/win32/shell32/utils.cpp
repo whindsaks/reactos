@@ -183,8 +183,11 @@ BOOL Shell_FailForceReturn(_In_ HRESULT hr)
     }
 }
 
-HRESULT
-SHBindToObjectEx(
+/*************************************************************************
+ *    SHBindToObject    [Vista]
+ */
+EXTERN_C HRESULT WINAPI
+SHBindToObject(
     _In_opt_ IShellFolder *pShellFolder,
     _In_ LPCITEMIDLIST pidl,
     _In_opt_ IBindCtx *pBindCtx,
@@ -214,16 +217,6 @@ SHBindToObjectEx(
         hr = E_FAIL;
 
     return hr;
-}
-
-EXTERN_C
-HRESULT SHBindToObject(
-    _In_opt_ IShellFolder *psf,
-    _In_ LPCITEMIDLIST pidl,
-    _In_ REFIID riid,
-    _Out_ void **ppvObj)
-{
-    return SHBindToObjectEx(psf, pidl, NULL, riid, ppvObj);
 }
 
 HRESULT

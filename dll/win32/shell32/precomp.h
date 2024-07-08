@@ -188,20 +188,21 @@ Shell_DisplayNameOf(
     _Out_ LPWSTR pszBuf,
     _In_ UINT cchBuf);
 
-EXTERN_C
-HRESULT SHBindToObject(
-    _In_opt_ IShellFolder *psf,
-    _In_ LPCITEMIDLIST pidl,
-    _In_ REFIID riid,
-    _Out_ void **ppvObj);
-
-HRESULT
-SHBindToObjectEx(
+EXTERN_C HRESULT WINAPI
+SHBindToObject(
     _In_opt_ IShellFolder *pShellFolder,
     _In_ LPCITEMIDLIST pidl,
     _In_opt_ IBindCtx *pBindCtx,
     _In_ REFIID riid,
     _Out_ void **ppvObj);
+
+#ifdef __cplusplus
+static inline HRESULT
+SHBindToObject(IShellFolder *psf, LPCITEMIDLIST pidl, REFIID riid, void **ppv)
+{
+    return SHBindToObject(psf, pidl, NULL, riid, ppv);
+}
+#endif
 
 DWORD
 SHGetAttributes(_In_ IShellFolder *psf, _In_ LPCITEMIDLIST pidl, _In_ DWORD dwAttributes);

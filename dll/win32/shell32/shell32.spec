@@ -268,7 +268,10 @@
 269 stdcall RegenerateUserEnvironment(ptr long)
 270 stdcall SHAddToRecentDocs(long ptr)
 271 stdcall SHAppBarMessage(long ptr)
+@ stdcall -version=0x600+ SHBindToObject(ptr ptr ptr ptr ptr)
 272 stdcall SHBindToParent(ptr ptr ptr ptr)
+@ stdcall -version=0x600+ SHBindToFolderIDListParent(ptr ptr ptr ptr ptr ptr)
+@ stdcall -version=0x600+ SHBindToFolderIDListParentEx(ptr ptr ptr ptr ptr ptr)
 273 stdcall SHBrowseForFolder(ptr) SHBrowseForFolderA
 274 stdcall SHBrowseForFolderA(ptr)
 275 stdcall SHBrowseForFolderW(ptr)

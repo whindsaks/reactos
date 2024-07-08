@@ -1344,6 +1344,42 @@ BOOL WINAPI SHGetPathFromIDListW(LPCITEMIDLIST pidl, LPWSTR pszPath)
     return SUCCEEDED(SHGetPathCchFromIDListW(pidl, pszPath, MAX_PATH));
 }
 
+static LPITEMIDLIST _ILCloneParent(LPCITEMIDLIST pidl)
+{
+    LPITEMIDLIST pidlParent = ILClone(pidl);
+    ILRemoveLastID(pidlParent);
+    return pidlParent;
+}
+
+/*************************************************************************
+ *    SHBindToFolderIDListParentEx        [Vista]
+ */
+HRESULT WINAPI SHBindToFolderIDListParentEx(IShellFolder *psfRoot, PCUIDLIST_RELATIVE pidl,
+                                            IBindCtx *pbc, REFIID riid, void **ppv, PCUITEMID_CHILD *ppidlLast)
+{
+    HRESULT hr = E_OUTOFMEMORY;
+    LPITEMIDLIST pidlParent;
+    EXTERN_C HRESULT WINAPI SHBindToObject(IShellFolder *psf, LPCITEMIDLIST pidl, IBindCtx *pbc, REFIID riid, void **ppv);
+
+    if ((pidlParent = _ILCloneParent(pidl)) != NULL)
+    {
+        hr = SHBindToObject(psfRoot, pidl, pbc, riid, ppv);
+        ILFree(pidlParent);
+    }
+    if (ppidlLast)
+        *ppidlLast = ILFindLastID(pidl);
+    return hr;
+}
+
+/*************************************************************************
+ *    SHBindToFolderIDListParent        [Vista]
+ */
+HRESULT WINAPI SHBindToFolderIDListParent(IShellFolder *psfRoot, PCUIDLIST_RELATIVE pidl,
+                                          REFIID riid, void **ppv, PCUITEMID_CHILD *ppidlLast)
+{
+    return SHBindToFolderIDListParentEx(psfRoot, pidl, NULL, riid, ppv, ppidlLast);
+}
+
 /*************************************************************************
  *    SHBindToParent        [shell version 5.0]
  */
@@ -1373,8 +1409,7 @@ HRESULT WINAPI SHBindToParent(LPCITEMIDLIST pidl, REFIID riid, LPVOID *ppv, LPCI
     }
     else
     {
-        LPITEMIDLIST pidlParent = ILClone(pidl);
-        ILRemoveLastID(pidlParent);
+        LPITEMIDLIST pidlParent = _ILCloneParent(pidl);
         hr = IShellFolder_BindToObject(psfDesktop, pidlParent, NULL, riid, ppv);
         SHFree (pidlParent);
     }
