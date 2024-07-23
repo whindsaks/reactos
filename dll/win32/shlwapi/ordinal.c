@@ -61,7 +61,11 @@ extern HINSTANCE shlwapi_hInstance;
 extern DWORD SHLWAPI_ThreadRef_index;
 
 HRESULT WINAPI IUnknown_QueryService(IUnknown*,REFGUID,REFIID,LPVOID*);
+#ifdef __REACTOS__
+HRESULT WINAPI SHInvokeCommand(HWND, IShellFolder*, LPCITEMIDLIST, LPCSTR);
+#else
 HRESULT WINAPI SHInvokeCommand(HWND,IShellFolder*,LPCITEMIDLIST,DWORD);
+#endif
 BOOL    WINAPI SHAboutInfoW(LPWSTR,DWORD);
 
 /*
@@ -3056,7 +3060,11 @@ HWND WINAPI SHCreateWorkerWindowW(WNDPROC wndProc, HWND hWndParent, DWORD dwExSt
 HRESULT WINAPI SHInvokeDefaultCommand(HWND hWnd, IShellFolder* lpFolder, LPCITEMIDLIST lpApidl)
 {
     TRACE("%p %p %p\n", hWnd, lpFolder, lpApidl);
+#ifdef __REACTOS__
+    return SHInvokeCommand(hWnd, lpFolder, lpApidl, NULL);
+#else
     return SHInvokeCommand(hWnd, lpFolder, lpApidl, 0);
+#endif
 }
 
 /*************************************************************************
@@ -3615,6 +3623,22 @@ UINT WINAPI SHDefExtractIconWrapW(LPCWSTR pszIconFile, int iIndex, UINT uFlags, 
  *           executed.
  *  Failure: An HRESULT error code indicating the error.
  */
+#ifdef __REACTOS__
+EXTERN_C HRESULT WINAPI SHInvokeCommandOnContextMenu(HWND hWnd, IUnknown *pUnk, IContextMenu *pCM, DWORD fCMIC, LPCSTR lpVerb);
+HRESULT WINAPI SHInvokeCommand(HWND hWnd, IShellFolder* lpFolder, LPCITEMIDLIST lpApidl, LPCSTR lpVerb)
+{
+    IContextMenu *iContext;
+    HRESULT hRet = E_INVALIDARG;
+    if (lpFolder)
+    {
+        hRet = IShellFolder_GetUIObjectOf(lpFolder, hWnd, 1, &lpApidl, &IID_IContextMenu, 0, (void**)&iContext);
+        if (SUCCEEDED(hRet))
+        {
+            hRet = SHInvokeCommandOnContextMenu(hWnd, NULL, iContext, CMIC_MASK_FLAG_LOG_USAGE, lpVerb);
+            IContextMenu_Release(iContext);
+        }
+    }
+#else
 HRESULT WINAPI SHInvokeCommand(HWND hWnd, IShellFolder* lpFolder, LPCITEMIDLIST lpApidl, DWORD dwCommandId)
 {
   IContextMenu *iContext;
@@ -3665,6 +3689,7 @@ HRESULT WINAPI SHInvokeCommand(HWND hWnd, IShellFolder* lpFolder, LPCITEMIDLIST 
     }
     IContextMenu_Release(iContext);
   }
+#endif
   return hRet;
 }
 

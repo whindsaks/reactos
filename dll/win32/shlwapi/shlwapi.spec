@@ -360,7 +360,7 @@
 360 stdcall -noname RemoveDirectoryWrapW(wstr) kernel32.RemoveDirectoryW
 361 stdcall -noname GetShortPathNameWrapW(wstr ptr long) kernel32.GetShortPathNameW
 362 stdcall -noname GetUserNameWrapW(ptr ptr) advapi32.GetUserNameW
-363 stdcall -noname SHInvokeCommand(ptr ptr ptr long)
+363 stdcall -noname SHInvokeCommand(ptr ptr ptr ptr)
 364 stdcall -noname DoesStringRoundTripA(str ptr long)
 365 stdcall -noname DoesStringRoundTripW(wstr ptr long)
 366 stdcall -noname RegEnumValueWrapW(long long ptr ptr ptr ptr ptr ptr) advapi32.RegEnumValueW
@@ -537,8 +537,8 @@
 537 stub -noname SHBoolSystemParametersInfo
 538 stdcall -noname IUnknown_QueryServiceForWebBrowserApp(ptr ptr ptr)
 539 stub -noname IUnknown_ShowBrowserBar
-540 stub -noname SHInvokeCommandOnContextMenu
-541 stub -noname SHInvokeCommandsOnContextMen
+540 stdcall -noname SHInvokeCommandOnContextMenu(ptr ptr ptr long ptr)
+541 stub -noname SHInvokeCommandsOnContextMenu
 542 stdcall -noname GetUIVersion()
 543 stdcall -noname CreateColorSpaceWrapW(ptr) gdi32.CreateColorSpaceW
 544 stub -noname QuerySourceCreateFromKey

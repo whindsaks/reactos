@@ -610,19 +610,21 @@ ShowNetConnectionProperties(
 */
 HRESULT WINAPI CNetConUiObject::InvokeCommand(LPCMINVOKECOMMANDINFO lpcmi)
 {
-    UINT CmdId;
+    UINT CmdId, CmdIdOffset = IDS_NET_ACTIVATE;
 
     /* We should get this when F2 is pressed in explorer */
-    if (HIWORD(lpcmi->lpVerb) && !strcmp(lpcmi->lpVerb, "rename"))
-        lpcmi->lpVerb = MAKEINTRESOURCEA(IDS_NET_RENAME);
+    if (SIZE_T(lpcmi->lpVerb) > 0xffff && !strcmp(lpcmi->lpVerb, "rename"))
+        lpcmi->lpVerb = MAKEINTRESOURCEA(IDS_NET_RENAME - CmdIdOffset);
+    if (SIZE_T(lpcmi->lpVerb) > 0xffff && !strcmp(lpcmi->lpVerb, "properties"))
+        lpcmi->lpVerb = MAKEINTRESOURCEA(IDS_NET_PROPERTIES - CmdIdOffset);
 
-    if (HIWORD(lpcmi->lpVerb) || LOWORD(lpcmi->lpVerb) > 7)
+    if (SIZE_T(lpcmi->lpVerb) > 0xffff || LOWORD(lpcmi->lpVerb) > 7)
     {
         FIXME("Got invalid command\n");
         return E_NOTIMPL;
     }
 
-    CmdId = LOWORD(lpcmi->lpVerb) + IDS_NET_ACTIVATE;
+    CmdId = LOWORD(lpcmi->lpVerb) + CmdIdOffset;
 
     switch(CmdId)
     {

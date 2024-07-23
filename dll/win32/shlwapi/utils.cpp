@@ -35,6 +35,79 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(shell);
 
+HRESULT WINAPI
+SHInvokeCommandOnContextMenuInternal(_In_opt_ HWND hWnd, _In_opt_ IUnknown *pUnk,
+                                     _In_ IContextMenu *pCM, _In_opt_ DWORD fCMIC,
+                                     _In_opt_ LPCSTR lpVerb, _In_opt_ UINT fCMF, bool ForceQCM)
+{
+    CMINVOKECOMMANDINFOEX info = { sizeof(info), fCMIC, hWnd, lpVerb };
+    INT iDefItem = 0;
+    HMENU hMenu = NULL;
+    HCURSOR hOldCursor;
+    HRESULT hr = S_OK;
+    WCHAR wideverb[MAX_PATH];
+
+    if (!pCM)
+        return E_INVALIDARG;
+
+    hOldCursor = SetCursor(LoadCursorW(NULL, (LPCWSTR)IDC_WAIT));
+    info.nShow = SW_NORMAL;
+    if (pUnk)
+        IUnknown_SetSite(pCM, pUnk);
+
+    if (IS_INTRESOURCE(lpVerb))
+    {
+        hMenu = CreatePopupMenu();
+        if (hMenu)
+        {
+            hr = pCM->QueryContextMenu(hMenu, 0, 1, MAXSHORT, fCMF | CMF_DEFAULTONLY);
+            iDefItem = GetMenuDefaultItem(hMenu, 0, 0);
+            if (iDefItem != -1)
+                info.lpVerb = MAKEINTRESOURCEA(iDefItem - 1);
+        }
+    }
+    else
+    {
+        if (lpVerb && SHAnsiToUnicode(lpVerb, wideverb, _countof(wideverb)))
+        {
+            info.fMask |= CMIC_MASK_UNICODE;
+            info.lpVerbW = wideverb;
+        }
+        if (ForceQCM)
+        {
+            hMenu = CreatePopupMenu();
+            hr = pCM->QueryContextMenu(hMenu, 0, 1, MAXSHORT, fCMF);
+        }
+    }
+
+    SetCursor(hOldCursor);
+
+    if (SUCCEEDED(hr) && (iDefItem != -1 || info.lpVerb))
+    {
+        if (!hWnd)
+            info.fMask |= CMIC_MASK_FLAG_NO_UI;
+        hr = pCM->InvokeCommand((LPCMINVOKECOMMANDINFO)&info);
+    }
+
+    if (pUnk)
+        IUnknown_SetSite(pCM, NULL);
+    if (hMenu)
+        DestroyMenu(hMenu);
+
+    return hr;
+}
+
+/*************************************************************************
+ * SHInvokeCommandOnContextMenu [SHLWAPI.540]
+ */
+EXTERN_C HRESULT WINAPI 
+SHInvokeCommandOnContextMenu(_In_opt_ HWND hWnd, _In_opt_ IUnknown *pUnk,
+                             _In_ IContextMenu *pCM, _In_opt_ DWORD fCMIC,
+                             _In_opt_ LPCSTR lpVerb)
+{
+    return SHInvokeCommandOnContextMenuInternal(hWnd, pUnk, pCM, fCMIC, lpVerb, 0, true);
+}
+
 /*************************************************************************
  * IContextMenu_Invoke [SHLWAPI.207]
  *
@@ -48,52 +121,9 @@ IContextMenu_Invoke(
     _In_ LPCSTR lpVerb,
     _In_ UINT uFlags)
 {
-    CMINVOKECOMMANDINFO info;
-    BOOL ret = FALSE;
-    INT iDefItem = 0;
-    HMENU hMenu = NULL;
-    HCURSOR hOldCursor;
-
     TRACE("(%p, %p, %s, %u)\n", pContextMenu, hwnd, debugstr_a(lpVerb), uFlags);
-
-    if (!pContextMenu)
-        return FALSE;
-
-    hOldCursor = SetCursor(LoadCursorW(NULL, (LPCWSTR)IDC_WAIT));
-
-    ZeroMemory(&info, sizeof(info));
-    info.cbSize = sizeof(info);
-    info.hwnd = hwnd;
-    info.nShow = SW_NORMAL;
-    info.lpVerb = lpVerb;
-
-    if (IS_INTRESOURCE(lpVerb))
-    {
-        hMenu = CreatePopupMenu();
-        if (hMenu)
-        {
-            pContextMenu->QueryContextMenu(hMenu, 0, 1, MAXSHORT, uFlags | CMF_DEFAULTONLY);
-            iDefItem = GetMenuDefaultItem(hMenu, 0, 0);
-            if (iDefItem != -1)
-                info.lpVerb = MAKEINTRESOURCEA(iDefItem - 1);
-        }
-    }
-
-    if (iDefItem != -1 || info.lpVerb)
-    {
-        if (!hwnd)
-            info.fMask |= CMIC_MASK_FLAG_NO_UI;
-        ret = SUCCEEDED(pContextMenu->InvokeCommand(&info));
-    }
-
-    /* Invoking itself doesn't need the menu object, but getting the command info
-       needs the menu. */
-    if (hMenu)
-        DestroyMenu(hMenu);
-
-    SetCursor(hOldCursor);
-
-    return ret;
+    HRESULT hr = SHInvokeCommandOnContextMenuInternal(hwnd, NULL, pContextMenu, 0, lpVerb, uFlags, false);
+    return SUCCEEDED(hr);
 }
 
 /*************************************************************************
