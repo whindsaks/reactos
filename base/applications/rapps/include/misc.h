@@ -16,6 +16,31 @@
 #define CurrentArchitecture L"ppc"
 #endif
 
+#if defined(_M_IX86) || defined(_M_AMD64)
+#ifdef _MSC_VER
+#include <intrin.h>
+#endif
+struct CPUID
+{
+    UINT reg[4];
+    CPUID() {}
+    CPUID(UINT Eax) { Call(Eax); }
+    CPUID& Call(UINT Eax)
+    {
+#ifdef _MSC_VER
+        __cpuid((int*)reg, Eax);
+#else
+        asm volatile ("cpuid" : "=a" (reg[0]), "=b" (reg[1]), "=c" (reg[2]), "=d" (reg[3]) : "a" (Eax), "c" (0));
+#endif
+        return *this;
+    }
+    UINT EAX() const { return reg[0]; }
+    UINT EBX() const { return reg[1]; }
+    UINT ECX() const { return reg[2]; }
+    UINT EDX() const { return reg[3]; }
+};
+#endif
+
 static inline UINT
 ErrorFromHResult(HRESULT hr)
 {

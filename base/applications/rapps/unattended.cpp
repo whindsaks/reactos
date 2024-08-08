@@ -59,6 +59,15 @@ SearchForAppWithDisplayName(CAppDB &db, AppsCategories Type, LPCWSTR Name)
     return NULL;
 }
 
+static CAppInfo *
+FindBestAvailablePackageFromName(CAppDB &db, LPCWSTR Name)
+{
+    CAppInfo *AppInfo = db.FindByPackageName(Name);
+    if (!AppInfo)
+        AppInfo = db.FindBestPackageFromMetaName(Name);
+    return AppInfo;
+}
+
 static BOOL
 HandleInstallCommand(CAppDB *db, LPWSTR szCommand, int argcLeft, LPWSTR *argvLeft)
 {
@@ -73,11 +82,9 @@ HandleInstallCommand(CAppDB *db, LPWSTR szCommand, int argcLeft, LPWSTR *argvLef
     for (int i = 0; i < argcLeft; i++)
     {
         LPCWSTR PackageName = argvLeft[i];
-        CAppInfo *AppInfo = db->FindByPackageName(PackageName);
+        CAppInfo *AppInfo = FindBestAvailablePackageFromName(*db, PackageName);
         if (AppInfo)
-        {
             Applications.AddTail(AppInfo);
-        }
     }
 
     return DownloadListOfApplications(Applications, TRUE);
@@ -108,7 +115,7 @@ HandleSetupCommand(CAppDB *db, LPWSTR szCommand, int argcLeft, LPWSTR *argvLeft)
         {
             if (SetupGetStringFieldW(&Context, 1, szPkgName, _countof(szPkgName), NULL))
             {
-                CAppInfo *AppInfo = db->FindByPackageName(szPkgName);
+                CAppInfo *AppInfo = FindBestAvailablePackageFromName(*db, szPkgName);
                 if (AppInfo)
                 {
                     Applications.AddTail(AppInfo);
@@ -256,13 +263,14 @@ HandleInfoCommand(CAppDB *db, LPWSTR szCommand, int argcLeft, LPWSTR *argvLeft)
     for (int i = 0; i < argcLeft; i++)
     {
         LPCWSTR PackageName = argvLeft[i];
-        CAppInfo *AppInfo = db->FindByPackageName(PackageName);
+        CAppInfo *AppInfo = FindBestAvailablePackageFromName(*db, PackageName);
         if (!AppInfo)
         {
             ConResMsgPrintf(StdOut, NULL, IDS_CMD_PACKAGE_NOT_FOUND, PackageName);
         }
         else
         {
+            PackageName = AppInfo->szIdentifier;
             ConResMsgPrintf(StdOut, NULL, IDS_CMD_PACKAGE_INFO, PackageName);
 
             ConPuts(StdOut, AppInfo->szDisplayName);

@@ -29,6 +29,8 @@ class CAppDB
     FindAvailableByPackageName(const CStringW &name);
     CAppInfo *
     FindByPackageName(const CStringW &name) { return FindAvailableByPackageName(name); }
+    CAppInfo *
+    FindBestPackageFromMetaName(LPCWSTR name);
 
     VOID
     UpdateAvailable();

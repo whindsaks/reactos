@@ -12,7 +12,6 @@
 #include "configparser.h"
 #include "settings.h"
 
-
 static HKEY g_RootKeyEnum[3] = {HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, HKEY_LOCAL_MACHINE};
 static REGSAM g_RegSamEnum[3] = {0, KEY_WOW64_32KEY, KEY_WOW64_64KEY};
 #define UNINSTALL_SUBKEY L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall"
@@ -335,4 +334,91 @@ CAppDB::RemoveInstalledAppFromRegistry(const CAppInfo *Info)
         err = Uninstall.RecurseDeleteKey(Name);
     }
     return err;
+}
+
+/*
+[Chrome]
+1=chrome_48
+
+[Chromium]
+1=Chromium-XP_49_0_2623_113_VS2013_SSE3
+1.ProcessorFeature=13
+2=Chromium-XP_49_0_2623_113-R2_VS2015_SSE2
+2.ProcessorFeature=10
+*/
+
+static BOOL
+HasProcessorFeature(UINT pf)
+{
+    BOOL present = IsProcessorFeaturePresent(pf);
+#if defined(_M_IX86) || defined(_M_AMD64)
+    if (!present)
+    {
+        const UINT maxbasic = CPUID(0).EAX();
+        const UINT x00000001_ecx = maxbasic >= 1 ? CPUID(1).ECX() : 0;
+        if (pf == PF_SSE3_INSTRUCTIONS_AVAILABLE)
+            present = maxbasic >= 1 && (x00000001_ecx & (1 << 0));
+        if (pf == PF_SSSE3_INSTRUCTIONS_AVAILABLE)
+            present = maxbasic >= 1 && (x00000001_ecx & (1 << 9));
+        if (pf == PF_SSE4_1_INSTRUCTIONS_AVAILABLE)
+            present = maxbasic >= 1 && (x00000001_ecx & (1 << 19));
+        if (pf == PF_SSE4_2_INSTRUCTIONS_AVAILABLE)
+            present = maxbasic >= 1 && (x00000001_ecx & (1 << 20));
+    }
+#endif
+    return present;
+}
+
+static HRESULT
+ReadMetaIniValue(LPCWSTR File, LPCWSTR Section, UINT Name, LPCWSTR NameSuffix, CStringW &Buffer)
+{
+    WCHAR value[MAX_PATH];
+    wsprintfW(value, L"%d%s%s", Name, NameSuffix && *NameSuffix ? L"." : L"", NameSuffix);
+    HRESULT hr = ReadIniValue(File, CStringW(Section) + CStringW(".") + CurrentArchitecture, value, Buffer);
+    if (FAILED(hr))
+        hr = ReadIniValue(File, Section, value, Buffer);
+    return hr;
+}
+
+CAppInfo *
+CAppDB::FindBestPackageFromMetaName(LPCWSTR name)
+{
+    OSVERSIONINFOW ovi;
+    ovi.dwOSVersionInfoSize = sizeof(ovi);
+    GetVersionExW(&ovi);
+    UINT winbuild = ovi.dwBuildNumber;
+    LPCWSTR section = name;
+    CStringW ini, package, buffer;
+    ini = BuildPath(m_BasePath, BuildPath(RAPPS_DATABASE_SUBDIR, L"meta.ini"));
+    for (UINT8 i = 0; ++i;)
+    {
+        if (FAILED(ReadMetaIniValue(ini, section, i, L"", package)))
+        {
+            break;
+        }
+        if (SUCCEEDED(ReadMetaIniValue(ini, section, i, L"MinOsBuild", buffer)))
+        {
+            UINT number = StrToIntW(buffer);
+            if (number && number > winbuild)
+                continue;
+        }
+        if (SUCCEEDED(ReadMetaIniValue(ini, section, i, L"MaxOsBuild", buffer)))
+        {
+            UINT number = StrToIntW(buffer);
+            if (number && winbuild > number)
+                continue;
+        }
+        if (SUCCEEDED(ReadMetaIniValue(ini, section, i, L"ProcessorFeature", buffer)))
+        {
+            int pf; // TODO: Support multiple feature checks, separated by |
+            if (StrToIntExW(buffer, STIF_SUPPORT_HEX, &pf) && pf && !HasProcessorFeature(pf))
+                continue;
+        }
+        CAppInfo *pAppInfo = FindByPackageName(package);
+        if (pAppInfo)
+        {
+            return pAppInfo;
+        }
+    }
+    return NULL;
 }
