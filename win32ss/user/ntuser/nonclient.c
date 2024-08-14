@@ -148,6 +148,216 @@ GetSnapActivationPoint(PWND Wnd, POINT pt)
     return HTNOWHERE;
 }
 
+static PWND g_pWndSnapPreviewL = NULL, g_pWndSnapPreviewT = NULL; /* TODO: Move to */
+static PWND g_pWndSnapPreviewR = NULL, g_pWndSnapPreviewB = NULL; /* SERVERINFO    */
+
+FORCEINLINE void
+DestroySnapPreview(PWND *ppWnd)
+{
+    PWND pWnd = *ppWnd;
+    if (pWnd)
+    {
+        *ppWnd = NULL;
+        co_UserDestroyWindow(pWnd);
+    }
+}
+
+static void
+HideSnapPreview()
+{
+    DestroySnapPreview(&g_pWndSnapPreviewL);
+    DestroySnapPreview(&g_pWndSnapPreviewT);
+    DestroySnapPreview(&g_pWndSnapPreviewR);
+    DestroySnapPreview(&g_pWndSnapPreviewB);
+}
+
+static void
+ShowSnapPreview(LPCRECT pRect)
+{
+    enum { ver =  WINVER_WIN2K };
+    UINT size = UserGetSystemMetrics(SM_CXEDGE) * 2;
+
+    //LPCWSTR ClassNameString = L"Static";
+    //UNICODE_STRING Class = { sizeof(L"Static"), sizeof(L"Static"), (LPWSTR)ClassNameString };
+    UNICODE_STRING Class = { 0, 0, MAKEINTATOM(gpsi->atomSysClass[ICLS_STATIC]) };
+    LARGE_STRING Title = { 0 };
+    CREATESTRUCTW Cs = { 0 };
+    Cs.style = WS_POPUP | SS_LEFT;
+    Cs.dwExStyle = WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
+    Cs.lpszClass = Class.Buffer;
+
+    /* FIXME: Just use a single big DLGFRAME window when LWA_ALPHA is fixed */
+    if (!g_pWndSnapPreviewL && (g_pWndSnapPreviewL = co_UserCreateWindowEx(&Cs, &Class, &Title, NULL, ver)) == NULL)
+        return ;
+    if (!g_pWndSnapPreviewT && (g_pWndSnapPreviewT = co_UserCreateWindowEx(&Cs, &Class, &Title, NULL, ver)) == NULL)
+        return ;
+    if (!g_pWndSnapPreviewR && (g_pWndSnapPreviewR = co_UserCreateWindowEx(&Cs, &Class, &Title, NULL, ver)) == NULL)
+        return ;
+    if (!g_pWndSnapPreviewB && (g_pWndSnapPreviewB = co_UserCreateWindowEx(&Cs, &Class, &Title, NULL, ver)) == NULL)
+        return ;
+
+    /* HACK: Using 4 windows because we don't have a IntSetWindowRgn(PWND, PREGION) */
+    co_WinPosSetWindowPos(g_pWndSnapPreviewL, HWND_TOPMOST, pRect->left, pRect->top,
+                          size, pRect->bottom - pRect->top,
+                          SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    co_WinPosSetWindowPos(g_pWndSnapPreviewT, HWND_TOPMOST, pRect->left, pRect->top,
+                          pRect->right - pRect->left, size,
+                          SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    co_WinPosSetWindowPos(g_pWndSnapPreviewR, HWND_TOPMOST, pRect->right - size, pRect->top,
+                          size, pRect->bottom,
+                          SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    co_WinPosSetWindowPos(g_pWndSnapPreviewB, HWND_TOPMOST, pRect->left, pRect->bottom - size,
+                          pRect->right - pRect->left, size,
+                          SWP_NOACTIVATE | SWP_SHOWWINDOW);
+}
+
+
+#if 0
+//static PWND g_pWndSnapPreview = NULL;
+static void
+HideSnapPreview()
+{
+    if (g_pWndSnapPreview)
+    {
+        PWND Wnd = g_pWndSnapPreview;
+        g_pWndSnapPreview = NULL;
+        co_UserDestroyWindow(Wnd);
+    }
+    /*ClassName.Buffer = ;
+    ClassName.Length = 0;*/
+}
+
+static void
+ShowSnapPreview(PWND ForWnd, UINT Edge, LPCRECT pRect)
+{
+    PWND PreviewWnd;
+    HWND hForWnd;
+    //RECT rect;
+    PREGION pRgn, pInnerRgn, pTmpRgn;
+    //HRGN hRgn, hInnerRgn, hTmpRgn;
+    UINT size = UserGetSystemMetrics(SM_CXEDGE) * 4, size2x = size * 2;
+
+    if (!g_pWndSnapPreview)
+    {
+        LPCWSTR ClassNameString = L"Static";
+        UNICODE_STRING ClassName = { sizeof(L"Static"), sizeof(L"Static"), (LPWSTR)ClassNameString };
+        LARGE_STRING WindowName = { 0 };
+        CREATESTRUCTW Cs = { 0 };
+        Cs.style = WS_POPUP | SS_LEFT;
+        Cs.dwExStyle = WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
+        Cs.lpszClass = ClassNameString;
+        PreviewWnd = co_UserCreateWindowEx(&Cs, &ClassName, &WindowName, NULL, WINVER_WIN2K);
+        if (!PreviewWnd)
+            return ;
+        g_pWndSnapPreview = PreviewWnd;
+    }
+
+    if ((hForWnd = UserHMGetHandle(ForWnd)) == NULL)
+        return ;
+
+    /* FIXME: Just use the original rect when LWA_ALPHA is fixed */
+/*
+    hRgn = NtGdiCreateRectRgn(pRect->left, pRect->top, pRect->right, pRect->bottom);
+    hTmpRgn = NtGdiCreateRectRgn(pRect->left, pRect->top, pRect->right, pRect->bottom);
+    hInnerRgn = NtGdiCreateRectRgn(pRect->left + size, pRect->top + size,
+                                   pRect->right - size2x, pRect->bottom - size2x);
+    if (hRgn && hTmpRgn && hInnerRgn)
+    {
+        if (NtGdiCombineRgn(hRgn, hTmpRgn, hInnerRgn, RGN_XOR) != ERROR)
+        {
+            HWND hwnd = UserHMGetHandle(PreviewWnd);
+            if (hwnd)
+                NtUserSetWindowRgn(hwnd, hRgn, FALSE);
+        }
+    }*/
+
+
+
+    
+    if ((pRgn = IntSysCreateRectpRgnIndirect(pRect)) != NULL)
+    {
+        pTmpRgn = IntSysCreateRectpRgnIndirect(pRect);
+        pInnerRgn = IntSysCreateRectpRgn(pRect->left + size, pRect->top + size,
+                                         pRect->right - size2x, pRect->bottom - size2x);
+
+        DbgPrint("1: %p | %p %p %p\n", pRgn?pRgn->BaseObject.hHmgr:NULL, pRgn, pTmpRgn, pInnerRgn);
+        if (IntGdiCombineRgn(pRgn, pTmpRgn, pInnerRgn, RGN_XOR /*DIFF*/) != ERROR)
+        {
+            //IntGdiSetRegionOwner(pRgn->BaseObject.hHmgr, GDI_OBJ_HMGR_POWNED);
+            //PreviewWnd->hrgnNewFrame = pRgn->BaseObject.hHmgr;
+
+            IntGdiSetRegionOwner(pRgn->BaseObject.hHmgr, GDI_OBJ_HMGR_PUBLIC);
+
+        PreviewWnd->hrgnClip = pRgn->BaseObject.hHmgr;
+        }
+        else
+            DbgPrint("not setting hrgnNewFrame\n");
+        DbgPrint("2: %p | %p %p %p\n", pRgn?pRgn->BaseObject.hHmgr:NULL, pRgn, pTmpRgn, pInnerRgn);
+        //else
+        //    REGION_Delete(pRgn);
+        //if (pTmpRgn)
+        //    REGION_Delete(pTmpRgn);
+        //if (pInnerRgn)
+        //    REGION_Delete(pInnerRgn);
+    }
+
+    co_WinPosSetWindowPos(PreviewWnd, hForWnd, pRect->left, pRect->top,
+                          pRect->right - pRect->left, pRect->bottom - pRect->top,
+                          SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_FRAMECHANGED);
+}
+#endif
+
+#if 0
+static void
+ShowSnapPreview(PWND ForWnd, UINT Edge, LPCRECT pRect)
+{
+    //HWND hForWnd;
+    RECT rect;
+    UINT pxl = UserGetSystemMetrics(SM_CXEDGE), margin = pxl, size = pxl * 4;
+
+    if (!g_pWndSnapPreview)
+    {
+        PWND Wnd;
+        LPCWSTR ClassNameString = L"Static";
+        UNICODE_STRING ClassName = { sizeof(L"Static"), sizeof(L"Static"), (LPWSTR)ClassNameString };
+        LARGE_STRING WindowName = { 0 };
+        CREATESTRUCTW Cs = { 0 };
+        Cs.style = WS_DLGFRAME | WS_POPUP | SS_LEFT;
+        Cs.dwExStyle = WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
+        Cs.lpszClass = ClassNameString;
+        Wnd = co_UserCreateWindowEx(&Cs, &ClassName, &WindowName, NULL, WINVER_WIN2K);
+        if (!Wnd)
+            return ;
+        g_pWndSnapPreview = Wnd;
+    }
+
+    //if ((hForWnd = UserHMGetHandle(ForWnd)) == NULL)
+    //    return ;
+
+    /* FIXME: Just use the original rect when LWA_ALPHA is fixed */
+    rect = *pRect;
+    pRect = &rect;
+    if (Edge == HTTOP)
+    {
+        rect.bottom = rect.top + size;
+        rect.left += margin;
+        rect.right -= margin;
+    }
+    else
+    {
+        rect.top = margin;
+        rect.bottom -= margin;
+        if (Edge == HTLEFT)
+            rect.right = rect.left + size;
+        else
+            rect.left = rect.right - size;
+    }
+    co_WinPosSetWindowPos(g_pWndSnapPreview, /* hForWnd */HWND_TOPMOST, pRect->left, pRect->top,
+                          pRect->right - pRect->left, pRect->bottom - pRect->top,
+                          SWP_NOACTIVATE | SWP_SHOWWINDOW);
+}
+#endif
+
 LONG FASTCALL
 DefWndStartSizeMove(PWND Wnd, WPARAM wParam, POINT *capturePoint)
 {
@@ -532,12 +742,12 @@ DefWndDoSizeMove(PWND pwnd, WORD wParam)
               }
               else if (!snap && syscommand == SC_MOVE && !iconic)
               {
-                  if ((snapTo = GetSnapActivationPoint(pwnd, pt)) != 0)
+                  if ((snapTo = GetSnapActivationPoint(pwnd, pt)) != HTNOWHERE)
                   {
                       co_IntCalculateSnapPosition(pwnd, snapTo, &snapPreviewRect);
                       if (DragFullWindows)
                       {
-                          /* TODO: Show preview of snap */
+                          ShowSnapPreview(&snapPreviewRect);
                       }
                       else
                       {
@@ -545,6 +755,10 @@ DefWndDoSizeMove(PWND pwnd, WORD wParam)
                           UserDrawMovingFrame(hdc, pFrameRect, thickframe);
                           continue;
                       }
+                  }
+                  else if (DragFullWindows)
+                  {
+                    HideSnapPreview();
                   }
               }
 
@@ -652,6 +866,8 @@ DefWndDoSizeMove(PWND pwnd, WORD wParam)
       UINT eraseFinalFrame = moved && !DragFullWindows;
       if (eraseFinalFrame)
          UserDrawMovingFrame(hdc, pFrameRect, thickframe); // Undo the XOR drawing
+      else if (DragFullWindows)
+          HideSnapPreview();
    }
 
    UserReleaseDC(NULL, hdc, FALSE);
