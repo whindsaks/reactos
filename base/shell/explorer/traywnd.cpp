@@ -67,6 +67,12 @@ struct WINDOWPOSBACKUPDATA
 };
 CSimpleArray<WINDOWPOSBACKUPDATA> g_WindowPosBackup;
 
+static VOID RestoreMinimizedWindow(HWND hWnd, const WINDOWPLACEMENT &wp)
+{
+    ShowWindowAsync(hWnd, wp.flags & WPF_RESTORETOMAXIMIZED ? SW_MAXIMIZE : SW_RESTORE);
+    Sleep(1); // Give up our time slice so windows have time to restore in the correct order
+}
+
 static BOOL CALLBACK BackupWindowsPosProc(HWND hwnd, LPARAM lParam)
 {
     WINDOWPOSBACKUPDATA wposdata;
@@ -105,6 +111,9 @@ BOOL CanBeMinimized(HWND hwnd)
         !::IsHungAppWindow(hwnd))
     {
         if (::GetClassLongPtrW(hwnd, GCW_ATOM) == (ULONG_PTR)WC_DIALOG)
+            return TRUE;
+
+        if (GetWindowLongPtrW(hwnd, GWL_STYLE) & WS_MINIMIZEBOX)
             return TRUE;
 
         DWORD exstyle = (DWORD)::GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
@@ -3045,7 +3054,7 @@ HandleTrayContextMenu:
             if (::IsWindowVisible(hwnd) && ::IsIconic(hwnd) &&
                 (!IsTaskWnd(hwnd) || !::IsWindowEnabled(hwnd)))
             {
-                ::SetWindowPlacement(hwnd, &g_MinimizedAll[i].wndpl); // Restore
+                RestoreMinimizedWindow(hwnd, g_MinimizedAll[i].wndpl); // Restore
             }
         }
 
@@ -3148,7 +3157,7 @@ HandleTrayContextMenu:
         {
             HWND hwnd = g_MinimizedAll[i].hwnd;
             if (::IsWindowVisible(hwnd) && ::IsIconic(hwnd))
-                ::SetWindowPlacement(hwnd, &g_MinimizedAll[i].wndpl);
+                RestoreMinimizedWindow(hwnd, g_MinimizedAll[i].wndpl);
         }
 
         g_MinimizedAll.RemoveAll();
