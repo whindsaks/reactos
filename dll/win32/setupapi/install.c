@@ -23,6 +23,7 @@
 
 #include <winsvc.h>
 #include <ndk/cmfuncs.h>
+#include <shellapi.h>
 
 /* Unicode constants */
 static const WCHAR BackSlash[] = {'\\',0};
@@ -125,6 +126,31 @@ static const WCHAR DotSecurity[]     = {'.','S','e','c','u','r','i','t','y',0};
 static const WCHAR WineFakeDlls[]    = {'W','i','n','e','F','a','k','e','D','l','l','s',0};
 #endif
 
+
+static HRESULT RemoveDirectoryTree(LPCWSTR path)
+{
+    HRESULT hr;
+    LPWSTR fromlist;
+    FILEOP_FLAGS flags = (FILEOP_FLAGS)(FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT);
+    SHFILEOPSTRUCTW fos = { NULL, FO_DELETE, NULL, NULL, flags };
+    DWORD len = wcslen(path), cb = (len + 1 + 1) * sizeof(WCHAR);
+
+    DWORD att = GetFileAttributes(path);
+    if (att == INVALID_FILE_ATTRIBUTES || !(att & FILE_ATTRIBUTE_DIRECTORY))
+        return E_INVALIDARG;
+
+    if ((fromlist = MyMalloc(cb)) == NULL)
+        return E_OUTOFMEMORY;
+    wcscpy(fromlist, path);
+    fromlist[len + 1] = UNICODE_NULL; /* \0\0 */
+    fos.pFrom = fromlist;
+
+    SetFileAttributes(path, att & ~(FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM));
+    hr = SHFileOperationW(&fos) ? E_FAIL : S_OK;
+    SetFileAttributes(path, att);
+    MyFree(fromlist);
+    return hr;
+}
 
 /***********************************************************************
  *            get_field_string
@@ -938,22 +964,25 @@ profile_items_callback(
     }
 
     /* Read 'CmdLine' entry */
-    if (!SetupFindFirstLineW(hInf, SectionName, CmdLine, &Context))
-        goto cleanup;
-    Index = 1;
-    if (!SetupGetIntField(&Context, Index++, &FileDirId))
-        goto cleanup;
-    if (SetupGetFieldCount(&Context) >= 3)
+    if (!(LinkAttributes & (FLG_PROFITEM_DELETE | FLG_PROFITEM_GROUP)))
     {
-        if (!GetStringField(&Context, Index++, &FileSubDir))
+        if (!SetupFindFirstLineW(hInf, SectionName, CmdLine, &Context))
             goto cleanup;
+        Index = 1;
+        if (!SetupGetIntField(&Context, Index++, &FileDirId))
+            goto cleanup;
+        if (SetupGetFieldCount(&Context) >= 3)
+        {
+            if (!GetStringField(&Context, Index++, &FileSubDir))
+                goto cleanup;
+        }
+        if (!GetStringField(&Context, Index++, &NamePart))
+            goto cleanup;
+        if (!Concatenate(FileDirId, FileSubDir, NamePart, &FullFileName))
+            goto cleanup;
+        MyFree(NamePart);
+        NamePart = NULL;
     }
-    if (!GetStringField(&Context, Index++, &NamePart))
-        goto cleanup;
-    if (!Concatenate(FileDirId, FileSubDir, NamePart, &FullFileName))
-        goto cleanup;
-    MyFree(NamePart);
-    NamePart = NULL;
 
     /* Read 'SubDir' entry */
     if ((LinkAttributes & FLG_PROFITEM_GROUP) == 0 && SetupFindFirstLineW(hInf, SectionName, SubDir, &Context))
@@ -1002,7 +1031,7 @@ profile_items_callback(
         MyFree(NamePart);
         SubDirPart = NamePart = NULL;
     }
-    else
+    else if (!(LinkAttributes & (FLG_PROFITEM_DELETE | FLG_PROFITEM_GROUP)))
     {
         FullIconName = pSetupDuplicateString(FullFileName);
         if (!FullIconName)
@@ -1066,17 +1095,20 @@ profile_items_callback(
     if (SUCCEEDED(hr))
     {
         /* Fill link properties */
-        hr = IShellLinkW_SetPath(psl, FullFileName);
-        if (SUCCEEDED(hr))
-            hr = IShellLinkW_SetArguments(psl, L"");
-        if (SUCCEEDED(hr))
-            hr = IShellLinkW_SetWorkingDirectory(psl, FullWorkingDir);
-        if (SUCCEEDED(hr))
-            hr = IShellLinkW_SetIconLocation(psl, FullIconName, IconIdx);
-        if (SUCCEEDED(hr) && lpHotKey)
-            FIXME("Need to store hotkey %s in shell link\n", debugstr_w(lpHotKey));
-        if (SUCCEEDED(hr) && lpInfoTip)
-            hr = IShellLinkW_SetDescription(psl, lpInfoTip);
+        if (!(LinkAttributes & (FLG_PROFITEM_DELETE | FLG_PROFITEM_GROUP)))
+        {
+            hr = IShellLinkW_SetPath(psl, FullFileName);
+            if (SUCCEEDED(hr))
+                hr = IShellLinkW_SetArguments(psl, L"");
+            if (SUCCEEDED(hr))
+                hr = IShellLinkW_SetWorkingDirectory(psl, FullWorkingDir);
+            if (SUCCEEDED(hr))
+                hr = IShellLinkW_SetIconLocation(psl, FullIconName, IconIdx);
+            if (SUCCEEDED(hr) && lpHotKey)
+                FIXME("Need to store hotkey %s in shell link\n", debugstr_w(lpHotKey));
+            if (SUCCEEDED(hr) && lpInfoTip)
+                hr = IShellLinkW_SetDescription(psl, lpInfoTip);
+        }
         if (SUCCEEDED(hr) && DisplayName)
             FIXME("Need to store display name %s, %d in shell link\n", debugstr_w(DisplayName), DisplayResId);
         if (SUCCEEDED(hr))
@@ -1092,8 +1124,6 @@ profile_items_callback(
                     hr = E_OUTOFMEMORY;
                 else
                 {
-                    if (LinkAttributes & (FLG_PROFITEM_DELETE | FLG_PROFITEM_GROUP))
-                        FIXME("Need to handle FLG_PROFITEM_DELETE and FLG_PROFITEM_GROUP\n");
                     if (LinkAttributes & FLG_PROFITEM_CSIDL)
                         CSIDL = LinkFolder;
                     else if (LinkAttributes & FLG_PROFITEM_CURRENTUSER)
@@ -1116,9 +1146,18 @@ profile_items_callback(
                         if (LinkName)
                         {
                             wcscat(FullLinkName, LinkName);
-                            wcscat(FullLinkName, DotLnk);
+                            if (!(LinkAttributes & FLG_PROFITEM_GROUP))
+                                wcscat(FullLinkName, DotLnk);
                         }
-                        hr = IPersistFile_Save(ppf, FullLinkName, TRUE);
+
+                        if ((LinkAttributes & (FLG_PROFITEM_DELETE | FLG_PROFITEM_GROUP)) == (FLG_PROFITEM_DELETE | FLG_PROFITEM_GROUP))
+                            RemoveDirectoryTree(FullLinkName);
+                        else if (LinkAttributes & FLG_PROFITEM_DELETE)
+                            DeleteFile(FullLinkName);
+                        else if (LinkAttributes & FLG_PROFITEM_GROUP)
+                            hr = SHPathPrepareForWriteW(NULL, NULL, FullLinkName, SHPPFW_DIRCREATE);
+                        else
+                            hr = IPersistFile_Save(ppf, FullLinkName, TRUE);
                     }
                     else
                         hr = HRESULT_FROM_WIN32(GetLastError());
