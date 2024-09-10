@@ -80,6 +80,7 @@ private:
 	WCHAR m_wszPath[MAX_PATH];
 	CFileVersionInfo m_VerInfo;
 	BOOL m_bDir;
+	LPCWSTR m_RecycledName;
 
 	DWORD m_cFiles;
     DWORD m_cFolders;
@@ -97,6 +98,8 @@ private:
 public:
 	CFileDefExt();
 	~CFileDefExt();
+
+    void SetRecycledName(LPCWSTR Name) { m_RecycledName = Name; }
 
     // FolderCustomize
     BOOL OnFolderCustApply(HWND hwndDlg);

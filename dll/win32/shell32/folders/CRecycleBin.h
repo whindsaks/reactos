@@ -37,12 +37,13 @@ class CRecycleBin :
 {
     private:
         LPITEMIDLIST pidl;
-        INT iIdEmpty;
         BOOL RecycleBinIsEmpty();
+        enum { IDC_EMPTY = 1 };
 
     public:
         CRecycleBin();
         ~CRecycleBin();
+        void UpdateRecycleBinIconIfEmpty();
 
         // IPersistFolder
         STDMETHOD(GetClassID)(CLSID *pClassID) override;

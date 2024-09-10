@@ -46,11 +46,11 @@ DECLARE_INTERFACE_(IRecycleBin5, IUnknown)
     STDMETHOD(Delete)(
         THIS_
         IN LPCWSTR pDeletedFileName,
-        IN DELETED_FILE_RECORD *pDeletedFile) PURE;
+        IN DELETED_FILE_RECORD *pDeletedFile, HWND hWnd, BOOL Silent) PURE;
     STDMETHOD(Restore)(
         THIS_
         IN LPCWSTR pDeletedFileName,
-        IN DELETED_FILE_RECORD *pDeletedFile) PURE;
+        IN DELETED_FILE_RECORD *pDeletedFile, HWND hWnd, FILEOP_FLAGS Flags) PURE;
     STDMETHOD(OnClosing)(
         THIS_
         IN IRecycleBinEnumList *prbel) PURE;
@@ -72,10 +72,10 @@ DECLARE_INTERFACE_(IRecycleBin5, IUnknown)
     (This)->lpVtbl->EmptyRecycleBin(This)
 #define IRecycleBin5_EnumObjects(This, ppEnumList) \
     (This)->lpVtbl->EnumObjects(This, ppEnumList)
-#define IRecycleBin5_Delete(This, pDeletedFileName, pDeletedFile) \
-    (This)->lpVtbl->Delete(This, pDeletedFileName, pDeletedFile)
-#define IRecycleBin5_Restore(This, pDeletedFileName, pDeletedFile) \
-    (This)->lpVtbl->Restore(This, pDeletedFileName, pDeletedFile)
+#define IRecycleBin5_Delete(This, pDeletedFileName, pDeletedFile, hWnd, Silent) \
+    (This)->lpVtbl->Delete(This, pDeletedFileName, pDeletedFile, hWnd, Silent)
+#define IRecycleBin5_Restore(This, pDeletedFileName, pDeletedFile, hWnd, Silent) \
+    (This)->lpVtbl->Restore(This, pDeletedFileName, pDeletedFile, hWnd, Silent)
 #define IRecycleBin5_OnClosing(This, prb5el) \
     (This)->lpVtbl->OnClosing(This, prb5el)
 #endif

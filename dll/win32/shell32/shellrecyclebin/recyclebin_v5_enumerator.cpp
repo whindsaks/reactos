@@ -35,8 +35,9 @@ public:
     STDMETHODIMP GetAttributes(DWORD *pAttributes) override;
     STDMETHODIMP GetFileName(SIZE_T BufferSize, LPWSTR Buffer, SIZE_T *RequiredSize) override;
     STDMETHODIMP GetTypeName(SIZE_T BufferSize, LPWSTR Buffer, SIZE_T *RequiredSize) override;
-    STDMETHODIMP Delete() override;
-    STDMETHODIMP Restore() override;
+    STDMETHODIMP Delete(HWND hWnd, BOOL Silent) override;
+    STDMETHODIMP Restore(HWND hWnd, FILEOP_FLAGS Flags) override;
+    STDMETHODIMP GetRecycledPath(LPWSTR *Path) override;
 
 protected:
     LONG m_ref;
@@ -229,16 +230,21 @@ STDMETHODIMP RecycleBin5File::GetTypeName(SIZE_T BufferSize, LPWSTR Buffer, SIZE
     return S_OK;
 }
 
-STDMETHODIMP RecycleBin5File::Delete()
+STDMETHODIMP RecycleBin5File::Delete(HWND hWnd, BOOL Silent)
 {
     TRACE("(%p)\n", this);
-    return m_recycleBin->Delete(m_FullName, &m_deletedFile);
+    return m_recycleBin->Delete(m_FullName, &m_deletedFile, hWnd, Silent);
 }
 
-STDMETHODIMP RecycleBin5File::Restore()
+STDMETHODIMP RecycleBin5File::Restore(HWND hWnd, FILEOP_FLAGS Flags)
 {
     TRACE("(%p)\n", this);
-    return m_recycleBin->Restore(m_FullName, &m_deletedFile);
+    return m_recycleBin->Restore(m_FullName, &m_deletedFile, hWnd, Flags);
+}
+
+STDMETHODIMP RecycleBin5File::GetRecycledPath(LPWSTR *Path)
+{
+    return SHStrDup(m_FullName, Path);
 }
 
 RecycleBin5File::RecycleBin5File()

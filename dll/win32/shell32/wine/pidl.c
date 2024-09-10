@@ -2623,6 +2623,8 @@ PITEMID_CHILD* _ILCopyaPidl(PCUITEMID_CHILD_ARRAY apidlsrc, UINT cidl)
         return NULL;
 
     apidldest = SHAlloc(cidl * sizeof(PITEMID_CHILD));
+    if (!apidldest)
+        return NULL;
 
     for (i = 0; i < cidl; i++)
         apidldest[i] = ILClone(apidlsrc[i]);

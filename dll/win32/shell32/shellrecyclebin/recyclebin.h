@@ -196,12 +196,15 @@ DECLARE_INTERFACE_(IRecycleBinFile, IUnknown)
     STDMETHOD(GetAttributes)(THIS_ DWORD *pAttributes) PURE;
     STDMETHOD(GetFileName)(THIS_ SIZE_T BufferSize, LPWSTR Buffer, SIZE_T *RequiredSize) PURE;
     STDMETHOD(GetTypeName)(THIS_ SIZE_T BufferSize, LPWSTR Buffer, SIZE_T *RequiredSize) PURE;
-    STDMETHOD(Delete)(THIS) PURE;
-    STDMETHOD(Restore)(THIS) PURE;
+    STDMETHOD(Delete)(THIS_ HWND hWnd, BOOL Silent) PURE;
+    STDMETHOD(Restore)(THIS_ HWND hWnd, FILEOP_FLAGS Flags) PURE;
+    STDMETHOD(GetRecycledPath)(THIS_ LPWSTR *Path) PURE;
 
     END_INTERFACE
 };
 #undef INTERFACE
+
+#define IRecycleBinFileFromHandle(hDelFile) ( (IRecycleBinFile*)(hDelFile) )
 
 #define INTERFACE IRecycleBinEnumList
 DECLARE_INTERFACE_(IRecycleBinEnumList, IUnknown)
@@ -266,10 +269,13 @@ EXTERN_C const IID IID_IRecycleBin;
     (This)->lpVtbl->GetFileName(This, BufferSize, Buffer, RequiredSize)
 #define IRecycleBinFile_GetTypeName(This, BufferSize, Buffer, RequiredSize) \
     (This)->lpVtbl->GetTypeName(This, BufferSize, Buffer, RequiredSize)
-#define IRecycleBinFile_Delete(This) \
-    (This)->lpVtbl->Delete(This)
-#define IRecycleBinFile_Restore(This) \
-    (This)->lpVtbl->Restore(This)
+#define IRecycleBinFile_Delete(This, hWnd, Silent) \
+    (This)->lpVtbl->Delete(This, hWnd, Silent)
+#define IRecycleBinFile_Restore(This, hWnd, Flags) \
+    (This)->lpVtbl->Restore(This, hWnd, Flags)
+#define IRecycleBinFile_GetRecycledPath(This, ppStr) \
+    (This)->lpVtbl->GetRecycledPath(This, ppStr)
+
 
 #define IRecycleBinEnumList_QueryInterface(This, riid, ppvObject) \
     (This)->lpVtbl->QueryInterface(This, riid, ppvObject)

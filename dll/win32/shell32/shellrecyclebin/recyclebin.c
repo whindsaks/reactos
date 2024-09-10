@@ -98,7 +98,7 @@ DeleteFileHandleToRecycleBin(
 
     TRACE("(%p)\n", hDeletedFile);
 
-    hr = IRecycleBinFile_Delete(rbf);
+    hr = IRecycleBinFile_Delete(rbf, NULL, 0);
 
     if (SUCCEEDED(hr))
         return TRUE;
@@ -385,7 +385,7 @@ RestoreFile(
 
     TRACE("(%p)\n", hDeletedFile);
 
-    hr = IRecycleBinFile_Restore(rbf);
+    hr = IRecycleBinFile_Restore(rbf, NULL, 0);
     if (SUCCEEDED(hr))
         return TRUE;
     if (HRESULT_FACILITY(hr) == FACILITY_WIN32)

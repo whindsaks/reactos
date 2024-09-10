@@ -94,6 +94,9 @@ SHELL_GetDefaultFolderEnumSHCONTF();
 BOOL
 SHELL_IncludeItemInFolderEnum(IShellFolder *pSF, PCUITEMID_CHILD pidl, SFGAOF Query, SHCONTF Flags);
 
+SFGAOF
+SHELL_FSAttributesToSFAttributes(DWORD FS);
+
 HRESULT
 Shell_NextElement(
     _Inout_ LPWSTR *ppch,
@@ -165,6 +168,11 @@ HRESULT inline SHSetStrRet(LPSTRRET pStrRet, DWORD resId)
 {
     return SHSetStrRet(pStrRet, shell32_hInstance, resId);
 }
+
+struct AbortableCommand
+{
+    bool IsAborted() { return false; } // TODO: Check for SHAbortInvokeCommand
+};
 
 #endif
 

@@ -743,7 +743,7 @@ CDefaultContextMenu::AddStaticContextMenusToMenu(
     return cIds;
 }
 
-void WINAPI _InsertMenuItemW(
+BOOL WINAPI _InsertMenuItemW(
     HMENU hMenu,
     UINT indexMenu,
     BOOL fByPosition,
@@ -769,7 +769,7 @@ void WINAPI _InsertMenuItemW(
             else
             {
                 ERR("failed to load string %p\n", dwTypeData);
-                return;
+                return FALSE;
             }
         }
         else
@@ -779,7 +779,7 @@ void WINAPI _InsertMenuItemW(
 
     mii.wID = wID;
     mii.fType = fType;
-    InsertMenuItemW(hMenu, indexMenu, fByPosition, &mii);
+    return InsertMenuItemW(hMenu, indexMenu, fByPosition, &mii);
 }
 
 void

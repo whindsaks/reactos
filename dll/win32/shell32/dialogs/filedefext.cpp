@@ -416,12 +416,16 @@ CFileDefExt::InitFileType(HWND hwndDlg)
         return FALSE;
 
     /* Get file information */
-    SHFILEINFOW fi;
+    SHFILEINFOW fi;DbgPrint("|%ls|\n",m_wszPath);
     if (!SHGetFileInfoW(m_wszPath, 0, &fi, sizeof(fi), SHGFI_TYPENAME|SHGFI_ICON))
     {
         ERR("SHGetFileInfoW failed for %ls (%lu)\n", m_wszPath, GetLastError());
-        fi.szTypeName[0] = L'\0';
-        fi.hIcon = NULL;
+        DWORD attr = m_bDir ? FILE_ATTRIBUTE_DIRECTORY : 0;
+        if (!SHGetFileInfoW(m_wszPath, attr, &fi, sizeof(fi), SHGFI_USEFILEATTRIBUTES|SHGFI_TYPENAME|SHGFI_ICON))
+        {
+            fi.szTypeName[0] = L'\0';
+            fi.hIcon = NULL;
+        }
     }
 
     LPCWSTR pwszExt = PathFindExtensionW(m_wszPath);
@@ -705,6 +709,15 @@ CFileDefExt::InitGeneralPage(HWND hwndDlg)
     /* Set file created/modfied/accessed time, size and attributes */
     InitFileAttr(hwndDlg);
 
+    /* Moonlight as the recycled item property sheet */
+    if (m_RecycledName)
+    {
+        for (UINT i = 14021; i <= 14028; ++i)
+            EnableWindow(GetDlgItem(hwndDlg, i), FALSE);
+        HWND hCtl = GetDlgItem(hwndDlg, 14001);
+        SetWindowTextW(hCtl, m_RecycledName);
+        SendMessageW(hCtl, EM_SETREADONLY, TRUE, 0);
+    }
     return TRUE;
 }
 
@@ -1243,6 +1256,7 @@ CFileDefExt::CFileDefExt():
     m_wszPath[0] = L'\0';
     m_DirSize.QuadPart = 0ull;
     m_DirSizeOnDisc.QuadPart = 0ull;
+    m_RecycledName = NULL;
 
     m_szFolderIconPath[0] = 0;
     m_nFolderIconIndex = 0;
@@ -1327,6 +1341,9 @@ CFileDefExt::AddPages(LPFNADDPROPSHEETPAGE pfnAddPage, LPARAM lParam)
                                        NULL);
     if (hPage)
         pfnAddPage(hPage, lParam);
+
+    if (m_RecycledName)
+        return S_OK;
 
     if (!m_bDir && GetFileVersionInfoSizeW(m_wszPath, NULL))
     {

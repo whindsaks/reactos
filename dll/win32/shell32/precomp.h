@@ -153,6 +153,8 @@ UINT
 MapVerbToDfmCmd(_In_ LPCSTR verba);
 UINT
 GetDfmCmd(_In_ IContextMenu *pCM, _In_ LPCSTR verba);
+LPCSTR
+GetInvokeCommandVerbA(_In_ LPCMINVOKECOMMANDINFO pcmi, _Out_ LPSTR Buf, _In_ UINT cchBuf);
 #define SHELL_ExecuteControlPanelCPL(hwnd, cpl) SHRunControlPanel((cpl), (hwnd))
 
 #define CmicFlagsToSeeFlags(flags)  ((flags) & SEE_CMIC_COMMON_FLAGS)

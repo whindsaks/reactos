@@ -55,8 +55,86 @@ static const columninfo RecycleBinColumns[] =
 #define COLUMN_SIZE    3
 #define COLUMN_TYPE    4
 #define COLUMN_MTIME   5
-
 #define COLUMNS_COUNT  6
+
+enum { IDC_PROPERTIES, IDC_DELETE, IDC_CUT, IDC_RESTORE };
+static const struct
+{
+    LPCSTR Verb;
+    WORD CmdId, StrId;
+}
+g_MenuItems[] =
+{
+    { "undelete", IDC_RESTORE, IDS_RESTORE },
+    { "cut", IDC_CUT, IDS_CUT },
+    { "delete", IDC_DELETE, IDS_DELETE },
+    { "properties", IDC_PROPERTIES, IDS_PROPERTIES },
+};
+
+struct ITEMPROPERTIESDATA
+{
+    WCHAR DisplayName[MAX_PATH];
+    IStream *pStreamDO;
+};
+
+static DWORD CALLBACK ItemPropertiesThread(LPVOID ThreadParameter)
+{
+    CComHeapPtr<ITEMPROPERTIESDATA> pData;
+    pData.Attach((ITEMPROPERTIESDATA*)ThreadParameter);
+    CComPtr<IDataObject> DataObj;
+    HRESULT hr = CoGetInterfaceAndReleaseStream(pData->pStreamDO, IID_PPV_ARG(IDataObject, &DataObj));
+    if (FAILED(hr))
+        return hr;
+    CComPtr<CFileDefExt> FileDefExt;
+    if (SUCCEEDED(hr = ShellObjectCreator(FileDefExt)))
+    {
+        FileDefExt->SetRecycledName(pData->DisplayName);
+        hr = FileDefExt->Initialize(NULL, DataObj, NULL);
+        if (SUCCEEDED(hr))
+        {
+            HPROPSHEETPAGE hPages[MAX_PROPERTY_SHEET_PAGE];
+            PROPSHEETHEADERW psh = { sizeof(psh), PSH_PROPTITLE };
+            psh.phpage = hPages;
+            psh.pszCaption = pData->DisplayName;
+            if (SUCCEEDED(FileDefExt->AddPages(AddPropSheetPageCallback, (LPARAM)&psh)))
+                PropertySheetW(&psh);
+        }
+    }
+    return hr;
+}
+
+static HRESULT ShowRecycledItemPropertiesAsync(PCIDLIST_ABSOLUTE pidlFS, LPCWSTR DisplayName)
+{
+    CComHeapPtr<ITEMIDLIST> folder;
+    HRESULT hr = SHILClone(pidlFS, &folder);
+    if (SUCCEEDED(hr))
+    {
+        ILRemoveLastID(folder);
+        LPCITEMIDLIST pidlItem = ILFindLastID(pidlFS);
+        CComPtr<IDataObject> DataObj;
+        if (!FAILED_UNEXPECTEDLY(hr = SHCreateFileDataObject(folder, 1, &pidlItem, NULL, &DataObj)))
+        {
+            hr = E_OUTOFMEMORY;
+            ITEMPROPERTIESDATA *pData = (ITEMPROPERTIESDATA*)SHAlloc(sizeof(ITEMPROPERTIESDATA));
+            if (pData)
+            {
+                lstrcpynW(pData->DisplayName, DisplayName, _countof(pData->DisplayName));
+                hr = CoMarshalInterThreadInterfaceInStream(IID_IDataObject, DataObj, &pData->pStreamDO);
+                if (!FAILED_UNEXPECTEDLY(hr))
+                {
+                    UINT flags = CTF_COINIT | CTF_PROCESS_REF | CTF_INSIST;
+                    BOOL success = SHCreateThread(ItemPropertiesThread, pData, flags, NULL);
+                    hr = success ? S_OK : HResultFromWin32(GetLastError());
+                }
+                else
+                {
+                    SHFree(pData);
+                }
+            }
+        }
+    }
+    return hr;
+}
 
 /*
  * Recycle Bin folder
@@ -73,7 +151,67 @@ typedef struct _SEARCH_CONTEXT
     BOOL bFound;
 } SEARCH_CONTEXT, *PSEARCH_CONTEXT;
 
-HRESULT CRecyclerExtractIcon_CreateInstance(
+static DELETED_FILE_DETAILS_W* GetDeletedFileDetails(HDELFILE hDelFile, DWORD &dwSize)
+{
+    if (!GetDeletedFileDetailsW(hDelFile, 0, NULL, &dwSize) &&
+        GetLastError() != ERROR_INSUFFICIENT_BUFFER)
+    {
+        ERR("GetDeletedFileDetailsW failed\n");
+        return NULL;
+    }
+    DELETED_FILE_DETAILS_W *pFileDetails = (DELETED_FILE_DETAILS_W *)SHAlloc(dwSize);
+    if (!pFileDetails)
+    {
+        ERR("No memory\n");
+        return pFileDetails;
+    }
+    if (!GetDeletedFileDetailsW(hDelFile, dwSize, pFileDetails, NULL))
+    {
+        ERR("GetDeletedFileDetailsW failed\n");
+        SHFree(pFileDetails);
+        return NULL;
+    }
+    return pFileDetails;
+}
+
+static inline bool IsValidRecyclerDrive(LPCWSTR Drive)
+{
+    return GetDriveTypeW(Drive) == DRIVE_FIXED && Drive[1] == ':';
+}
+
+static bool IsValidRecyclerPath(LPCWSTR Path)
+{
+    WCHAR buf[MAX_PATH];
+    lstrcpynW(buf, Path, _countof(buf)); // Don't care if the entire path does not fit
+    PathStripToRootW(buf);
+    return IsValidRecyclerDrive(buf);
+}
+
+static INT8 GetRecyclerDrive(PIDLRecycleStruct *pData)
+{
+    LPCWSTR Path = pData->szName;
+    return IsValidRecyclerPath(Path) ? (Path[0] | 32) - 'a' : -1;
+}
+
+static HRESULT GetDeletedEntry(PCUITEMID_CHILD pidl, IRecycleBinFile**ppRBF)
+{
+    *ppRBF = NULL;
+    SEARCH_CONTEXT Ctx = { _ILGetRecycleStruct(pidl) };
+    if (!Ctx.pFileDetails)
+        return E_INVALIDARG;
+    INT8 Drive = GetRecyclerDrive(Ctx.pFileDetails);
+    if (Drive < 0)
+        return E_INVALIDARG;
+    WCHAR Recycler[] = { LOWORD(Drive), ':', '\\', '\0' };
+    if (EnumerateRecycleBinW(Recycler, CBSearchRecycleBin, &Ctx) && Ctx.bFound)
+    {
+        *ppRBF = IRecycleBinFileFromHandle(Ctx.hDeletedFile);
+        return S_OK;
+    }
+    return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
+}
+
+static HRESULT CRecyclerExtractIcon_CreateInstance(
     LPCITEMIDLIST pidl, REFIID riid, LPVOID * ppvOut)
 {
     PIDLRecycleStruct *pFileDetails = _ILGetRecycleStruct(pidl);
@@ -89,7 +227,7 @@ HRESULT CRecyclerExtractIcon_CreateInstance(
     if (Context.bFound)
     {
         // This should be executed any time, if not, there are some errors in the implementation
-        IRecycleBinFile* pRecycleFile = (IRecycleBinFile*)Context.hDeletedFile;
+        IRecycleBinFile* pRecycleFile = IRecycleBinFileFromHandle(Context.hDeletedFile);
 
         // Query the interface from the private interface
         HRESULT hr = pRecycleFile->QueryInterface(riid, ppvOut);
@@ -134,61 +272,48 @@ class CRecycleBinItemContextMenu :
     public CComObjectRootEx<CComMultiThreadModelNoCS>,
     public IContextMenu2
 {
-    private:
-        LPITEMIDLIST                        apidl;
-    public:
-        CRecycleBinItemContextMenu();
-        ~CRecycleBinItemContextMenu();
-        HRESULT WINAPI Initialize(LPCITEMIDLIST pidl);
+private:
+    CComPtr<CRecycleBin> m_RecycleFolder;
+    PITEMID_CHILD* m_apidl;
+    UINT m_cidl;
+public:
+    CRecycleBinItemContextMenu() : m_apidl(NULL), m_cidl(0) {}
+    ~CRecycleBinItemContextMenu()
+    {
+        _ILFreeaPidl(m_apidl, m_cidl);
+    }
+    static HRESULT CreateInstance(CRecycleBin*Folder, UINT cidl, PCUITEMID_CHILD_ARRAY apidl,
+                                  REFIID riid, void **ppv)
+    {
+        return ShellObjectCreatorInit<CRecycleBinItemContextMenu>(Folder, cidl, apidl, riid, ppv);
+    }
 
-        // IContextMenu
-        STDMETHOD(QueryContextMenu)(HMENU hMenu, UINT indexMenu, UINT idCmdFirst, UINT idCmdLast, UINT uFlags) override;
-        STDMETHOD(InvokeCommand)(LPCMINVOKECOMMANDINFO lpcmi) override;
-        STDMETHOD(GetCommandString)(UINT_PTR idCommand, UINT uFlags, UINT *lpReserved, LPSTR lpszName, UINT uMaxNameLen) override;
+    HRESULT WINAPI Initialize(CRecycleBin*Folder, UINT cidl, PCUITEMID_CHILD_ARRAY apidl);
 
-        // IContextMenu2
-        STDMETHOD(HandleMenuMsg)(UINT uMsg, WPARAM wParam, LPARAM lParam) override;
+    // IContextMenu
+    STDMETHOD(QueryContextMenu)(HMENU hMenu, UINT indexMenu, UINT idCmdFirst, UINT idCmdLast, UINT uFlags) override;
+    STDMETHOD(InvokeCommand)(LPCMINVOKECOMMANDINFO lpcmi) override;
+    STDMETHOD(GetCommandString)(UINT_PTR idCommand, UINT uFlags, UINT *lpReserved, LPSTR lpszName, UINT uMaxNameLen) override;
 
-        BEGIN_COM_MAP(CRecycleBinItemContextMenu)
-        COM_INTERFACE_ENTRY_IID(IID_IContextMenu, IContextMenu)
-        COM_INTERFACE_ENTRY_IID(IID_IContextMenu2, IContextMenu2)
-        END_COM_MAP()
+    // IContextMenu2
+    STDMETHOD(HandleMenuMsg)(UINT uMsg, WPARAM wParam, LPARAM lParam) override;
+
+    BEGIN_COM_MAP(CRecycleBinItemContextMenu)
+    COM_INTERFACE_ENTRY_IID(IID_IContextMenu, IContextMenu)
+    COM_INTERFACE_ENTRY_IID(IID_IContextMenu2, IContextMenu2)
+    END_COM_MAP()
+    DECLARE_NOT_AGGREGATABLE(CRecycleBinItemContextMenu)
 };
 
 BOOL WINAPI CBSearchRecycleBin(IN PVOID Context, IN HDELFILE hDeletedFile)
 {
     PSEARCH_CONTEXT pContext = (PSEARCH_CONTEXT)Context;
-
-    PDELETED_FILE_DETAILS_W pFileDetails;
     DWORD dwSize;
+    PDELETED_FILE_DETAILS_W pFileDetails = GetDeletedFileDetails(hDeletedFile, dwSize);
     BOOL ret;
 
-    if (!GetDeletedFileDetailsW(hDeletedFile,
-                                0,
-                                NULL,
-                                &dwSize) &&
-            GetLastError() != ERROR_INSUFFICIENT_BUFFER)
-    {
-        ERR("GetDeletedFileDetailsW failed\n");
-        return FALSE;
-    }
-
-    pFileDetails = (DELETED_FILE_DETAILS_W *)SHAlloc(dwSize);
     if (!pFileDetails)
-    {
-        ERR("No memory\n");
         return FALSE;
-    }
-
-    if (!GetDeletedFileDetailsW(hDeletedFile,
-                                dwSize,
-                                pFileDetails,
-                                NULL))
-    {
-        ERR("GetDeletedFileDetailsW failed\n");
-        SHFree(pFileDetails);
-        return FALSE;
-    }
 
     ret = memcmp(pFileDetails, pContext->pFileDetails, dwSize);
     if (!ret)
@@ -280,37 +405,11 @@ BOOL WINAPI CRecycleBinEnum::CBEnumRecycleBin(IN PVOID Context, IN HDELFILE hDel
 
 BOOL WINAPI CRecycleBinEnum::CBEnumRecycleBin(IN HDELFILE hDeletedFile)
 {
-    PDELETED_FILE_DETAILS_W pFileDetails;
     DWORD dwSize;
+    DELETED_FILE_DETAILS_W *pFileDetails = GetDeletedFileDetails(hDeletedFile, dwSize);
     LPITEMIDLIST pidl = NULL;
-    BOOL ret;
-
-    if (!GetDeletedFileDetailsW(hDeletedFile,
-                                0,
-                                NULL,
-                                &dwSize) &&
-            GetLastError() != ERROR_INSUFFICIENT_BUFFER)
-    {
-        ERR("GetDeletedFileDetailsW failed\n");
-        return FALSE;
-    }
-
-    pFileDetails = (DELETED_FILE_DETAILS_W *)SHAlloc(dwSize);
     if (!pFileDetails)
-    {
-        ERR("No memory\n");
         return FALSE;
-    }
-
-    if (!GetDeletedFileDetailsW(hDeletedFile,
-                                dwSize,
-                                pFileDetails,
-                                NULL))
-    {
-        ERR("GetDeletedFileDetailsW failed\n");
-        SHFree(pFileDetails);
-        return FALSE;
-    }
 
     pidl = _ILCreateRecycleItem(pFileDetails);
     if (!pidl)
@@ -319,8 +418,7 @@ BOOL WINAPI CRecycleBinEnum::CBEnumRecycleBin(IN HDELFILE hDeletedFile)
         return FALSE;
     }
 
-    ret = AddToEnumList(pidl);
-
+    BOOL ret = AddToEnumList(pidl);
     if (!ret)
         SHFree(pidl);
     SHFree(pFileDetails);
@@ -330,126 +428,178 @@ BOOL WINAPI CRecycleBinEnum::CBEnumRecycleBin(IN HDELFILE hDeletedFile)
 }
 
 /**************************************************************************
-* IContextMenu2 Bitbucket Item Implementation
+* IContextMenu Bitbucket Item Implementation
 */
 
-CRecycleBinItemContextMenu::CRecycleBinItemContextMenu()
+HRESULT WINAPI CRecycleBinItemContextMenu::Initialize(CRecycleBin*Folder, UINT cidl, PCUITEMID_CHILD_ARRAY apidl)
 {
-    apidl = NULL;
-}
-
-CRecycleBinItemContextMenu::~CRecycleBinItemContextMenu()
-{
-    ILFree(apidl);
-}
-
-HRESULT WINAPI CRecycleBinItemContextMenu::Initialize(LPCITEMIDLIST pidl)
-{
-    apidl = ILClone(pidl);
-    if (apidl == NULL)
+    m_RecycleFolder = Folder;
+    if ((m_apidl = _ILCopyaPidl(apidl, cidl)) == NULL)
         return E_OUTOFMEMORY;
+    m_cidl = cidl;
     return S_OK;
 }
 
 HRESULT WINAPI CRecycleBinItemContextMenu::QueryContextMenu(HMENU hMenu, UINT indexMenu, UINT idCmdFirst, UINT idCmdLast, UINT uFlags)
 {
-    WCHAR szBuffer[30] = {0};
-    ULONG Count = 1;
-
     TRACE("(%p)->(hmenu=%p indexmenu=%x cmdfirst=%x cmdlast=%x flags=%x )\n", this, hMenu, indexMenu, idCmdFirst, idCmdLast, uFlags);
-
-    if (LoadStringW(shell32_hInstance, IDS_RESTORE, szBuffer, _countof(szBuffer)))
+    UINT HighestId = 0;
+    for (SIZE_T i = 0; i < _countof(g_MenuItems); ++i)
     {
-        szBuffer[_countof(szBuffer)-1] = L'\0';
-        _InsertMenuItemW(hMenu, indexMenu++, TRUE, idCmdFirst + Count, MFT_STRING, szBuffer, MFS_ENABLED);
-        Count++;
+        UINT CmdId = idCmdFirst + g_MenuItems[i].CmdId;
+        if (CmdId > idCmdLast)
+            continue;
+        if (i > 0)
+            _InsertMenuItemW(hMenu, indexMenu++, TRUE, 0, MFT_SEPARATOR, NULL, MFS_ENABLED);
+        LPCWSTR Text = MAKEINTRESOURCEW(g_MenuItems[i].StrId);
+        UINT State = MFS_ENABLED | (g_MenuItems[i].CmdId == IDC_PROPERTIES ? MFS_DEFAULT : 0);
+        if (_InsertMenuItemW(hMenu, indexMenu++, TRUE, CmdId, MFT_STRING, Text, State))
+            HighestId = max(HighestId, CmdId);
     }
-
-    if (LoadStringW(shell32_hInstance, IDS_CUT, szBuffer, _countof(szBuffer)))
-    {
-        _InsertMenuItemW(hMenu, indexMenu++, TRUE, idCmdFirst + Count++, MFT_SEPARATOR, NULL, MFS_ENABLED);
-        szBuffer[_countof(szBuffer)-1] = L'\0';
-        _InsertMenuItemW(hMenu, indexMenu++, TRUE, idCmdFirst + Count++, MFT_STRING, szBuffer, MFS_ENABLED);
-    }
-
-    if (LoadStringW(shell32_hInstance, IDS_DELETE, szBuffer, _countof(szBuffer)))
-    {
-        szBuffer[_countof(szBuffer)-1] = L'\0';
-        _InsertMenuItemW(hMenu, indexMenu++, TRUE, idCmdFirst + Count++, MFT_SEPARATOR, NULL, MFS_ENABLED);
-        _InsertMenuItemW(hMenu, indexMenu++, TRUE, idCmdFirst + Count++, MFT_STRING, szBuffer, MFS_ENABLED);
-    }
-
-    if (LoadStringW(shell32_hInstance, IDS_PROPERTIES, szBuffer, _countof(szBuffer)))
-    {
-        szBuffer[_countof(szBuffer)-1] = L'\0';
-        _InsertMenuItemW(hMenu, indexMenu++, TRUE, idCmdFirst + Count++, MFT_SEPARATOR, NULL, MFS_ENABLED);
-        _InsertMenuItemW(hMenu, indexMenu++, TRUE, idCmdFirst + Count, MFT_STRING, szBuffer, MFS_DEFAULT);
-    }
-
-    return MAKE_HRESULT(SEVERITY_SUCCESS, 0, Count);
+    return HighestId ? MAKE_HRESULT(SEVERITY_SUCCESS, 0, HighestId - idCmdFirst + 1) : 0;
 }
 
 HRESULT WINAPI CRecycleBinItemContextMenu::InvokeCommand(LPCMINVOKECOMMANDINFO lpcmi)
 {
-    SEARCH_CONTEXT Context;
-    WCHAR szDrive[8];
-
     TRACE("(%p)->(invcom=%p verb=%p wnd=%p)\n", this, lpcmi, lpcmi->lpVerb, lpcmi->hwnd);
-
-    if (lpcmi->lpVerb == MAKEINTRESOURCEA(1) || lpcmi->lpVerb == MAKEINTRESOURCEA(5))
+    CHAR VerbBuf[VERBKEY_CCHMAX];
+    LPCSTR Verb = GetInvokeCommandVerbA(lpcmi, VerbBuf, _countof(VerbBuf));
+    INT CmdId = Verb ? -1 : LOWORD(lpcmi->lpVerb);
+    for (UINT i = 0; CmdId < 0 && i < _countof(g_MenuItems); ++i)
     {
-        Context.pFileDetails = _ILGetRecycleStruct(apidl);
-        Context.bFound = FALSE;
+        if (!lstrcmpiA(Verb, g_MenuItems[i].Verb))
+            CmdId = i;
+    }
 
-        if (!GetEnvironmentVariableW(L"SystemDrive", szDrive, _countof(szDrive) - 1))
+    HWND hWnd = (lpcmi->fMask & CMIC_MASK_FLAG_NO_UI) ? NULL : lpcmi->hwnd;
+    FILEOP_FLAGS FoFlags = (lpcmi->fMask & CMIC_MASK_FLAG_NO_UI) ? (FOF_SILENT | FOF_NOERRORUI) : 0;
+    WCHAR Buffer[MAX_PATH];
+    HRESULT hr = S_OK;
+    switch (CmdId)
+    {
+        case FCIDM_SHVIEW_DELETE: // CDefView passes this directly without trying to get the correct ID!
+        case IDC_RESTORE:
+        case IDC_DELETE:
         {
-            ERR("GetEnvironmentVariableW failed\n");
-            return E_FAIL;
+            // TODO: SHFileOperation all files in one single operation and somehow update INFO2 at the same time
+            Buffer[0] = '?';
+            Buffer[1] = UNICODE_NULL;
+            int AskKind = ASK_DELETE_MULTIPLE_ITEM, Restore = CmdId == IDC_RESTORE;
+            if (m_cidl == 1 )
+            {
+                Shell_DisplayNameOf(m_RecycleFolder, m_apidl[0], SHGDN_INFOLDER, Buffer, _countof(Buffer));
+                PIDLRecycleStruct *pData = _ILGetRecycleStruct(m_apidl[0]);
+                BOOL Dir = pData && (pData->Attributes & FILE_ATTRIBUTE_DIRECTORY);
+                AskKind = Dir ? ASK_DELETE_FOLDER : ASK_DELETE_FILE;
+            }
+            else
+            {
+                wsprintfW(Buffer, L"%d", m_cidl);
+            }
+            if (!Restore && !SHELL_ConfirmYesNoW(hWnd, AskKind, Buffer))
+                return S_OK;
+
+            AbortableCommand Operation;
+            for (UINT i = 0; i < m_cidl && hr != HResultFromWin32(ERROR_CANCELLED); ++i)
+            {
+                CComPtr<IRecycleBinFile> pRBF;
+                if (Operation.IsAborted())
+                {
+                    hr = HResultFromWin32(ERROR_CANCELLED);
+                }
+                else if (SUCCEEDED(hr = GetDeletedEntry(m_apidl[i], &pRBF)))
+                {
+                    if (Restore)
+                        hr = pRBF->Restore(hWnd, FoFlags | FOF_NOCONFIRMMKDIR);
+                    else
+                        hr = pRBF->Delete(NULL, TRUE);
+                }
+            }
+            m_RecycleFolder->UpdateRecycleBinIconIfEmpty();
+            return hr;
         }
-        PathAddBackslashW(szDrive);
 
-        EnumerateRecycleBinW(szDrive, CBSearchRecycleBin, (PVOID)&Context);
-        if (!Context.bFound)
-            return E_FAIL;
+        case FCIDM_SHVIEW_CUT:
+        case IDC_CUT:
+        {
+            // FIXME: Make the PIDL format look like PT_FS so we can place them on the clipboard with a CFSTR_FILENAMEMAP
+            FIXME("Incompatible PIDL\n");
+            SHELL_ErrorBox(hWnd, HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED));
+            return E_NOTIMPL;
+        }
 
-        BOOL ret = TRUE;
-
-        /* restore file */
-        if (lpcmi->lpVerb == MAKEINTRESOURCEA(1))
-            ret = RestoreFile(Context.hDeletedFile);
-        /* delete file */
-        else
-            DeleteFileHandleToRecycleBin(Context.hDeletedFile);
-
-        CloseRecycleBinHandle(Context.hDeletedFile);
-
-        return (ret ? S_OK : E_FAIL);
+        case FCIDM_SHVIEW_PROPERTIES:
+        case IDC_PROPERTIES:
+        {
+            if (m_cidl != 1) // Windows is also unable to handle multiple files
+                return S_FALSE;
+            FIXME("Implement the custom property sheet for deleted items\n");
+            // HACK: Display the FS properties for the deleted file inside the recycle bin
+            CComPtr<IRecycleBinFile> DeletedFile;
+            CComHeapPtr<WCHAR> DeletedPath;
+            if (SUCCEEDED(hr = GetDeletedEntry(m_apidl[0], &DeletedFile)))
+                hr = DeletedFile->GetRecycledPath(&DeletedPath);
+            CComHeapPtr<ITEMIDLIST> DeletedPidl;
+            if (SUCCEEDED(hr))
+            {
+                DeletedPidl.Attach(SHSimpleIDListFromPathW(DeletedPath));
+                hr = DeletedPidl ? S_OK : E_FAIL;
+            }
+            if (SUCCEEDED(hr))
+            {
+                Shell_DisplayNameOf(m_RecycleFolder, m_apidl[0], SHGDN_INFOLDER, Buffer, _countof(Buffer));
+                hr = ShowRecycledItemPropertiesAsync(DeletedPidl, Buffer);
+            }
+            return hr;
+            /* // HACK: Display the FS properties for the deleted file inside the recycle bin
+            CComPtr<IRecycleBinFile> DeletedFile;
+            CComHeapPtr<WCHAR> DeletedPath;
+            if (SUCCEEDED(hr = GetDeletedEntry(m_apidl[0], &DeletedFile)))
+                hr = DeletedFile->GetRecycledPath(&DeletedPath);
+            CComHeapPtr<ITEMIDLIST> DeletedPidl;
+            if (SUCCEEDED(hr))
+            {
+                DeletedPidl.Attach(SHSimpleIDListFromPathW(DeletedPath));
+                hr = DeletedPidl ? S_OK : E_FAIL;
+            }
+            SHELLEXECUTEINFOW sei = { sizeof(sei), SEE_MASK_INVOKEIDLIST, hWnd, L"properties",
+                                      NULL, NULL, NULL, SW_SHOWNORMAL, NULL, DeletedPidl };
+            if (SUCCEEDED(hr))
+                hr = ShellExecuteExW(&sei) ? S_OK : HResultFromWin32(GetLastError());
+            return hr;*/
+        }
     }
-    else if (lpcmi->lpVerb == MAKEINTRESOURCEA(3))
-    {
-        FIXME("implement cut\n");
-        return E_NOTIMPL;
-    }
-    else if (lpcmi->lpVerb == MAKEINTRESOURCEA(7))
-    {
-        FIXME("implement properties\n");
-        return E_NOTIMPL;
-    }
-
-    return S_OK;
+    return E_INVALIDARG;
 }
 
 HRESULT WINAPI CRecycleBinItemContextMenu::GetCommandString(UINT_PTR idCommand, UINT uFlags, UINT *lpReserved, LPSTR lpszName, UINT uMaxNameLen)
 {
     TRACE("(%p)->(idcom=%lx flags=%x %p name=%p len=%x)\n", this, idCommand, uFlags, lpReserved, lpszName, uMaxNameLen);
+    int idx = -1;
+    for (UINT i = 0; i < _countof(g_MenuItems) && idx < 0; ++i)
+    {
+        if (g_MenuItems[i].CmdId == idCommand)
+            idx = i;
+    }
+    switch (uFlags | GCS_UNICODE)
+    {
+        case (GCS_VALIDATE | GCS_UNICODE):
+            return idx < 0 ? S_FALSE : S_OK;
 
+        case (GCS_VERB | GCS_UNICODE):
+            if (idx < 0)
+                return E_INVALIDARG;
+            else if (uFlags & GCS_UNICODE)
+                return SHAnsiToUnicode(g_MenuItems[idx].Verb, (LPWSTR)lpszName, uMaxNameLen) <= uMaxNameLen ? S_OK : E_FAIL;
+            else
+                return StringCchCopyA(lpszName, uMaxNameLen, g_MenuItems[idx].Verb);
+    }
     return E_FAIL;
 }
 
 HRESULT WINAPI CRecycleBinItemContextMenu::HandleMenuMsg(UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     TRACE("CRecycleBin_IContextMenu2Item_HandleMenuMsg (%p)->(msg=%x wp=%lx lp=%lx)\n", this, uMsg, wParam, lParam);
-
     return E_NOTIMPL;
 }
 
@@ -461,6 +611,22 @@ CRecycleBin::CRecycleBin()
 CRecycleBin::~CRecycleBin()
 {
     SHFree(pidl);
+}
+
+static bool IsEmpty(IRecycleBin &Bin)
+{
+    CComPtr<IRecycleBinEnumList> Enum;
+    CComPtr<IRecycleBinFile> File;
+    if (SUCCEEDED(Bin.EnumObjects(&Enum)))
+        return Enum->Next(1, &File, NULL) != S_OK;
+    return true;
+}
+
+void CRecycleBin::UpdateRecycleBinIconIfEmpty()
+{
+    CComPtr<IRecycleBin> pGlobal;
+    if (SUCCEEDED(GetDefaultRecycleBin(NULL, &pGlobal)) && IsEmpty(*pGlobal))
+        SHUpdateRecycleBinIcon();
 }
 
 /*************************************************************************
@@ -606,7 +772,34 @@ HRESULT WINAPI CRecycleBin::GetAttributesOf(UINT cidl, PCUITEMID_CHILD_ARRAY api
         SFGAOF *rgfInOut)
 {
     TRACE("(%p, %d, {%p, ...}, {%x})\n", this, cidl, apidl ? apidl[0] : NULL, (unsigned int)*rgfInOut);
-    *rgfInOut &= SFGAO_FOLDER|SFGAO_DROPTARGET|SFGAO_HASPROPSHEET|SFGAO_CANLINK;
+    if (!cidl || !apidl)
+    {
+        *rgfInOut &= SFGAO_FOLDER | SFGAO_DROPTARGET | SFGAO_HASPROPSHEET | SFGAO_CANLINK | SFGAO_CANRENAME;
+    }
+    else
+    {
+        SFGAOF always = SFGAO_CANMOVE |SFGAO_CANDELETE | SFGAO_HASPROPSHEET;
+        SFGAOF query = (*rgfInOut & (SFGAO_FOLDER | SFGAO_COMPRESSED | SFGAO_HIDDEN |
+                                     SFGAO_SYSTEM | SFGAO_ENCRYPTED | SFGAO_READONLY));
+        for (UINT i = 0; query && i < cidl; ++i)
+        {
+            PIDLRecycleStruct *pData = _ILGetRecycleStruct(apidl[i]);
+            query &= (pData ? SHELL_FSAttributesToSFAttributes(pData->Attributes) : 0);
+        }
+        for (UINT i = 0, validate = (*rgfInOut & SFGAO_VALIDATE); validate && i < cidl; ++i)
+        {
+            CComPtr<IRecycleBinFile> DeletedFile;
+            CComHeapPtr<WCHAR> DeletedPath;
+            if (SUCCEEDED(GetDeletedEntry(apidl[i], &DeletedFile)) &&
+                SUCCEEDED(DeletedFile->GetRecycledPath(&DeletedPath)) &&
+                !PathFileExistsW(DeletedPath))
+            {
+                *rgfInOut = 0;
+                return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
+            }
+        }
+        *rgfInOut &= (always | query);
+    }
     return S_OK;
 }
 
@@ -626,7 +819,7 @@ HRESULT WINAPI CRecycleBin::GetUIObjectOf(HWND hwndOwner, UINT cidl, PCUITEMID_C
 
     if ((IsEqualIID (riid, IID_IContextMenu) || IsEqualIID(riid, IID_IContextMenu2)) && (cidl >= 1))
     {
-        hr = ShellObjectCreatorInit<CRecycleBinItemContextMenu>(apidl[0], riid, &pObj);
+        hr = CRecycleBinItemContextMenu::CreateInstance(this, cidl, apidl, riid, &pObj);
     }
     else if((IsEqualIID(riid, IID_IExtractIconA) || IsEqualIID(riid, IID_IExtractIconW)) && (cidl == 1))
     {
@@ -836,68 +1029,63 @@ BOOL CRecycleBin::RecycleBinIsEmpty()
 
 HRESULT WINAPI CRecycleBin::QueryContextMenu(HMENU hMenu, UINT indexMenu, UINT idCmdFirst, UINT idCmdLast, UINT uFlags)
 {
-    WCHAR szBuffer[100];
-    MENUITEMINFOW mii;
-    int id = 1;
-
     TRACE("QueryContextMenu %p %p %u %u %u %u\n", this, hMenu, indexMenu, idCmdFirst, idCmdLast, uFlags );
-
     if (!hMenu)
         return E_INVALIDARG;
-
-    ZeroMemory(&mii, sizeof(mii));
-    mii.cbSize = sizeof(mii);
-    mii.fMask = MIIM_TYPE | MIIM_ID | MIIM_STATE;
-    mii.fState = RecycleBinIsEmpty() ? MFS_DISABLED : MFS_ENABLED;
-    szBuffer[0] = L'\0';
-    LoadStringW(shell32_hInstance, IDS_EMPTY_BITBUCKET, szBuffer, _countof(szBuffer));
-    mii.dwTypeData = szBuffer;
-    mii.cch = wcslen(mii.dwTypeData);
-    mii.wID = idCmdFirst + id++;
-    mii.fType = MFT_STRING;
-    iIdEmpty = 1;
-
-    if (!InsertMenuItemW(hMenu, indexMenu, TRUE, &mii))
-        return E_FAIL;
-
-    return MAKE_HRESULT(SEVERITY_SUCCESS, 0, id);
+    LPCWSTR Text = MAKEINTRESOURCEW(IDS_EMPTY_BITBUCKET);
+    UINT State = RecycleBinIsEmpty() ? MFS_DISABLED : MFS_ENABLED;
+    UINT CmdId = idCmdFirst + IDC_EMPTY;
+    _InsertMenuItemW(hMenu, indexMenu++, TRUE, CmdId, MFT_STRING, Text, State);
+    return MAKE_HRESULT(SEVERITY_SUCCESS, 0, CmdId - idCmdFirst + 1);
 }
 
 HRESULT WINAPI CRecycleBin::InvokeCommand(LPCMINVOKECOMMANDINFO lpcmi)
 {
-    HRESULT hr;
-    LPSHELLBROWSER lpSB;
-    IShellView * lpSV = NULL;
-    WCHAR szDrive[8];
-
     TRACE("%p %p verb %p\n", this, lpcmi, lpcmi->lpVerb);
+    CHAR VerbBuf[VERBKEY_CCHMAX];
+    LPCSTR Verb = GetInvokeCommandVerbA(lpcmi, VerbBuf, _countof(VerbBuf));
+    INT CmdId = Verb ? -1 : LOWORD(lpcmi->lpVerb);
+    if (CmdId < 0 && !lstrcmpiA(Verb, "empty"))
+        CmdId = IDC_EMPTY;
 
-    if (LOWORD(lpcmi->lpVerb) == iIdEmpty)
+    HRESULT hr = E_INVALIDARG;
+    LPSHELLBROWSER lpSB;
+    CComPtr<IShellView> lpSV;
+    if (CmdId == IDC_EMPTY)
     {
-        if (!GetEnvironmentVariableW(L"SystemDrive", szDrive, _countof(szDrive) - 1))
-        {
-            ERR("GetEnvironmentVariableW failed\n");
-            return E_FAIL;
-        }
-        PathAddBackslashW(szDrive);
-
-        hr = SHEmptyRecycleBinW(lpcmi->hwnd, szDrive, 0);
+        UINT Flags = (lpcmi->fMask & CMIC_MASK_FLAG_NO_UI) ? SHERB_NOPROGRESSUI : 0;
+        hr = SHEmptyRecycleBinW(lpcmi->hwnd, NULL, Flags);
         TRACE("result %x\n", hr);
         if (hr != S_OK)
             return hr;
 
+        // This is a nasty hack. There is nothing that says lpcmi->hwnd has to be the
+        // top level browser window. And the browser does not have to be inside the
+        // recycle bin to invoke this command (in this case the wrong folder is refreshed).
         lpSB = (LPSHELLBROWSER)SendMessageA(lpcmi->hwnd, CWM_GETISHELLBROWSER, 0, 0);
-        if (lpSB && SUCCEEDED(lpSB->QueryActiveShellView(&lpSV)))
+        if (!IS_INTRESOURCE(lpSB) && SUCCEEDED(lpSB->QueryActiveShellView(&lpSV)))
             lpSV->Refresh();
     }
-    return S_OK;
+    return hr;
 }
 
 HRESULT WINAPI CRecycleBin::GetCommandString(UINT_PTR idCommand, UINT uFlags, UINT *lpReserved, LPSTR lpszName, UINT uMaxNameLen)
 {
-    FIXME("%p %lu %u %p %p %u\n", this, idCommand, uFlags, lpReserved, lpszName, uMaxNameLen);
+    TRACE("%p %lu %u %p %p %u\n", this, idCommand, uFlags, lpReserved, lpszName, uMaxNameLen);
+    switch (uFlags | GCS_UNICODE)
+    {
+        case (GCS_VALIDATE | GCS_UNICODE):
+            return idCommand != IDC_EMPTY ? S_FALSE : S_OK;
 
-    return E_NOTIMPL;
+        case (GCS_VERB | GCS_UNICODE):
+            if (idCommand != IDC_EMPTY)
+                return E_INVALIDARG;
+            else if (uFlags & GCS_UNICODE)
+                return SHAnsiToUnicode("empty", (LPWSTR)lpszName, uMaxNameLen) <= uMaxNameLen ? S_OK : E_FAIL;
+            else
+                return StringCchCopyA(lpszName, uMaxNameLen, "empty");
+    }
+    return E_FAIL;
 }
 
 /*************************************************************************
@@ -1126,7 +1314,7 @@ HRESULT WINAPI SHEmptyRecycleBinA(HWND hwnd, LPCSTR pszRootPath, DWORD dwFlags)
 HRESULT WINAPI SHEmptyRecycleBinW(HWND hwnd, LPCWSTR pszRootPath, DWORD dwFlags)
 {
     WCHAR szBuffer[MAX_PATH];
-    DWORD count;
+    DWORD count = 0;
     LONG ret;
     IShellFolder *pDesktop, *pRecycleBin;
     PIDLIST_ABSOLUTE pidlRecycleBin;
@@ -1160,10 +1348,9 @@ HRESULT WINAPI SHEmptyRecycleBinW(HWND hwnd, LPCWSTR pszRootPath, DWORD dwFlags)
             return hr;
         }
 
-        count = 0;
         if (hr != S_FALSE)
         {
-            while (penumFiles->Next(1, &pidl, NULL) == S_OK)
+            while (penumFiles->Next(1, &pidl, NULL) == S_OK && count < 2)
             {
                 count++;
                 pRecycleBin->GetDisplayNameOf(pidl, SHGDN_NORMAL, &StrRet);
@@ -1220,6 +1407,8 @@ HRESULT WINAPI SHEmptyRecycleBinW(HWND hwnd, LPCWSTR pszRootPath, DWORD dwFlags)
     {
         TRASH_PlayEmptyRecycleBinSound();
     }
+    if (count)
+        SHUpdateRecycleBinIcon();
     return S_OK;
 }
 

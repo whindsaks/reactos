@@ -9,6 +9,7 @@
 #include "recyclebin_private.h"
 #include <atlstr.h>
 #include <shlwapi.h>
+#include <undocshell.h> // DE_* errors
 #include "sddl.h"
 
 EXTERN_C HRESULT WINAPI SHUpdateRecycleBinIcon(void);
@@ -42,7 +43,8 @@ static int SHELL_SingleFileOperation(HWND hWnd, UINT Op, LPCWSTR pszFrom, LPCWST
     if (!szzFrom.Initialize(pszFrom) || !szzTo.Initialize(pszTo))
         return ERROR_OUTOFMEMORY; // Note: Not one of the DE errors but also not in the DE range
     SHFILEOPSTRUCTW fos = { hWnd, Op, szzFrom.c_str(), szzTo.c_str(), Flags };
-    return SHFileOperationW(&fos);
+    int res = SHFileOperationW(&fos);
+    return (res == 0 && fos.fAnyOperationsAborted) ? DE_OPCANCELLED : res;
 }
 
 static BOOL
@@ -147,10 +149,10 @@ public:
     /* IRecycleBin5 interface */
     STDMETHODIMP Delete(
         _In_ LPCWSTR pDeletedFileName,
-        _In_ DELETED_FILE_RECORD *pDeletedFile) override;
+        _In_ DELETED_FILE_RECORD *pDeletedFile, HWND hWnd, BOOL Silent) override;
     STDMETHODIMP Restore(
         _In_ LPCWSTR pDeletedFileName,
-        _In_ DELETED_FILE_RECORD *pDeletedFile) override;
+        _In_ DELETED_FILE_RECORD *pDeletedFile, HWND hWnd, FILEOP_FLAGS Flags) override;
     STDMETHODIMP OnClosing(_In_ IRecycleBinEnumList *prbel) override;
 
 protected:
@@ -404,7 +406,7 @@ STDMETHODIMP RecycleBin5::EmptyRecycleBin()
         prbel->Release();
         if (hr == S_FALSE)
             return S_OK;
-        hr = prbf->Delete();
+        hr = prbf->Delete(NULL, TRUE);
         prbf->Release();
         if (!SUCCEEDED(hr))
             return hr;
@@ -434,7 +436,7 @@ STDMETHODIMP RecycleBin5::EnumObjects(_Out_ IRecycleBinEnumList **ppEnumList)
 
 STDMETHODIMP RecycleBin5::Delete(
     _In_ LPCWSTR pDeletedFileName,
-    _In_ DELETED_FILE_RECORD *pDeletedFile)
+    _In_ DELETED_FILE_RECORD *pDeletedFile, HWND hWnd, BOOL Silent)
 {
     ULARGE_INTEGER FileSize;
     PINFO2_HEADER pHeader;
@@ -493,7 +495,7 @@ STDMETHODIMP RecycleBin5::Delete(
 
 STDMETHODIMP RecycleBin5::Restore(
     _In_ LPCWSTR pDeletedFileName,
-    _In_ DELETED_FILE_RECORD *pDeletedFile)
+    _In_ DELETED_FILE_RECORD *pDeletedFile, HWND hWnd, FILEOP_FLAGS Flags)
 {
     ULARGE_INTEGER FileSize;
     PINFO2_HEADER pHeader;
@@ -523,12 +525,12 @@ STDMETHODIMP RecycleBin5::Restore(
     {
         if (pRecord->dwRecordUniqueId == pDeletedFile->dwRecordUniqueId)
         {
-            res = SHELL_SingleFileOperation(NULL, FO_MOVE, pDeletedFileName, pDeletedFile->FileNameW, 0);
+            res = SHELL_SingleFileOperation(hWnd, FO_MOVE, pDeletedFileName, pDeletedFile->FileNameW, Flags);
             if (res)
             {
                 ERR("SHFileOperationW failed with 0x%x\n", res);
                 UnmapViewOfFile(pHeader);
-                return E_FAIL;
+                return res == DE_OPCANCELLED ? HRESULT_FROM_WIN32(ERROR_CANCELLED) : E_FAIL;
             }
 
             /* Clear last entry in the file */

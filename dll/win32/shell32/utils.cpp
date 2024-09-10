@@ -1384,3 +1384,19 @@ GetDfmCmd(_In_ IContextMenu *pCM, _In_ LPCSTR verba)
     }
     return MapVerbToDfmCmd(verba); // Returns DFM_CMD_* or 0
 }
+
+LPCSTR
+GetInvokeCommandVerbA(_In_ LPCMINVOKECOMMANDINFO pcmi, _Out_ LPSTR Buf, _In_ UINT cchBuf)
+{
+    LPCMINVOKECOMMANDINFOEX pcmiex = (LPCMINVOKECOMMANDINFOEX) pcmi;
+    if (IsUnicode(*pcmi) && !IS_INTRESOURCE(pcmiex->lpVerbW))
+    {
+        SHUnicodeToAnsi(pcmiex->lpVerbW, Buf, cchBuf);
+        return Buf;
+    }
+    else if (!IS_INTRESOURCE(pcmi->lpVerb))
+    {
+        return pcmi->lpVerb;
+    }
+    return NULL;
+}
