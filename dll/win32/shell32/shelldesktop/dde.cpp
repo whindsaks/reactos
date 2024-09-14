@@ -137,7 +137,7 @@ static DWORD Dde_OnExecute(HCONV hconv, HSZ hszTopic, HDDEDATA hdata)
 
     StringCchCopyW(szCommand, _countof(szCommand), pszCommand);
 
-    DdeUnaccessData(hdata);
+    DdeUnaccessData(hdata);DbgPrint("Dde_OnExecute %ls|%ls|\n", szTopic, pszCommand);
 
     TRACE("Dde_OnExecute: hconv=%p, topic=%S, command=%S\n", hconv, szTopic, pszCommand);
 
@@ -291,7 +291,7 @@ static HDDEDATA CALLBACK DdeCallback(
     HDDEDATA hdata,
     ULONG_PTR dwData1,
     ULONG_PTR dwData2)
-{
+{DbgPrint("DdeCallback %d pid=%d\n", uType, GetCurrentProcessId());
     switch (uType)
     {
     case XTYP_CONNECT:
@@ -386,7 +386,7 @@ static DWORD CALLBACK DDE_OnViewFolder(PWSTR strCommand, PWSTR strPath, LPITEMID
     return DDE_FACK;
 }
 
-static DWORD CALLBACK DDW_OnExploreFolder(PWSTR strCommand, PWSTR strPath, LPITEMIDLIST pidl, INT unkS)
+static DWORD CALLBACK DDE_OnExploreFolder(PWSTR strCommand, PWSTR strPath, LPITEMIDLIST pidl, INT unkS)
 {
     if (!pidl)
         pidl = ILCreateFromPathW(strPath);
@@ -402,7 +402,8 @@ static DWORD CALLBACK DDW_OnExploreFolder(PWSTR strCommand, PWSTR strPath, LPITE
 
 static DWORD CALLBACK DDE_OnFindFolder(PWSTR strCommand, PWSTR strPath, LPITEMIDLIST pidl, INT unkS)
 {
-    UNIMPLEMENTED;
+    if (SHFindFiles(pidl, NULL))
+        return DDE_FACK;
     return DDE_FNOTPROCESSED;
 }
 
@@ -415,7 +416,7 @@ static DWORD CALLBACK DDE_OnShellFile(PWSTR strCommand, PWSTR strPath, LPITEMIDL
 DDECommandHandler HandlerList [] = {
 
         { L"ViewFolder", DDE_OnViewFolder },
-        { L"ExploreFolder", DDW_OnExploreFolder },
+        { L"ExploreFolder", DDE_OnExploreFolder },
         { L"FindFolder", DDE_OnFindFolder },
         { L"ShellFile", DDE_OnShellFile }
 };

@@ -943,10 +943,133 @@ static UINT SHELL_FindExecutable(LPCWSTR lpPath, LPCWSTR lpFile, LPCWSTR lpVerb,
 static HDDEDATA CALLBACK dde_cb(UINT uType, UINT uFmt, HCONV hConv,
                                 HSZ hsz1, HSZ hsz2, HDDEDATA hData,
                                 ULONG_PTR dwData1, ULONG_PTR dwData2)
-{
+{DbgPrint("dde_cb\n");
     TRACE("dde_cb: %04x, %04x, %p, %p, %p, %p, %08lx, %08lx\n",
           uType, uFmt, hConv, hsz1, hsz2, hData, dwData1, dwData2);
     return NULL;
+}
+
+static unsigned dde_try_execute_hkey(HKEY hVerbKey, LPCWSTR wcmd, LPCWSTR lpFile, LPITEMIDLIST pidl)
+{
+    unsigned result = SE_ERR_NOASSOC, aborted = FALSE;
+    DWORD ddeInst = 0;
+    WCHAR app[256], topic[256], exec[MAX_PATH * 2], static_data[256], *pData = NULL;
+    CHeapPtr<WCHAR, CLocalAllocator> dynamic_data;
+    HKEY hDdeKey;
+
+    DbgPrint("dde_try_execute_hkey %p %ls|\n", hVerbKey, wcmd);
+    if (RegOpenKeyExW(hVerbKey, L"ddeexec", 0, MAXIMUM_ALLOWED, &hDdeKey) != ERROR_SUCCESS)
+        return SE_ERR_NOASSOC;
+
+    LONG cb = sizeof(topic);
+    if (RegQueryValueW(hDdeKey, L"topic", topic, &cb) != ERROR_SUCCESS)
+    {
+        wcscpy(topic, L"System");
+    }
+
+    cb = sizeof(app);
+    if (RegQueryValueW(hDdeKey, L"application", app, &cb) != ERROR_SUCCESS)
+    {
+        // Use application filename from wcmd
+        WCHAR exe[1 + MAX_PATH + 1];
+        LPCWSTR ptr = PathGetArgs(wcmd);
+        while (ptr > wcmd && ptr[-1] <= ' ')
+            --ptr;
+        aborted = ptr <= wcmd || SIZE_T(ptr - wcmd) >= _countof(exe);
+        if (!aborted)
+        {
+            wcscpy(exe, wcmd);
+            PathRemoveArgsW(exe);
+            PathUnquoteSpacesW(exe);
+            if (PathIsRelativeW(exe))
+                aborted = !SearchPathW(NULL, exe, L".exe", ARRAY_SIZE(exe), exe, const_cast<LPWSTR*>(&ptr));
+            else
+                ptr = exe;
+        }
+        if (!aborted)
+        {
+            PathRemoveExtension(const_cast<LPWSTR>(ptr));
+            aborted = FAILED(StringCchCopyW(app, _countof(app), ptr));
+        }
+    }
+
+    cb = sizeof(exec);
+    if (RegQueryValueW(hDdeKey, NULL, exec, &cb) != ERROR_SUCCESS)
+    {
+        aborted = result = SE_ERR_NOASSOC;
+    }
+
+DbgPrint("dde_try %ls| %ls| %ls|\n", app, topic, exec);
+    HDDEDATA hDdeData = NULL;
+    HCONV hConv = NULL;
+    HSZ hszApp = NULL, hszTopic = NULL;
+    if (!aborted)
+    {
+        aborted = DdeInitializeW(&ddeInst, dde_cb, APPCMD_CLIENTONLY, 0L) != DMLERR_NO_ERROR;
+        result = 2;
+    }
+    if (!aborted)
+    {
+        hszApp = DdeCreateStringHandleW(ddeInst, app, CP_WINUNICODE);
+        hszTopic = DdeCreateStringHandleW(ddeInst, topic, CP_WINUNICODE);
+        SetLastError(ERROR_DDE_FAIL);
+        if (hszApp && hszTopic)
+            hConv = DdeConnect(ddeInst, hszApp, hszTopic, NULL);
+        else
+            aborted = TRUE;
+    }
+    // TODO: ifexec
+
+    if (hConv)
+    {
+        // FIXME: Should verify (and create?) lpFile and or pidl?
+        DWORD len;
+        pData = static_data;
+        SHELL_ArgifyW(static_data, _countof(static_data), exec, lpFile, pidl, wcmd, &len, NULL);
+        if (len > _countof(static_data))
+        {
+            dynamic_data.Allocate(len);
+            SHELL_ArgifyW(pData = dynamic_data, len, exec, lpFile, pidl, wcmd, NULL, NULL);
+        }
+    }
+    DbgPrint("dde_try hConv=%p pData=%ls|\n", hConv, pData);
+    if (pData && *pData)
+    {
+        DWORD tid;
+        hDdeData = DdeClientTransaction((LPBYTE)pData, (strlenW(pData) + 1) * sizeof(WCHAR), hConv, 0L, 0, XTYP_EXECUTE, 30000, &tid);
+        if (hDdeData)
+        {
+            DdeFreeDataHandle(hDdeData);
+            result = 33; // Success
+        }
+    }
+    if (hszApp)
+        DdeFreeStringHandle(ddeInst, hszApp);
+    if (hszTopic)
+        DdeFreeStringHandle(ddeInst, hszTopic);
+    if (hConv)
+        DdeDisconnect(hConv);
+    if (ddeInst)
+        DdeUninitialize(ddeInst);
+    RegCloseKey(hDdeKey);
+    return result;
+}
+
+static unsigned dde_try_execute_progid(HKEY hProgId, LPCWSTR wcmd, LPSHELLEXECUTEINFOW psei)
+{
+    WCHAR verbpath[6 + VERBKEY_CCHMAX];
+    lstrcpyW(verbpath, L"shell\\");
+    if (!HCR_GetDefaultVerbW(hProgId, psei->lpVerb, verbpath + 6, VERBKEY_CCHMAX))
+        return SE_ERR_NOASSOC;
+
+DbgPrint("dde_try_execute_progid |%ls| from %ls|\n", verbpath, psei->lpVerb);
+
+    HKEY hVerbKey;
+    if (RegOpenKeyExW(hProgId, verbpath, 0, MAXIMUM_ALLOWED, &hVerbKey) != ERROR_SUCCESS)
+        return SE_ERR_NOASSOC;
+    unsigned result = dde_try_execute_hkey(hVerbKey, wcmd, psei->lpFile, (LPITEMIDLIST)psei->lpIDList);
+    RegCloseKey(hVerbKey);
+    return result;
 }
 
 /******************************************************************
@@ -977,7 +1100,7 @@ static unsigned dde_connect(const WCHAR* key, const WCHAR* start, WCHAR* ddeexec
     HCONV       hConv;
     HDDEDATA    hDdeData;
     unsigned    ret = SE_ERR_NOASSOC;
-    BOOL unicode = !(GetVersion() & 0x80000000);
+    BOOL unicode = !(GetVersion() & 0x80000000);DbgPrint("dde_connect %ls|\n", szCommandline);
 
     if (strlenW(key) + 1 > ARRAY_SIZE(regkey))
     {
@@ -1042,10 +1165,11 @@ static unsigned dde_connect(const WCHAR* key, const WCHAR* start, WCHAR* ddeexec
         wcscpy(app, ptr);
 
         /* Remove extensions (including .so) */
+#ifndef __REACTOS__
         ptr = app + wcslen(app) - 3;
         if (ptr > app && !wcscmp(ptr, L".so"))
             *ptr = 0;
-
+#endif
         ptr = const_cast<LPWSTR>(strrchrW(app, '.'));
         assert(ptr);
         *ptr = 0;
@@ -1204,7 +1328,7 @@ static UINT_PTR execute_from_key(LPCWSTR key, LPCWSTR lpFile, WCHAR *env,
        from the associated ddeexec key */
     tmp = const_cast<LPWSTR>(strstrW(key, L"command"));
     assert(tmp);
-    wcscpy(tmp, L"ddeexec");
+    wcscpy(tmp, L"ddeexec");DbgPrint("execute_from_key\n");
 
     if (RegQueryValueW(HKEY_CLASSES_ROOT, key, ddeexec, (LONG *)&ddeexeclen) == ERROR_SUCCESS)
     {
@@ -1659,7 +1783,7 @@ static UINT_PTR SHELL_execute_class(LPCWSTR wszApplicationName, LPSHELLEXECUTEIN
     ULONG cmask = (psei->fMask & SEE_MASK_CLASSALL);
     DWORD resultLen;
     BOOL done;
-    UINT_PTR rslt;
+    UINT_PTR rslt;DbgPrint("SHELL_execute_class |%ls|\n", wszApplicationName);
 
     /* FIXME: remove following block when SHELL_quote_and_execute supports hkeyClass parameter */
     if (cmask != SEE_MASK_CLASSNAME)
@@ -1668,7 +1792,7 @@ static UINT_PTR SHELL_execute_class(LPCWSTR wszApplicationName, LPSHELLEXECUTEIN
         HCR_GetExecuteCommandW((cmask == SEE_MASK_CLASSKEY) ? psei->hkeyClass : NULL,
                                (cmask == SEE_MASK_CLASSNAME) ? psei->lpClass : NULL,
                                psei->lpVerb,
-                               execCmd, sizeof(execCmd));
+                               execCmd, sizeof(execCmd));DbgPrint("execcmd|%ls|\n", execCmd);
 
         /* FIXME: get the extension of lpFile, check if it fits to the lpClass */
         TRACE("SEE_MASK_CLASSNAME->%s, doc->%s\n", debugstr_w(execCmd), debugstr_w(wszApplicationName));
@@ -1690,9 +1814,12 @@ static UINT_PTR SHELL_execute_class(LPCWSTR wszApplicationName, LPSHELLEXECUTEIN
             else
                 strcatW(wcmd, wszApplicationName);
 #endif
-        }
+        }DbgPrint("execcmd2|%ls|%ls| verb=%ls|\n", execCmd,wszApplicationName, psei->lpVerb);
         if (resultLen > ARRAY_SIZE(wcmd))
             ERR("Argify buffer not large enough... truncating\n");
+        rslt = dde_try_execute_progid(psei->hkeyClass, execCmd, psei);
+        if (33 <= rslt)
+            return rslt;
         return execfunc(wcmd, NULL, FALSE, psei, psei_out);
     }
 
