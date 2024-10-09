@@ -257,12 +257,14 @@ BOOL	_ILIsValue		(LPCITEMIDLIST pidl) DECLSPEC_HIDDEN;
 BOOL	_ILIsSpecialFolder	(LPCITEMIDLIST pidl) DECLSPEC_HIDDEN;
 BOOL	_ILIsPidlSimple		(LPCITEMIDLIST pidl) DECLSPEC_HIDDEN;
 BOOL	_ILIsCPanelStruct	(LPCITEMIDLIST pidl) DECLSPEC_HIDDEN;
+#ifndef __REACTOS__ /* Please don't call this function */
 static inline 
 BOOL    _ILIsEqualSimple        (LPCITEMIDLIST pidlA, LPCITEMIDLIST pidlB)
 {
     return (pidlA->mkid.cb > 0 && !memcmp(pidlA, pidlB, pidlA->mkid.cb)) ||
             (!pidlA->mkid.cb && !pidlB->mkid.cb);
 }
+#endif
 static inline
 BOOL    _ILIsEmpty              (LPCITEMIDLIST pidl) { return _ILIsDesktop(pidl); }
 

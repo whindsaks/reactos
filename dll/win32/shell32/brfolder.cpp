@@ -16,6 +16,22 @@ WINE_DEFAULT_DEBUG_CHANNEL(shell);
 
 #define SHV_CHANGE_NOTIFY (WM_USER + 0x1111)
 
+static LPITEMIDLIST ILCloneToDepth(LPCITEMIDLIST pidlSrc, UINT depth)
+{
+    UINT cb = 0;
+    for (LPCITEMIDLIST pidlItem = pidlSrc; pidlItem && depth--; pidlItem = ILGetNext(pidlItem))
+    {
+        cb += pidlItem->mkid.cb;
+    }
+    LPITEMIDLIST pidl = (LPITEMIDLIST)SHAlloc(cb + sizeof(WORD));
+    if (pidl)
+    {
+        CopyMemory(pidl, pidlSrc, cb);
+        ZeroMemory(((BYTE*)pidl) + cb, sizeof(WORD));
+    }
+    return pidl;
+}
+
 struct BrFolder
 {
     LPBROWSEINFOW    lpBrowseInfo;
@@ -757,6 +773,17 @@ BrFolder_OnInitDialog(HWND hWnd, BrFolder *info)
                                                  SHCNE_ALLEVENTS,
                                                  SHV_CHANGE_NOTIFY, 1, &ntreg);
 
+    if (!lpBrowseInfo->pidlRoot)
+    {
+        UINT csidl = (lpBrowseInfo->ulFlags & BIF_NEWDIALOGSTYLE) ? CSIDL_PERSONAL : CSIDL_DRIVES;
+        LPITEMIDLIST pidl = SHCloneSpecialIDList(NULL, csidl, TRUE);
+        if (pidl)
+        {
+            SendMessageW(info->hWnd, BFFM_SETSELECTION, FALSE, (LPARAM)pidl);
+            ILFree(pidl);
+        }
+    }
+
     BrFolder_Callback(info->lpBrowseInfo, hWnd, BFFM_INITIALIZED, 0);
 
     SHAutoComplete(GetDlgItem(hWnd, IDC_BROWSE_FOR_FOLDER_FOLDER_TEXT),
@@ -987,8 +1014,10 @@ BrFolder_OnSetExpandedPidl(BrFolder *info, LPITEMIDLIST pidlSelection, HTREEITEM
 
     // Move pidlCurrent behind the SHITEMIDs in pidlSelection, which are the root of
     // the sub-tree currently displayed.
-    PCIDLIST_ABSOLUTE pidlRoot = info->lpBrowseInfo->pidlRoot;
     LPITEMIDLIST pidlCurrent = pidlSelection;
+#if 0
+    PCIDLIST_ABSOLUTE pidlRoot = info->lpBrowseInfo->pidlRoot;
+    // FIXME: _ILIsEqualSimple is not correct here and we need the absolute pidl for ILIsEqual
     while (!_ILIsEmpty(pidlRoot) && _ILIsEqualSimple(pidlRoot, pidlCurrent))
     {
         pidlRoot = ILGetNext(pidlRoot);
@@ -1002,6 +1031,8 @@ BrFolder_OnSetExpandedPidl(BrFolder *info, LPITEMIDLIST pidlSelection, HTREEITEM
             *phItem = NULL;
         return FALSE;
     }
+    Use ILIsParent if we really need to know
+#endif
 
     // Initialize item to point to the first child of the root folder.
     TVITEMEXW item = { TVIF_PARAM };
@@ -1010,18 +1041,28 @@ BrFolder_OnSetExpandedPidl(BrFolder *info, LPITEMIDLIST pidlSelection, HTREEITEM
         item.hItem = TreeView_GetChild(info->hwndTreeView, item.hItem);
 
     // Walk the tree along the nodes corresponding to the remaining ITEMIDLIST
-    while (item.hItem && !_ILIsEmpty(pidlCurrent))
+    UINT depth = 0;
+    while (item.hItem && pidlCurrent)
     {
+        LPITEMIDLIST pidlNeedle = ILCloneToDepth(pidlSelection, ++depth);
+        if (_ILIsEmpty(pidlNeedle))
+        {
+            ILFree(pidlNeedle);
+            item.hItem = NULL; // Failure
+            break;
+        }
+next:
         TreeView_GetItem(info->hwndTreeView, &item);
         BrItemData *pItemData = (BrItemData *)item.lParam;
-
-        if (_ILIsEqualSimple(pItemData->pidlChild, pidlCurrent))
+        if (ILIsEqual(pItemData->pidlFull, pidlNeedle))
         {
-            pidlCurrent = ILGetNext(pidlCurrent);
-            if (!_ILIsEmpty(pidlCurrent))
+            BOOL done = ILGetSize(pidlSelection) == ILGetSize(pidlNeedle);
+            if (done)
             {
-                // Only expand current node and move on to its first child,
-                // if we didn't already reach the last SHITEMID
+                pidlCurrent = NULL; // Success
+            }
+            else
+            {
                 TreeView_Expand(info->hwndTreeView, item.hItem, TVE_EXPAND);
                 item.hItem = TreeView_GetChild(info->hwndTreeView, item.hItem);
             }
@@ -1029,7 +1070,10 @@ BrFolder_OnSetExpandedPidl(BrFolder *info, LPITEMIDLIST pidlSelection, HTREEITEM
         else
         {
             item.hItem = TreeView_GetNextSibling(info->hwndTreeView, item.hItem);
+            if (item.hItem)
+                goto next;
         }
+        ILFree(pidlNeedle);
     }
 
     if (phItem)
@@ -1360,6 +1404,16 @@ SHBrowseForFolderW(LPBROWSEINFOW lpbi)
     INT id = ((lpbi->ulFlags & BIF_USENEWUI) ? IDD_BROWSE_FOR_FOLDER_NEW : IDD_BROWSE_FOR_FOLDER);
     INT_PTR ret = DialogBoxParamW(shell32_hInstance, MAKEINTRESOURCEW(id), lpbi->hwndOwner,
                                   BrFolderDlgProc, (LPARAM)&info);
+    PIDLIST_ABSOLUTE pidlTarget;
+    if (ret == IDOK && !(lpbi->ulFlags & BIF_NOTRANSLATETARGETS))
+    {
+        if (S_OK == SHELL_GetIDListTarget(info.pidlRet, &pidlTarget))
+        {
+            ILFree(info.pidlRet);
+            info.pidlRet = pidlTarget;
+        }
+    }
+
     if (SUCCEEDED(hr))
         OleUninitialize();
 

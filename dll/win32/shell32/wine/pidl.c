@@ -485,6 +485,37 @@ LPITEMIDLIST WINAPI ILGlobalClone(LPCITEMIDLIST pidl)
     return newpidl;
 }
 
+#ifdef __REACTOS__
+static inline LPITEMIDLIST _ILUnsafeNext(LPCITEMIDLIST pidl)
+{
+    return (LPITEMIDLIST)(((BYTE*)pidl) + pidl->mkid.cb);
+}
+
+static UINT _ILGetDepth(LPCITEMIDLIST pidl)
+{
+    for (UINT i = 0;; ++i)
+    {
+        if (!pidl || !pidl->mkid.cb)
+            return i;
+        pidl = _ILUnsafeNext(pidl);
+    }
+}
+
+static BOOL _ILMemCmpEqualIDList(LPCITEMIDLIST p1, LPCITEMIDLIST p2)
+{
+    for (;; p1 = _ILUnsafeNext(p1), p2 = _ILUnsafeNext(p2))
+    {
+        DWORD cb1 = p1 ? p1->mkid.cb : 0x80000000; // NULL != Empty
+        DWORD cb2 = p2 ? p2->mkid.cb : 0x80000000;
+        if (cb1 != cb2)
+            return FALSE;
+        if (LOWORD(cb1) == 0)
+            return cb1 == cb2;
+        if (memcmp(p1, p2, cb1))
+            return FALSE;
+    }
+}
+#else /* __REACTOS__ */
 BOOL _ILHACKCompareSimpleIds(LPCITEMIDLIST pidltemp1, LPCITEMIDLIST pidltemp2)
 {
     LPPIDLDATA pdata1 = _ILGetDataPointer(pidltemp1);
@@ -540,6 +571,7 @@ BOOL _ILHACKCompareSimpleIds(LPCITEMIDLIST pidltemp1, LPCITEMIDLIST pidltemp2)
 
     return TRUE;
 }
+#endif /* __REACTOS__ */
 
 /*************************************************************************
  * ILIsEqual [SHELL32.21]
@@ -552,6 +584,21 @@ BOOL WINAPI ILIsEqual(LPCITEMIDLIST pidl1, LPCITEMIDLIST pidl2)
 
     TRACE("pidl1=%p pidl2=%p\n",pidl1, pidl2);
 
+#ifdef __REACTOS__
+    IShellFolder *psfDesktop;
+    UINT depth1;
+
+    if (pidl1 == pidl2 || _ILMemCmpEqualIDList(pidltemp1, pidltemp2))
+        return TRUE;
+
+    depth1 = _ILGetDepth(pidl1);
+    if (depth1 && depth1 == _ILGetDepth(pidl2) && SUCCEEDED(SHGetDesktopFolder(&psfDesktop)))
+    {OutputDebugStringA("ILIsEqual SHFoldr\n");
+        BOOL result = IShellFolder_CompareIDs(psfDesktop, SHCIDS_CANONICALONLY, pidl1, pidl2) == 0;
+        IShellFolder_Release(psfDesktop);
+        return result;
+    }
+#else /* __REACTOS__ */
     /*
      * Explorer reads from registry directly (StreamMRU),
      * so we can only check here
@@ -582,7 +629,7 @@ BOOL WINAPI ILIsEqual(LPCITEMIDLIST pidl1, LPCITEMIDLIST pidl2)
 
     if (!pidltemp1->mkid.cb && !pidltemp2->mkid.cb)
         return TRUE;
-
+#endif /* __REACTOS__ */
     return FALSE;
 }
 
@@ -612,7 +659,42 @@ BOOL WINAPI ILIsParent(LPCITEMIDLIST pidlParent, LPCITEMIDLIST pidlChild, BOOL b
 {
     LPCITEMIDLIST pParent = pidlParent;
     LPCITEMIDLIST pChild = pidlChild;
+#ifdef __REACTOS__
+    LPITEMIDLIST pidl;
+    SIZE_T cb = 0;
+    BOOL result = FALSE;
 
+    TRACE("%p %p %x\n", pidlParent, pidlChild, bImmediate);
+
+    if (!pidlParent || !pidlChild)
+        return FALSE;
+
+    while (pidlParent->mkid.cb)
+    {
+        cb += pidlChild->mkid.cb;
+        if (!pidlChild->mkid.cb)
+        {
+            if (pidlParent->mkid.cb)
+                return FALSE; /* The child is shorter than the parent */
+            else
+                break;
+        }
+        pidlChild = _ILUnsafeNext(pidlChild);
+        pidlParent = _ILUnsafeNext(pidlParent);
+    }
+
+    if (bImmediate && (!pidlChild->mkid.cb || _ILUnsafeNext(pidlChild)->mkid.cb))
+        return FALSE; /* Same as parent or a deeper grandchild */
+
+    if ((pidl = SHAlloc(cb + sizeof(WORD))) != NULL)
+    {
+        CopyMemory(pidl, pChild, cb);
+        ZeroMemory((BYTE*)pidl + cb, sizeof(WORD));
+        result = ILIsEqual(pParent, pidl);
+        ILFree(pidl);
+    }
+    return result;
+#else /* __REACTOS__ */
     TRACE("%p %p %x\n", pidlParent, pidlChild, bImmediate);
 
     if (!pParent || !pChild)
@@ -636,6 +718,7 @@ BOOL WINAPI ILIsParent(LPCITEMIDLIST pidlParent, LPCITEMIDLIST pidlChild, BOOL b
         return FALSE;
 
     return TRUE;
+#endif /* __REACTOS__ */
 }
 
 /*************************************************************************
@@ -659,6 +742,22 @@ BOOL WINAPI ILIsParent(LPCITEMIDLIST pidlParent, LPCITEMIDLIST pidlChild, BOOL b
  */
 PUIDLIST_RELATIVE WINAPI ILFindChild(PIDLIST_ABSOLUTE pidl1, PCIDLIST_ABSOLUTE pidl2)
 {
+#ifdef __REACTOS__
+    if (_ILIsDesktop(pidl1))
+    {
+        return (PUIDLIST_RELATIVE)pidl2;
+    }
+    else if (ILIsParent(pidl1, pidl2, FALSE))
+    {
+        while (!ILIsEmpty(pidl1))
+        {
+            pidl1 = _ILUnsafeNext(pidl1);
+            pidl2 = _ILUnsafeNext(pidl2); /* This is safe because we know the child is at least as deep as the parent */
+        }
+        return (PUIDLIST_RELATIVE)pidl2;
+    }
+    return NULL;
+#else /* __REACTOS__ */
     LPCITEMIDLIST pidltemp1 = pidl1;
     LPCITEMIDLIST pidltemp2 = pidl2;
     LPCITEMIDLIST ret=NULL;
@@ -694,6 +793,7 @@ PUIDLIST_RELATIVE WINAPI ILFindChild(PIDLIST_ABSOLUTE pidl1, PCIDLIST_ABSOLUTE p
     }
     TRACE_(shell)("--- %p\n", ret);
     return (PUIDLIST_RELATIVE)ret; /* pidl 1 is shorter */
+#endif /* __REACTOS__ */
 }
 
 /*************************************************************************
