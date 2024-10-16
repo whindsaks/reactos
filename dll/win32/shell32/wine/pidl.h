@@ -105,6 +105,7 @@ extern "C" {
 #define PT_SHARE	0xc3
 
 #ifdef __REACTOS__
+#define PT_FOLDERTYPEMASK       0x70
 #define PT_DESKTOP_REGITEM      0x1F // => SHDID_ROOT_REGITEM
 #define PT_COMPUTER_REGITEM     0x2E // => SHDID_COMPUTER_OTHER
 #define PT_FS                   0x30 // Win95 SHSimpleIDListFromPath
@@ -115,6 +116,11 @@ extern "C" {
 #define PT_CONTROLS_OLDREGITEM  0x70
 #define PT_CONTROLS_NEWREGITEM  0x71
 #endif
+
+static inline BYTE _ILGetType(LPCITEMIDLIST pidl)
+{
+    return pidl && pidl->mkid.cb >= 3 ? pidl->mkid.abID[0] : 0;
+}
 
 #include "pshpack1.h"
 typedef BYTE PIDLTYPE;
@@ -234,7 +240,6 @@ DWORD   _ILSimpleGetTextW   (LPCITEMIDLIST pidl, LPWSTR pOut, UINT uOutSize) DEC
 BOOL    _ILGetFileDate      (LPCITEMIDLIST pidl, LPWSTR pOut, UINT uOutSize) DECLSPEC_HIDDEN;
 DWORD   _ILGetFileSize      (LPCITEMIDLIST pidl, LPWSTR pOut, UINT uOutSize) DECLSPEC_HIDDEN;
 BOOL    _ILGetExtension     (LPCITEMIDLIST pidl, LPWSTR pOut, UINT uOutSize) DECLSPEC_HIDDEN;
-void    _ILGetFileType      (LPCITEMIDLIST pidl, LPWSTR pOut, UINT uOutSize) DECLSPEC_HIDDEN;
 DWORD   _ILGetFileAttributes(LPCITEMIDLIST pidl, LPWSTR pOut, UINT uOutSize) DECLSPEC_HIDDEN;
 BOOL    _ILGetFileDateTime  (LPCITEMIDLIST pidl, FILETIME *ft) DECLSPEC_HIDDEN;
 DWORD   _ILGetDrive         (LPCITEMIDLIST, LPWSTR, UINT) DECLSPEC_HIDDEN;
@@ -285,6 +290,7 @@ LPITEMIDLIST	_ILCreateGuidFromStrW(LPCWSTR szGUID) DECLSPEC_HIDDEN;
 LPITEMIDLIST	_ILCreateDesktop	(void) DECLSPEC_HIDDEN;
 LPITEMIDLIST	_ILCreateFromFindDataW(const WIN32_FIND_DATAW *stffile) DECLSPEC_HIDDEN;
 HRESULT		_ILCreateFromPathW	(LPCWSTR szPath, LPITEMIDLIST* ppidl) DECLSPEC_HIDDEN;
+LPITEMIDLIST SHELL32_CreateSimpleIDListFromPath(LPCWSTR pszPath, DWORD dwAttributes) DECLSPEC_HIDDEN;
 
 /* Other helpers */
 LPITEMIDLIST	_ILCreateMyComputer	(void) DECLSPEC_HIDDEN;

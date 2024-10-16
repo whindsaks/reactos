@@ -296,12 +296,6 @@ GetTypeName(PFILE_TYPE_ENTRY Entry, PFILE_TYPE_GLOBALS pG)
             {
                 StringCchCopyW(Entry->FileDescription, _countof(Entry->FileDescription), fi.szTypeName);
             }
-            else
-            {
-                // FIXME: Remove this hack when SHGetFileInfo is able to handle extensions without a ProgId (.ASM etc)
-                StringCchPrintfW(Entry->FileDescription, _countof(Entry->FileDescription),
-                                 pG->DefExtTypeNameFmt, &Entry->FileExtension[1]);
-            }
         }
         else
         {
