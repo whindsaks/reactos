@@ -1028,7 +1028,7 @@ HRESULT WINAPI CDesktopFolder::CallBack(IShellFolder *psf, HWND hwndOwner, IData
         DestroyMenu(hpopup);
         return S_OK;
     }
-    return SHELL32_DefaultContextMenuCallBack(psf, pdtobj, uMsg);
+    return SHELL32_DefaultContextMenuCallBack(uMsg);
 }
 
 /*************************************************************************

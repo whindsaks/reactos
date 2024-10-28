@@ -13,6 +13,7 @@ extern void func_CommandLineToArgvW(void);
 extern void func_CShellDesktop(void);
 extern void func_CShellLink(void);
 extern void func_CUserNotification(void);
+extern void func_DefaultContextMenu(void);
 extern void func_DragDrop(void);
 extern void func_ExtractIconEx(void);
 extern void func_FindExecutable(void);
@@ -58,6 +59,7 @@ const struct test winetest_testlist[] =
     { "CShellDesktop", func_CShellDesktop },
     { "CShellLink", func_CShellLink },
     //{ "CUserNotification", func_CUserNotification }, // Test is broken on Win 2003
+    { "DefaultContextMenu", func_DefaultContextMenu },
     { "DragDrop", func_DragDrop },
     { "ExtractIconEx", func_ExtractIconEx },
     { "FindExecutable", func_FindExecutable },

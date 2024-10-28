@@ -307,7 +307,7 @@ HRESULT CALLBACK DrivesContextMenuCallback(IShellFolder *psf,
                                            LPARAM       lParam)
 {
     if (uMsg != DFM_MERGECONTEXTMENU && uMsg != DFM_INVOKECOMMAND)
-        return SHELL32_DefaultContextMenuCallBack(psf, pdtobj, uMsg);
+        return SHELL32_DefaultContextMenuCallBack(uMsg);
 
     PIDLIST_ABSOLUTE pidlFolder;
     PUITEMID_CHILD *apidl;
@@ -1374,5 +1374,5 @@ HRESULT WINAPI CDrivesFolder::CallBack(IShellFolder *psf, HWND hwndOwner, IDataO
             return S_OK;
         }
     }
-    return SHELL32_DefaultContextMenuCallBack(psf, pdtobj, uMsg);
+    return SHELL32_DefaultContextMenuCallBack(uMsg);
 }

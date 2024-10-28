@@ -1950,7 +1950,7 @@ HRESULT WINAPI CFSFolder::CallBack(IShellFolder *psf, HWND hwndOwner, IDataObjec
             return S_OK;
         }
     }
-    return SHELL32_DefaultContextMenuCallBack(psf, pdtobj, uMsg);
+    return SHELL32_DefaultContextMenuCallBack(uMsg);
 }
 
 static HBITMAP DoLoadPicture(LPCWSTR pszFileName)

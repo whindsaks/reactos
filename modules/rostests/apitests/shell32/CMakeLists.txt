@@ -13,6 +13,7 @@ list(APPEND SOURCE
     CShellLink.cpp
     CUserNotification.cpp
     Control_RunDLLW.cpp
+    DefaultContextMenu.cpp
     DragDrop.cpp
     ExtractIconEx.cpp
     FindExecutable.cpp
@@ -61,7 +62,7 @@ set_target_properties(shell32_apitest
 target_link_libraries(shell32_apitest wine uuid ${PSEH_LIB} cpprt atl_classes)
 set_module_type(shell32_apitest win32cui)
 target_compile_definitions(shell32_apitest PRIVATE UNICODE _UNICODE)
-add_importlibs(shell32_apitest user32 gdi32 shell32 shlwapi ole32 oleaut32 advapi32 shlwapi msvcrt kernel32 ntdll)
+add_importlibs(shell32_apitest user32 gdi32 shell32 shlwapi comctl32 ole32 oleaut32 advapi32 shlwapi msvcrt kernel32 ntdll)
 add_pch(shell32_apitest shelltest.h "${PCH_SKIP_SOURCE}")
 add_rostests_file(TARGET shell32_apitest)
 

@@ -872,7 +872,7 @@ static HRESULT CALLBACK RegFolderContextMenuCallback(IShellFolder *psf, HWND hwn
                                                      UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     if (uMsg != DFM_INVOKECOMMAND || wParam != DFM_CMD_PROPERTIES)
-        return SHELL32_DefaultContextMenuCallBack(psf, pdtobj, uMsg);
+        return SHELL32_DefaultContextMenuCallBack(uMsg);
 
     PIDLIST_ABSOLUTE pidlFolder;
     PUITEMID_CHILD *apidl;

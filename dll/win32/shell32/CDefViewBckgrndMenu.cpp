@@ -217,15 +217,15 @@ CDefViewBckgrndMenu::InvokeCommand(LPCMINVOKECOMMANDINFO lpcmi)
 {
     UINT idCmd = LOWORD(lpcmi->lpVerb);
 
-    if (HIWORD(lpcmi->lpVerb) && !strcmp(lpcmi->lpVerb, CMDSTR_VIEWLISTA))
+    if (!IS_INTRESOURCE(lpcmi->lpVerb) && !strcmp(lpcmi->lpVerb, CMDSTR_VIEWLISTA))
     {
         idCmd = FCIDM_SHVIEW_LISTVIEW;
     }
-    else if (HIWORD(lpcmi->lpVerb) && !strcmp(lpcmi->lpVerb, CMDSTR_VIEWDETAILSA))
+    else if (!IS_INTRESOURCE(lpcmi->lpVerb) && !strcmp(lpcmi->lpVerb, CMDSTR_VIEWDETAILSA))
     {
         idCmd = FCIDM_SHVIEW_REPORTVIEW;
     }
-    else if(HIWORD(lpcmi->lpVerb) != 0 || idCmd < m_LastFolderCMId)
+    else if(!IS_INTRESOURCE(lpcmi->lpVerb) || idCmd < m_LastFolderCMId)
     {
         if (m_folderCM)
         {

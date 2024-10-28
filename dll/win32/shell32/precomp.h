@@ -149,7 +149,7 @@ AddPropSheetPageCallback(HPROPSHEETPAGE hPage, LPARAM lParam)
 HRESULT
 SHELL32_ShowPropertiesDialog(IDataObject *pdtobj);
 HRESULT
-SHELL32_DefaultContextMenuCallBack(IShellFolder *psf, IDataObject *pdo, UINT msg);
+SHELL32_DefaultContextMenuCallBack(UINT msg);
 UINT
 MapVerbToDfmCmd(_In_ LPCSTR verba);
 UINT

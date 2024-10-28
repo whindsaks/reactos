@@ -66,7 +66,7 @@ HRESULT CALLBACK NetFolderMenuCallback(IShellFolder *psf,
                                        WPARAM       wParam,
                                        LPARAM       lParam)
 {
-    return SHELL32_DefaultContextMenuCallBack(psf, pdtobj, uMsg);
+    return SHELL32_DefaultContextMenuCallBack(uMsg);
 }
 
 class CNetFolderEnum :

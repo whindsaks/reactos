@@ -500,12 +500,12 @@ HRESULT inline SHSetStrRet(LPSTRRET pStrRet, HINSTANCE hInstance, DWORD resId)
     return SHSetStrRet(pStrRet, Buffer);
 }
 
-static inline void DbgDumpMenuInternal(HMENU hmenu, char* padding, int padlevel)
+static inline void DbgDumpMenuInternal(HMENU hmenu, char* padding, UINT padlevel)
 {
     WCHAR label[128];
-    int i;
-    int count = GetMenuItemCount(hmenu);
+    int count = GetMenuItemCount(hmenu), submenus = (padlevel & 0x80000000), i;
 
+    padlevel &= ~0x80000000;
     padding[padlevel] = '.';
     padding[padlevel + 1] = '.';
     padding[padlevel + 2] = 0;
@@ -522,13 +522,13 @@ static inline void DbgDumpMenuInternal(HMENU hmenu, char* padding, int padlevel)
         GetMenuItemInfoW(hmenu, i, TRUE, &mii);
 
         if (mii.fType & MFT_BITMAP)
-            DbgPrint("%s%2d - %08x: BITMAP %08p (state=%d, has submenu=%s)\n", padding, i, mii.wID, mii.hbmpItem, mii.fState, mii.hSubMenu ? "TRUE" : "FALSE");
+            DbgPrint("%s%2d - %08x: BITMAP %08p (state=%d, submenu=%p)\n", padding, i, mii.wID, mii.hbmpItem, mii.fState, mii.hSubMenu);
         else if (mii.fType & MFT_SEPARATOR)
             DbgPrint("%s%2d - %08x ---SEPARATOR---\n", padding, i, mii.wID);
         else
-            DbgPrint("%s%2d - %08x: %S (state=%d, has submenu=%s)\n", padding, i, mii.wID, mii.dwTypeData, mii.fState, mii.hSubMenu ? "TRUE" : "FALSE");
+            DbgPrint("%s%2d - %08x: %S (state=%d, submenu=%p)\n", padding, i, mii.wID, mii.dwTypeData, mii.fState, mii.hSubMenu);
 
-        if (mii.hSubMenu)
+        if (mii.hSubMenu && submenus)
             DbgDumpMenuInternal(mii.hSubMenu, padding, padlevel + 2);
 
     }
@@ -536,10 +536,15 @@ static inline void DbgDumpMenuInternal(HMENU hmenu, char* padding, int padlevel)
     padding[padlevel] = 0;
 }
 
-static __inline void DbgDumpMenu(HMENU hmenu)
+static inline void DbgDumpMenuEx(HMENU hmenu, BOOL submenus)
 {
     char padding[128];
-    DbgDumpMenuInternal(hmenu, padding, 0);
+    DbgDumpMenuInternal(hmenu, padding, submenus ? 0x80000000 : 0);
+}
+
+static inline void DbgDumpMenu(HMENU hmenu)
+{
+    DbgDumpMenuEx(hmenu, TRUE);
 }
 
 
