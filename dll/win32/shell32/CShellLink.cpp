@@ -3189,7 +3189,7 @@ HRESULT STDMETHODCALLTYPE CShellLink::Drop(IDataObject *pDataObject,
 /**************************************************************************
  *      IShellLink_ConstructFromFile
  */
-HRESULT WINAPI IShellLink_ConstructFromPath(WCHAR *path, REFIID riid, LPVOID *ppv)
+HRESULT WINAPI IShellLink_ConstructFromPath(LPCWSTR path, REFIID riid, LPVOID *ppv)
 {
     CComPtr<IPersistFile> ppf;
     HRESULT hr = CShellLink::_CreatorClass::CreateInstance(NULL, IID_PPV_ARG(IPersistFile, &ppf));
@@ -3281,4 +3281,24 @@ cleanup:
         ImageList_Destroy(himl);
 
     return hNewIcon;
+}
+
+static inline HRESULT GetLinkTargetIDList(IShellLink *pSL, PIDLIST_ABSOLUTE *ppidl)
+{
+    HRESULT hr = pSL->GetIDList(ppidl);
+    return (hr == S_OK || FAILED(hr)) ? hr : E_FAIL; // Don't return S_FALSE
+}
+
+HRESULT SHELL_GetLinkTargetIDListFromPath(LPCWSTR path, PIDLIST_ABSOLUTE *ppidl)
+{
+    CComPtr<IShellLink> pSL;
+    HRESULT hr = IShellLink_ConstructFromPath(path, IID_PPV_ARG(IShellLink, &pSL));
+    return SUCCEEDED(hr) ? GetLinkTargetIDList(pSL, ppidl) : hr;
+}
+
+EXTERN_C HRESULT SHELL_GetLinkTargetIDListFromIDList(PIDLIST_ABSOLUTE pidl, PIDLIST_ABSOLUTE *ppidl)
+{
+    CComHeapPtr<WCHAR> pszPath;
+    HRESULT hr = SHGetNameFromIDList(pidl, SIGDN_DESKTOPABSOLUTEPARSING, &pszPath);
+    return SUCCEEDED(hr) ? SHELL_GetLinkTargetIDListFromPath(pszPath, ppidl) : hr;
 }

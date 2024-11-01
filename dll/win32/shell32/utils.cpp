@@ -183,8 +183,11 @@ BOOL Shell_FailForceReturn(_In_ HRESULT hr)
     }
 }
 
-HRESULT
-SHBindToObjectEx(
+/*************************************************************************
+ * SHBindToObject                        [SHELL32.@]
+ */
+EXTERN_C HRESULT WINAPI
+SHBindToObject(
     _In_opt_ IShellFolder *pShellFolder,
     _In_ LPCITEMIDLIST pidl,
     _In_opt_ IBindCtx *pBindCtx,
@@ -217,13 +220,13 @@ SHBindToObjectEx(
 }
 
 EXTERN_C
-HRESULT SHBindToObject(
+HRESULT SHELL32_BindToObject(
     _In_opt_ IShellFolder *psf,
     _In_ LPCITEMIDLIST pidl,
     _In_ REFIID riid,
     _Out_ void **ppvObj)
 {
-    return SHBindToObjectEx(psf, pidl, NULL, riid, ppvObj);
+    return SHBindToObject(psf, pidl, NULL, riid, ppvObj);
 }
 
 HRESULT
@@ -316,6 +319,98 @@ SHGetNameAndFlagsW(
     if (SUCCEEDED(hrCoInit))
         CoUninitialize();
 
+    return hr;
+}
+
+static HRESULT
+SHELL_CreateShellItemFromShellItem(IShellItem *pItem, BOOL TraverseLink, REFIID riid, void **ppv)
+{
+    HRESULT hr = S_OK;
+    CComPtr<IShellItem> pLinkItem;
+    if (TraverseLink && (CShellItem::GetAttributes(*pItem, SFGAO_LINK) & SFGAO_LINK))
+    {
+        // TODO: Implement and use BHID_LinkTargetItem instead
+        CComHeapPtr<ITEMIDLIST> pidl, pidlTarget;
+        if (SUCCEEDED(hr = SHGetIDListFromObject(pItem, &pidl)))
+        {
+            if (SUCCEEDED(hr = SHELL_GetLinkTargetIDListFromIDList(pidl, &pidlTarget)))
+            {
+                if (FAILED(hr = SHCreateShellItem(NULL, NULL, pidlTarget, &pLinkItem)))
+                    return hr;
+                pItem = pLinkItem;
+            }
+        }
+    }
+    if (SUCCEEDED(hr))
+        hr = pItem->QueryInterface(riid, ppv);
+    return hr;
+}
+
+/*************************************************************************
+ * SHGetItemFromDataObject           [SHELL32.@]
+ */
+EXTERN_C HRESULT WINAPI
+SHGetItemFromDataObject(IDataObject *pdtobj, DATAOBJ_GET_ITEM_FLAGS dwFlags, REFIID riid, void **ppv)
+{
+    HRESULT hr = E_FAIL;
+    PCIDLIST_ABSOLUTE pidlParent = NULL;
+    PCUITEMID_CHILD pidlItem = NULL;
+    CComHeapPtr<ITEMIDLIST> pidlStorage;
+    CDataObjectHIDA hida(pdtobj);
+    STGMEDIUM stgm;
+    BOOL traverse = (dwFlags & DOGIF_TRAVERSE_LINK);
+    if (dwFlags & ~(DOGIF_ONLY_IF_ONE | DOGIF_TRAVERSE_LINK | DOGIF_NO_HDROP))
+    {
+        FIXME("Unsupported flags %#x\n", dwFlags);
+    }
+
+    if (SUCCEEDED(hida.hr())) // CFSTR_SHELLIDLIST
+    {
+        pidlParent = HIDA_GetPIDLFolder(hida);
+        pidlItem = HIDA_GetPIDLItem(hida, 0);
+        if (hida->cidl == 0 || ((dwFlags & DOGIF_ONLY_IF_ONE) && hida->cidl != 1))
+            return E_FAIL;
+create:
+        CComPtr<IShellItem> item;
+        hr = SHCreateShellItem(pidlParent, NULL, pidlItem, &item);
+        if (SUCCEEDED(hr))
+            return SHELL_CreateShellItemFromShellItem(item, traverse, riid, ppv);
+        return hr;
+    }
+
+    if (!(dwFlags & DOGIF_NO_HDROP))
+    {
+        FORMATETC format = { CF_HDROP, NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+        if (SUCCEEDED(pdtobj->GetData(&format, &stgm)))
+        {
+            UINT count = DragQueryFileW((HDROP)stgm.hGlobal, -1, NULL, 0);
+            if (count && (count == 1 || !(dwFlags & DOGIF_ONLY_IF_ONE)))
+            {
+                UINT len = DragQueryFileW((HDROP)stgm.hGlobal, 0, NULL, 0);
+                if (LPWSTR path = (LPWSTR)SHAlloc(++len * sizeof(*path)))
+                {
+                    if (DragQueryFileW((HDROP)stgm.hGlobal, 0, path, len))
+                    {
+                        if ((pidlItem = ILCreateFromPathW(path)) == NULL)
+                            pidlItem = SHSimpleIDListFromPathW(path);
+                    }
+                    SHFree(path);
+                }
+            }
+            ReleaseStgMedium(&stgm);
+            if (pidlItem)
+            {
+                pidlStorage.Attach((LPITEMIDLIST)pidlItem);
+                goto create;
+            }
+        }
+    }
+
+    if (!(dwFlags & DOGIF_NO_URL))
+    {
+        // TODO: Create PIDL from CFSTR_INETURL
+    }
+    assert(FAILED(hr));
     return hr;
 }
 

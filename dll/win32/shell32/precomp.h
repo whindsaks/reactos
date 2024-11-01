@@ -203,14 +203,14 @@ Shell_DisplayNameOf(
     _In_ UINT cchBuf);
 
 EXTERN_C
-HRESULT SHBindToObject(
+HRESULT SHELL32_BindToObject(
     _In_opt_ IShellFolder *psf,
     _In_ LPCITEMIDLIST pidl,
     _In_ REFIID riid,
     _Out_ void **ppvObj);
 
-HRESULT
-SHBindToObjectEx(
+EXTERN_C HRESULT WINAPI
+SHBindToObject(
     _In_opt_ IShellFolder *pShellFolder,
     _In_ LPCITEMIDLIST pidl,
     _In_opt_ IBindCtx *pBindCtx,

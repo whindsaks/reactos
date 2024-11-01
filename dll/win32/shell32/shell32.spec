@@ -281,6 +281,9 @@
 282 stdcall SHCreateQueryCancelAutoPlayMoniker(ptr)
 283 stdcall SHCreateShellItem(ptr ptr ptr ptr)
 @ stdcall -version=0x600+ SHCreateShellItemArrayFromDataObject(ptr ptr ptr)
+@ stdcall -version=0x600+ SHCreateShellItemArray(ptr ptr long ptr ptr)
+@ stdcall -version=0x600+ SHCreateShellItemArrayFromShellItem(ptr ptr ptr)
+@ stdcall -version=0x600+ SHCreateShellItemArrayFromIDLists(long ptr ptr)
 284 stdcall SHEmptyRecycleBinA(long str long)
 285 stdcall SHEmptyRecycleBinW(long wstr long)
 286 stub SHEnableServiceObject
@@ -465,3 +468,11 @@
 754 stub -noname SHLimitInputEditWithFlags
 755 stdcall -noname PathIsEqualOrSubFolder(wstr wstr)
 756 stub -noname DeleteFileThumbnail
+@ stdcall -version=0x600+ SHBindToObject(ptr ptr ptr ptr ptr)
+@ stdcall -version=0x600+ SHCreateItemFromIDList(ptr ptr ptr)
+@ stdcall -version=0x600+ SHCreateItemFromParsingName(ptr ptr ptr ptr)
+@ stdcall -version=0x600+ SHCreateItemWithParent(ptr ptr ptr ptr ptr)
+@ stdcall -version=0x600+ SHGetNameFromIDList(ptr long ptr)
+@ stdcall -version=0x600+ SHGetIDListFromObject(ptr ptr)
+@ stdcall -version=0x601+ SHGetItemFromDataObject(ptr long ptr ptr)
+@ stdcall -version=0x601+ SHGetItemFromObject(ptr ptr ptr)

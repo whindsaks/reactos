@@ -84,7 +84,7 @@ IContextMenu2 *	ISvBgCm_Constructor(LPSHELLFOLDER pSFParent, BOOL bDesktop);
 HRESULT WINAPI CDefViewDual_Constructor(REFIID riid, LPVOID * ppvOut);
 HRESULT WINAPI CShellDispatch_Constructor(REFIID riid, LPVOID * ppvOut);
 
-HRESULT WINAPI IShellLink_ConstructFromPath(WCHAR *path, REFIID riid, LPVOID *ppv);
+HRESULT WINAPI IShellLink_ConstructFromPath(LPCWSTR path, REFIID riid, LPVOID *ppv);
 HRESULT WINAPI IShellLink_ConstructFromFile(IShellFolder * psf, LPCITEMIDLIST pidl, REFIID riid, LPVOID *ppv);
 HRESULT WINAPI IFileSystemBindData_Constructor(const WIN32_FIND_DATAW *pfd, LPBC *ppV);
 HRESULT WINAPI CPanel_ExtractIconA(LPITEMIDLIST pidl, LPCSTR pszFile, UINT nIconIndex, HICON *phiconLarge, HICON *phiconSmall, UINT nIconSize) DECLSPEC_HIDDEN;
@@ -190,6 +190,11 @@ HRESULT SHELL_RegisterShellFolders(void) DECLSPEC_HIDDEN;
 
 /* Detect Shell Links */
 BOOL SHELL_IsShortcut(LPCITEMIDLIST) DECLSPEC_HIDDEN;
+
+HRESULT WINAPI SHGetIDListFromObject(IUnknown *punk, PIDLIST_ABSOLUTE *ppidl);
+HRESULT WINAPI SHGetItemFromDataObject(IDataObject *pdtobj, DATAOBJ_GET_ITEM_FLAGS dwFlags, REFIID riid, void **ppv);
+HRESULT SHELL_GetLinkTargetIDListFromPath(LPCWSTR path, PIDLIST_ABSOLUTE *ppidl);
+HRESULT SHELL_GetLinkTargetIDListFromIDList(PIDLIST_ABSOLUTE pidl, PIDLIST_ABSOLUTE *ppidl);
 
 INT_PTR CALLBACK SH_FileGeneralDlgProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
 INT_PTR CALLBACK SH_FileVersionDlgProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);

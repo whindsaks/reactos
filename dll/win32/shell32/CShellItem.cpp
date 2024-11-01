@@ -261,7 +261,10 @@ HRESULT WINAPI CShellItem::GetIDList(PIDLIST_ABSOLUTE *ppidl)
         return E_OUTOFMEMORY;
 }
 
-HRESULT WINAPI SHCreateShellItem(PCIDLIST_ABSOLUTE pidlParent,
+/*************************************************************************
+ * SHCreateShellItem                 [SHELL32.@]
+ */
+EXTERN_C HRESULT WINAPI SHCreateShellItem(PCIDLIST_ABSOLUTE pidlParent,
     IShellFolder *psfParent, PCUITEMID_CHILD pidl, IShellItem **ppsi)
 {
     HRESULT hr;
@@ -334,6 +337,50 @@ HRESULT WINAPI SHCreateShellItem(PCIDLIST_ABSOLUTE pidlParent,
     *ppsi = newShellItem.Detach();
 
     return hr;
+}
+
+/*************************************************************************
+ * SHCreateItemWithParent            [SHELL32.@]
+ */
+EXTERN_C HRESULT WINAPI SHCreateItemWithParent(PCIDLIST_ABSOLUTE pidlParent, IShellFolder *psfParent,
+                                               PCUITEMID_CHILD pidl, REFIID riid, void **ppvItem)
+{
+    if (!pidlParent && !psfParent)
+        return E_INVALIDARG;
+    CComPtr<IShellItem> pItem;
+    HRESULT hr = SHCreateShellItem(pidlParent, psfParent, pidl, &pItem);
+    return SUCCEEDED(hr) ? pItem->QueryInterface(riid, ppvItem) : hr;
+}
+
+/*************************************************************************
+ * SHCreateItemFromIDList            [SHELL32.@]
+ */
+EXTERN_C HRESULT WINAPI SHCreateItemFromIDList(PCIDLIST_ABSOLUTE pidl, REFIID riid, void **ppv)
+{
+    CComPtr<IShellItem> pItem;
+    HRESULT hr = SHCreateShellItem(NULL, NULL, pidl, &pItem);
+    return SUCCEEDED(hr) ? pItem->QueryInterface(riid, ppv) : hr;
+}
+
+/*************************************************************************
+ * SHCreateItemFromParsingName       [SHELL32.@]
+ */
+EXTERN_C HRESULT WINAPI SHCreateItemFromParsingName(PCWSTR pszPath, IBindCtx *pbc, REFIID riid, void **ppv)
+{
+    SFGAOF attr = 0;
+    CComHeapPtr<ITEMIDLIST> pidl;
+    HRESULT hr = SHParseDisplayName(pszPath, pbc, &pidl, attr, &attr);
+    return SUCCEEDED(hr) ? SHCreateItemFromIDList(pidl, riid, ppv) : hr;
+}
+
+/*************************************************************************
+ * SHGetItemFromObject               [SHELL32.@]
+ */
+EXTERN_C HRESULT WINAPI SHGetItemFromObject(IUnknown *punk, REFIID riid, void **ppv)
+{
+    CComHeapPtr<ITEMIDLIST> pidl;
+    HRESULT hr = SHGetIDListFromObject(punk, &pidl);
+    return SUCCEEDED(hr) ? SHCreateItemFromIDList(pidl, riid, ppv) : hr;
 }
 
 class CShellItemArray :
@@ -425,8 +472,52 @@ BEGIN_COM_MAP(CShellItemArray)
 END_COM_MAP()
 };
 
+/*************************************************************************
+ * SHCreateShellItemArrayFromDataObject  [SHELL32.@]
+ */
 EXTERN_C HRESULT WINAPI
 SHCreateShellItemArrayFromDataObject(_In_ IDataObject *pdo, _In_ REFIID riid, _Out_ void **ppv)
 {
     return ShellObjectCreatorInit<CShellItemArray>(pdo, riid, ppv);
+}
+
+/*************************************************************************
+ * SHCreateShellItemArray                [SHELL32.@]
+ */
+EXTERN_C HRESULT WINAPI SHCreateShellItemArray(PCIDLIST_ABSOLUTE pidlParent, IShellFolder *psf,
+                                               UINT cidl, PCUITEMID_CHILD_ARRAY ppidl, IShellItemArray **ppSIA)
+{
+    HRESULT hr;
+    CComHeapPtr<ITEMIDLIST> pidl;
+    if (!pidlParent)
+    {
+        if (FAILED(hr = SHGetIDListFromObject(psf, &pidl)))
+            return hr;
+        pidlParent = pidl;
+    }
+    CComPtr<IDataObject> pDO;
+    hr = IDataObject_Constructor(NULL, pidlParent, ppidl, cidl, cidl != 0, &pDO);
+    return SUCCEEDED(hr) ? SHCreateShellItemArrayFromDataObject(pDO, IID_PPV_ARG(IShellItemArray, ppSIA)) : hr;
+}
+
+/*************************************************************************
+ * SHCreateShellItemArrayFromIDLists     [SHELL32.@]
+ */
+EXTERN_C HRESULT WINAPI SHCreateShellItemArrayFromIDLists(UINT cidl, PCIDLIST_ABSOLUTE_ARRAY rgpidl,
+                                                          IShellItemArray **ppSIA)
+{
+    const ITEMIDLIST root = {};
+    return SHCreateShellItemArray(&root, NULL, cidl, rgpidl, ppSIA);
+}
+
+/*************************************************************************
+ * SHCreateShellItemArrayFromShellItem   [SHELL32.@]
+ */
+EXTERN_C HRESULT WINAPI SHCreateShellItemArrayFromShellItem(IShellItem *psi, REFIID riid, void **ppv)
+{
+    if (!psi)
+        return E_INVALIDARG;
+    CComPtr<IDataObject> pDO;
+    HRESULT hr = psi->BindToHandler(NULL, BHID_DataObject, IID_PPV_ARG(IDataObject, &pDO));
+    return SUCCEEDED(hr) ? SHCreateShellItemArrayFromDataObject(pDO, riid, ppv) : hr;
 }

@@ -38,6 +38,11 @@ public:
     HRESULT get_parent_shellfolder(IShellFolder **ppsf);
     HRESULT get_shellfolder(IBindCtx *pbc, REFIID riid, void **ppvOut);
 
+    static inline SFGAOF GetAttributes(IShellItem &Item, SFGAOF attribs)
+    {
+        return SUCCEEDED(Item.GetAttributes(attribs, &attribs)) ? attribs : 0;
+    }
+
     // IShellItem
     STDMETHOD(BindToHandler)(IBindCtx *pbc, REFGUID rbhid, REFIID riid, void **ppvOut) override;
     STDMETHOD(GetParent)(IShellItem **ppsi) override;
