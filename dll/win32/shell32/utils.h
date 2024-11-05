@@ -7,6 +7,12 @@
 
 #pragma once
 
+inline BOOL IsEqualPersistClassID(IPersist *pPersist, REFCLSID clsid)
+{
+    CLSID temp;
+    return pPersist && SUCCEEDED(pPersist->GetClassID(&temp)) && IsEqualCLSID(clsid, temp);
+}
+
 inline BOOL
 RegValueExists(HKEY hKey, LPCWSTR Name)
 {

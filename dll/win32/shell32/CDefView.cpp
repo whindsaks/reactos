@@ -272,7 +272,8 @@ private:
     CComPtr<IContextMenu>     m_pFileMenu;
 
     BOOL                      m_isEditing;
-    BOOL                      m_isParentFolderSpecial;
+    WORD                      m_SpecialFolder;
+    bool                      m_isFullStatusBar;
     bool                      m_ScheduledStatusbarUpdate;
 
     CLSID m_Category;
@@ -291,6 +292,12 @@ private:
     void _ForceStatusBarResize();
     void _DoCopyToMoveToFolder(BOOL bCopy);
     BOOL IsDesktop() const { return m_FolderSettings.fFlags & FWF_DESKTOP; }
+
+    inline BOOL IsSpecialFolder(int &csidl) const
+    {
+        csidl = LOBYTE(m_SpecialFolder);
+        return m_SpecialFolder;
+    }
 
 public:
     CDefView();
@@ -590,7 +597,8 @@ CDefView::CDefView() :
     m_iDragOverItem(0),
     m_cScrollDelay(0),
     m_isEditing(FALSE),
-    m_isParentFolderSpecial(FALSE),
+    m_SpecialFolder(0),
+    m_isFullStatusBar(true),
     m_ScheduledStatusbarUpdate(false),
     m_Destroyed(FALSE)
 {
@@ -732,7 +740,7 @@ void CDefView::UpdateStatusbar()
     m_pShellBrowser->SendControlMsg(FCW_STATUS, SB_SETTEXT, 0, (LPARAM)szPartText, &lResult);
 
     // Don't bother with the extra processing if we only have one StatusBar part
-    if (!m_isParentFolderSpecial)
+    if (m_isFullStatusBar)
     {
         UINT64 uTotalFileSize = 0;
         WORD uFileFlags = LVNI_ALL;
@@ -761,23 +769,28 @@ void CDefView::UpdateStatusbar()
         // Don't show the file size text if there is 0 bytes in the folder
         // OR we only have folders selected
         if ((cSelectedItems && !bIsOnlyFoldersSelected) || uTotalFileSize)
-        {
             StrFormatByteSizeW(uTotalFileSize, szPartText, _countof(szPartText));
-        }
         else
-        {
             *szPartText = 0;
-        }
 
         m_pShellBrowser->SendControlMsg(FCW_STATUS, SB_SETTEXT, 1, (LPARAM)szPartText, &lResult);
 
-        // If we are in a Recycle Bin then show no text for the location part
-        if (!_ILIsBitBucket(m_pidlParent))
+        *szPartText = 0;
+        // If we are in the Recycle Bin then show no text for the location part
+        int csidl;
+        if (!IsSpecialFolder(csidl) || (csidl != CSIDL_NETWORK && csidl != CSIDL_BITBUCKET))
         {
             LoadStringW(shell32_hInstance, IDS_MYCOMPUTER, szPartText, _countof(szPartText));
             pIcon = (LPARAM)m_hMyComputerIcon;
         }
-
+        /*else if (csidl == CSIDL_NETWORK)
+        {
+            // TODO: Figure out the type of share (My Computer/Local Intranet/Internet?)
+            int x, y;
+            ImageList_GetIconSize(ListView_GetImageList(m_ListView, LVSIL_SMALL), &x, &y);
+            pIcon = (LPARAM)LoadImage(shell32_hInstance, MAKEINTRESOURCEW(IDI_SHELL_MY_NETWORK_PLACES),
+                                      IMAGE_ICON, x, y, LR_SHARED);
+        }*/
         m_pShellBrowser->SendControlMsg(FCW_STATUS, SB_SETICON, 2, pIcon, &lResult);
         m_pShellBrowser->SendControlMsg(FCW_STATUS, SB_SETTEXT, 2, (LPARAM)szPartText, &lResult);
     }
@@ -1751,21 +1764,27 @@ LRESULT CDefView::OnCreate(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandl
 
     m_hAccel = LoadAcceleratorsW(shell32_hInstance, MAKEINTRESOURCEW(IDA_SHELLVIEW));
 
-    BOOL bPreviousParentSpecial = m_isParentFolderSpecial;
-
-    // A folder is special if it is the Desktop folder,
-    // a network folder, or a Control Panel folder
-    m_isParentFolderSpecial = IsDesktop() || _ILIsNetHood(m_pidlParent)
-        || _ILIsControlPanel(ILFindLastID(m_pidlParent));
-
-    // Only force StatusBar part refresh if the state
-    // changed from the previous folder
-    if (bPreviousParentSpecial != m_isParentFolderSpecial)
+    const BOOL bPreviousFullStatusBar = m_isFullStatusBar;
+    BOOL bIsFileSystem = SHGetAttributes(NULL, m_pidlParent, SFGAO_FILESYSTEM) & SFGAO_FILESYSTEM;
+    m_SpecialFolder = bIsFileSystem ? 0 : 0x8000;
+    if (IsDesktop())
     {
-        // This handles changing StatusBar parts
-        _ForceStatusBarResize();
+        m_SpecialFolder = CSIDL_DESKTOP | 0x0100; // CSIDL_DESKTOP is 0 so we have to add a bit
     }
-
+    else if (IsEqualPersistClassID(ppf2, CLSID_RecycleBin))
+    {
+        m_SpecialFolder = CSIDL_BITBUCKET;
+    }
+    else if (bIsFileSystem)
+    {
+        CComHeapPtr<ITEMIDLIST> pidlNet(SHCloneSpecialIDList(NULL, CSIDL_NETWORK, FALSE));
+        if (ILIsParent(pidlNet, m_pidlParent, FALSE) && ILGetSize(pidlNet) < ILGetSize(m_pidlParent))
+            m_SpecialFolder = CSIDL_NETWORK;
+    }
+    m_isFullStatusBar = bIsFileSystem;
+    // Only force StatusBar part refresh if the state changed from the previous folder
+    if (bPreviousFullStatusBar != m_isFullStatusBar)
+        _ForceStatusBarResize(); // This handles changing StatusBar parts
     UpdateStatusbar();
 
     return S_OK;
@@ -4370,7 +4389,7 @@ void CDefView::_HandleStatusBarResize(int nWidth)
 {
     LRESULT lResult;
 
-    if (m_isParentFolderSpecial)
+    if (!m_isFullStatusBar)
     {
         int nPartArray[] = {-1};
         m_pShellBrowser->SendControlMsg(FCW_STATUS, SB_SETPARTS, _countof(nPartArray), (LPARAM)nPartArray, &lResult);
@@ -4608,7 +4627,7 @@ HRESULT WINAPI CDefView::GetAdvise(DWORD *pAspects, DWORD *pAdvf, IAdviseSink **
 
 HRESULT STDMETHODCALLTYPE CDefView::QueryService(REFGUID guidService, REFIID riid, void **ppvObject)
 {
-    if (IsEqualIID(guidService, SID_IShellBrowser))
+    if (IsEqualIID(guidService, SID_IShellBrowser) && m_pShellBrowser)
         return m_pShellBrowser->QueryInterface(riid, ppvObject);
     else if(IsEqualIID(guidService, SID_IFolderView))
         return QueryInterface(riid, ppvObject);
