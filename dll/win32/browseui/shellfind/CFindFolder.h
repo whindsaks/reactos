@@ -64,11 +64,13 @@ class CFindFolder :
 
 private:
     LPITEMIDLIST m_pidl;
-    CComPtr<IShellFolder2> m_pisfInner;
+    CComPtr<IShellFolder2> m_pisfInner, m_pSfDesktop;
     CComPtr<IShellFolderView> m_shellFolderView;
     CComPtr<IShellBrowser> m_shellBrowser;
     HANDLE m_hStopEvent;
 
+    HRESULT GetFSFolderAndChild(LPCITEMIDLIST pidl, IShellFolder **ppSF, PCUITEMID_CHILD *ppidlLast = NULL);
+    HRESULT GetFSFolder2AndChild(LPCITEMIDLIST pidl, IShellFolder2 **ppSF, PCUITEMID_CHILD *ppidlLast = NULL);
     void NotifyConnections(DISPID id);
     static DWORD WINAPI SearchThreadProc(LPVOID lpParameter);
 

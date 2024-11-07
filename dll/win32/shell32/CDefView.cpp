@@ -3048,7 +3048,7 @@ HRESULT WINAPI CDefView::TranslateAccelerator(LPMSG lpmsg)
         TRACE("-- key=0x%04lx\n", lpmsg->wParam);
     }
 
-    return m_pShellBrowser->TranslateAcceleratorSB(lpmsg, 0);
+    return m_pShellBrowser ? m_pShellBrowser->TranslateAcceleratorSB(lpmsg, 0) : S_FALSE;
 }
 
 HRESULT WINAPI CDefView::EnableModeless(BOOL fEnable)
@@ -3283,7 +3283,7 @@ HRESULT CDefView::SaveViewState(IStream *pStream)
     lvc.mask = LVCF_WIDTH | LVCF_SUBITEM;
     for (UINT i = 0, j = 0; i < PERSISTCOLUMNS::MAXCOUNT && ListView_GetColumn(m_ListView, j, &lvc); ++j)
     {
-        HRESULT hr = MapListColumnToFolderColumn(lvc.iSubItem);
+        HRESULT hr = MapListColumnToFolderColumn(j);
         if (SUCCEEDED(hr))
         {
             cols.Columns[i] = MAKELONG(hr, lvc.cx);
@@ -3335,6 +3335,7 @@ HRESULT CDefView::SaveViewState(IStream *pStream)
         if (SUCCEEDED(hr))
             hr = pStream->Write(&cols, cbColumns, &written);
     }
+    // TODO: else if (SUCCEEDED(_DoFolderViewCB(SFVM_GETCOLUMNSTREAM)))
     if (pStream)
         pStream->Release();
     return hr;
@@ -4608,7 +4609,7 @@ HRESULT WINAPI CDefView::GetAdvise(DWORD *pAspects, DWORD *pAdvf, IAdviseSink **
 
 HRESULT STDMETHODCALLTYPE CDefView::QueryService(REFGUID guidService, REFIID riid, void **ppvObject)
 {
-    if (IsEqualIID(guidService, SID_IShellBrowser))
+    if (IsEqualIID(guidService, SID_IShellBrowser) && m_pShellBrowser)
         return m_pShellBrowser->QueryInterface(riid, ppvObject);
     else if(IsEqualIID(guidService, SID_IFolderView))
         return QueryInterface(riid, ppvObject);
