@@ -394,7 +394,7 @@ public:
 EXTERN_C HRESULT
 BindCtx_RegisterObjectParam(
     _In_ IBindCtx *pBindCtx,
-    _In_ LPOLESTR pszKey,
+    _In_ LPCOLESTR pszKey,
     _In_opt_ IUnknown *punk,
     _Out_ LPBC *ppbc)
 {
@@ -417,7 +417,7 @@ BindCtx_RegisterObjectParam(
     if (!punk)
         punk = pUnknown = new CDummyOleWindow();
 
-    hr = (*ppbc)->RegisterObjectParam(pszKey, punk);
+    hr = (*ppbc)->RegisterObjectParam(const_cast<LPOLESTR>(pszKey), punk);
 
     if (pUnknown)
         pUnknown->Release();
@@ -428,6 +428,36 @@ BindCtx_RegisterObjectParam(
         *ppbc = NULL;
     }
 
+    return hr;
+}
+
+EXTERN_C HRESULT
+BindCtx_RegisterObjectParams(
+    _In_ IBindCtx *pBindCtx,
+    _In_ const LPCOLESTR *ppszKeys,
+    _In_ UINT Count,
+    _Out_ LPBC *ppbc)
+{
+    *ppbc = NULL;
+    HRESULT hr = S_FALSE;
+    for (UINT i = 0; i < Count; ++i)
+    {
+        hr = BindCtx_RegisterObjectParam(pBindCtx, ppszKeys[i], NULL, &pBindCtx);
+        if (FAILED(hr))
+        {
+            if (*ppbc)
+                (*ppbc)->Release();
+            break;
+        }
+        else if (i == 0)
+        {
+            *ppbc = pBindCtx;
+        }
+        else
+        {
+            pBindCtx->Release();
+        }
+    }
     return hr;
 }
 

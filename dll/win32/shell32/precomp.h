@@ -235,8 +235,14 @@ EXTERN_C HWND BindCtx_GetUIWindow(_In_ IBindCtx *pBindCtx);
 EXTERN_C HRESULT
 BindCtx_RegisterObjectParam(
     _In_ IBindCtx *pBindCtx,
-    _In_ LPOLESTR pszKey,
+    _In_ LPCOLESTR pszKey,
     _In_opt_ IUnknown *punk,
+    _Out_ LPBC *ppbc);
+EXTERN_C HRESULT
+BindCtx_RegisterObjectParams(
+    _In_ IBindCtx *pBindCtx,
+    _In_ const LPCOLESTR *ppszKeys,
+    _In_ UINT Count,
     _Out_ LPBC *ppbc);
 
 BOOL PathIsDotOrDotDotW(_In_ LPCWSTR pszPath);

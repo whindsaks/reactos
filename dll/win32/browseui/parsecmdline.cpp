@@ -172,7 +172,7 @@ static LPITEMIDLIST _ILReadFromSharedMemory(PCWSTR strField)
     LPITEMIDLIST ret = NULL;
 
     // Ensure it really is an IDLIST-formatted parameter
-    // Format for IDLIST params: ":pid:shared"
+    // Format for IDLIST params: ":shared:pid"
     if (*strField != L':')
         return NULL;
 

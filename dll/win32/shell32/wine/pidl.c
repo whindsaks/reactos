@@ -59,7 +59,7 @@ EXTERN_C HWND BindCtx_GetUIWindow(_In_ IBindCtx *pBindCtx);
 EXTERN_C HRESULT
 BindCtx_RegisterObjectParam(
     _In_ IBindCtx *pBindCtx,
-    _In_ LPOLESTR pszKey,
+    _In_ LPCOLESTR pszKey,
     _In_opt_ IUnknown *punk,
     _Out_ LPBC *ppbc);
 
