@@ -21,6 +21,53 @@
 
 #include "precomp.h"
 
+static int CalculateToastPosition(RECT &rect)
+{
+    const UINT width = rect.right - rect.left, height = rect.bottom - rect.top;
+    // TODO: Fix and use ABM_GETTASKBARPOS to get the taskbar position
+    HWND hWnd = FindWindowW(L"Shell_TrayWnd", NULL);
+    RECT tbr;
+    if (!hWnd || !GetWindowRect(hWnd, &tbr))
+        return -1;
+    UINT tbw = tbr.right - tbr.left, tbh = tbr.bottom - tbr.top, pos = 0;
+    int monw = GetSystemMetrics(SM_CXSCREEN), monh = GetSystemMetrics(SM_CYSCREEN);
+    if (abs(monw - tbw) <= abs(monh - tbh))
+    {
+        rect.right = monw;
+        rect.left = rect.right - width;
+        if (tbr.top <= monh / 2)
+        {
+            rect.top = tbr.bottom;
+            rect.bottom = rect.top + height;
+            pos = ABE_TOP;
+        }
+        else
+        {
+            rect.bottom = tbr.top;
+            rect.top = rect.bottom - height;
+            pos = ABE_BOTTOM;
+        }
+    }
+    else
+    {
+        rect.bottom = monh;
+        rect.top = rect.bottom - height;
+        if (tbr.left <= monw / 2)
+        {
+            rect.left = tbr.right;
+            rect.right = rect.left + width;
+            pos = ABE_LEFT;
+        }
+        else
+        {
+            rect.right = tbr.left;
+            rect.left = rect.right - width;
+            pos = ABE_RIGHT;
+        }
+    }
+    return pos;
+}
+
 /*
  * TrayClockWnd
  */
@@ -42,6 +89,16 @@ const UINT ClockWndFormatsCount = _ARRAYSIZE(ClockWndFormats);
 #define CLOCKWND_FORMAT_DAY  1
 #define CLOCKWND_FORMAT_DATE 2
 
+typedef CWinTraits<WS_DLGFRAME | WS_POPUP | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, WS_EX_TOOLWINDOW | WS_EX_TOPMOST> CTrayClockHoverToastTraits;
+class CTrayClockHoverToast :
+    public CWindowImpl < CTrayClockHoverToast, CWindow, CTrayClockHoverToastTraits >
+{
+public:
+    DECLARE_WND_CLASS_EX(L"TrayClockHover", 0, COLOR_3DFACE)
+    BEGIN_MSG_MAP(CTrayClockHoverToast)
+    END_MSG_MAP()
+};
+
 static const WCHAR szTrayClockWndClass[] = L"TrayClockWClass";
 
 class CTrayClockWnd :
@@ -55,6 +112,7 @@ class CTrayClockWnd :
     RECT rcText;
     SYSTEMTIME LocalTime;
     CTooltips m_tooltip;
+    CTrayClockHoverToast m_hovertoast;
 
     union
     {
@@ -99,6 +157,7 @@ private:
     LRESULT OnSetFont(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
     LRESULT OnCreate(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
     LRESULT OnSize(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+    LRESULT OnNotify(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
     LRESULT OnTaskbarSettingsChanged(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
     LRESULT OnLButtonDblClick(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
     VOID PaintLine(IN HDC hDC, IN OUT RECT *rcClient, IN UINT LineNumber, IN UINT szLinesIndex);
@@ -132,6 +191,7 @@ public:
         MESSAGE_HANDLER(WM_DESTROY, OnDestroy)
         MESSAGE_HANDLER(WM_ERASEBKGND, OnEraseBackground)
         MESSAGE_HANDLER(WM_SIZE, OnSize)
+        MESSAGE_HANDLER(WM_NOTIFY, OnNotify)
         MESSAGE_HANDLER(WM_PAINT, OnPaint)
         MESSAGE_HANDLER(WM_PRINTCLIENT, OnPaint)
         MESSAGE_HANDLER(WM_THEMECHANGED, OnThemeChanged)
@@ -686,6 +746,52 @@ LRESULT CTrayClockWnd::OnSize(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHa
 
     UpdateWnd();
     return TRUE;
+}
+
+LRESULT CTrayClockWnd::OnNotify(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+    NMHDR &nmh = *(LPNMHDR)lParam;
+    switch (nmh.code)
+    {
+        case TTN_SHOW:
+            if (m_hovertoast || m_hovertoast.Create(NULL))
+            {
+                RECT rect;
+                WCHAR date[500];
+                GetDateFormat(LOCALE_USER_DEFAULT, DATE_LONGDATE, &LocalTime, NULL, date, _countof(date));
+                ::GetWindowRect(nmh.hwndFrom, &rect);
+                UINT pad = GetSystemMetrics(SM_CXBORDER), image = GetSystemMetrics(SM_CXICON);
+                UINT borderw = GetSystemMetrics(SM_CXDLGFRAME), borderh = GetSystemMetrics(SM_CYDLGFRAME);
+                rect.right += borderw + pad + image + pad + pad + borderw;
+                rect.bottom = rect.top + borderh + max(rect.bottom - rect.top, (long)(pad + image + pad)) + borderh;
+                if (CalculateToastPosition(rect) >= 0)
+                {
+                    UINT width = rect.right - rect.left, height = rect.bottom - rect.top;
+                    HWND hWnd = m_hovertoast.GetDlgItem(1);
+                    if (!hWnd)
+                    {
+                        hWnd = ::CreateWindowW(WC_STATIC, NULL, WS_VISIBLE | WS_CHILD | SS_ICON,
+                                               pad, pad, image, image, m_hovertoast, (HMENU)1, NULL, NULL);
+                        SendMessageW(hWnd, STM_SETICON, (WPARAM)LoadIconW(LoadLibraryA("timedate.cpl"), (PWSTR)1), 0);//FIXME: store the icon handle from extracticon and kill in hover wnd destroy
+                        UINT tmp = pad + image + pad, clientw = width - borderw * 2, clienth = height - borderh * 2;
+                        hWnd = ::CreateWindowW(WC_STATIC, date, WS_VISIBLE | WS_CHILD | SS_CENTERIMAGE | SS_CENTER | SS_NOPREFIX,
+                                               tmp, 0, clientw - tmp, clienth, m_hovertoast, NULL, NULL, NULL);
+                        SendMessageW(hWnd, WM_SETFONT, (WPARAM)hFont, FALSE);
+                    }
+                    m_hovertoast.SetWindowPos(HWND_TOPMOST, rect.left, rect.top, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                    ::SetWindowPos(nmh.hwndFrom, NULL, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOZORDER); // Hide the tooltip
+                    SendMessageW(nmh.hwndFrom, TTM_SETDELAYTIME, TTDT_AUTOPOP, 0x7fffffff);
+                    return TRUE;
+                }
+            }
+            break;
+        case TTN_POP:
+            if (m_hovertoast)
+                m_hovertoast.DestroyWindow();
+            SendMessageW(nmh.hwndFrom, TTM_SETDELAYTIME, TTDT_AUTOPOP, -1);
+            break;
+    }
+    return 0;
 }
 
 LRESULT CTrayClockWnd::OnTaskbarSettingsChanged(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
