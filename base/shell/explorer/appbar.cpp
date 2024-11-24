@@ -35,6 +35,8 @@
 
 #include <wine/list.h>
 
+#define GetPrimaryTaskbar() FindWindowW(L"Shell_TrayWnd", NULL)
+
 struct appbar_cmd
 {
     DWORD  dwMsg;
@@ -201,14 +203,10 @@ static UINT_PTR handle_appbarmessage(DWORD msg, _AppBarData *abd)
         FIXME("SHAppBarMessage(ABM_GETSTATE): stub\n");
         return ABS_ALWAYSONTOP | ABS_AUTOHIDE;
     case ABM_GETTASKBARPOS:
-        FIXME("SHAppBarMessage(ABM_GETTASKBARPOS, hwnd=%p): stub\n", hwnd);
-        /* Report the taskbar is at the bottom of the screen. */
-        abd->rc.left = 0;
-        abd->rc.right = GetSystemMetrics(SM_CXSCREEN);
-        abd->rc.bottom = GetSystemMetrics(SM_CYSCREEN);
-        abd->rc.top = abd->rc.bottom-1;
-        abd->uEdge = ABE_BOTTOM;
-        return TRUE;
+        TRACE("SHAppBarMessage(ABM_GETTASKBARPOS, hwnd=%p)\n", hwnd);
+        abd->uEdge = g_TaskbarSettings.sr.Position;
+        abd->hWnd = GetPrimaryTaskbar();
+        return abd->hWnd && GetWindowRect(abd->hWnd, &abd->rc);
     case ABM_ACTIVATE:
         return TRUE;
     case ABM_GETAUTOHIDEBAR:

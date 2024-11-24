@@ -21,6 +21,50 @@
 
 #include "precomp.h"
 
+static int CalculateToastPositionEx(RECT &rect, UINT margin = 0)
+{
+    APPBARDATA abd;
+    abd.cbSize = sizeof(abd);
+    if (!SHAppBarMessage(ABM_GETTASKBARPOS, &abd))
+        return -1;
+
+    const UINT width = rect.right - rect.left, height = rect.bottom - rect.top;
+    int monw = GetSystemMetrics(SM_CXSCREEN), monh = GetSystemMetrics(SM_CYSCREEN);
+    RECT &tbr = abd.rc;
+    if (abd.uEdge == ABE_TOP || abd.uEdge == ABE_BOTTOM)
+    {
+        rect.right = monw - margin;
+        rect.left = rect.right - width;
+        if (abd.uEdge == ABE_TOP)
+        {
+            rect.top = tbr.bottom + margin;
+            rect.bottom = rect.top + height;
+        }
+        else
+        {
+            rect.bottom = tbr.top - margin;
+            rect.top = rect.bottom - height;
+        }
+    }
+    else
+    {
+        rect.bottom = monh - margin;
+        rect.top = rect.bottom - height;
+        if (abd.uEdge == ABE_LEFT)
+        {
+            rect.left = tbr.right + margin;
+            rect.right = rect.left + width;
+        }
+        else
+        {
+            rect.right = tbr.left - margin;
+            rect.left = rect.right - width;
+        }
+    }
+    return abd.uEdge;
+}
+
+
 /*
  * TrayClockWnd
  */
@@ -42,6 +86,26 @@ const UINT ClockWndFormatsCount = _ARRAYSIZE(ClockWndFormats);
 #define CLOCKWND_FORMAT_DAY  1
 #define CLOCKWND_FORMAT_DATE 2
 
+typedef CWinTraits<WS_POPUP | WS_BORDER | WS_CLIPCHILDREN, WS_EX_TOOLWINDOW | WS_EX_TOPMOST> CTrayClockToastTraits;
+class CTrayClockToast :
+    public CWindowImpl < CTrayClockToast, CWindow, CTrayClockToastTraits >
+{
+public:
+    LRESULT OnActivate(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+    {
+        if (wParam == WA_INACTIVE)
+            DestroyWindow();
+        else
+            ::SetFocus(GetDlgItem(42));
+        return 0;
+    }
+
+    DECLARE_WND_CLASS_EX(L"ClockFlyoutWindow", 0, COLOR_3DFACE)
+    BEGIN_MSG_MAP(CTrayClockToast)
+        MESSAGE_HANDLER(WM_ACTIVATE, OnActivate)
+    END_MSG_MAP()
+};
+
 static const WCHAR szTrayClockWndClass[] = L"TrayClockWClass";
 
 class CTrayClockWnd :
@@ -55,6 +119,7 @@ class CTrayClockWnd :
     RECT rcText;
     SYSTEMTIME LocalTime;
     CTooltips m_tooltip;
+    CTrayClockToast m_clocktoast;
 
     union
     {
@@ -100,6 +165,8 @@ private:
     LRESULT OnCreate(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
     LRESULT OnSize(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
     LRESULT OnTaskbarSettingsChanged(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+    LRESULT OnNotify(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+    LRESULT OnLButtonDown(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
     LRESULT OnLButtonDblClick(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
     VOID PaintLine(IN HDC hDC, IN OUT RECT *rcClient, IN UINT LineNumber, IN UINT szLinesIndex);
 
@@ -140,6 +207,8 @@ public:
         MESSAGE_HANDLER(WM_SETFONT, OnSetFont)
         MESSAGE_HANDLER(TNWM_GETMINIMUMSIZE, OnGetMinimumSize)
         MESSAGE_HANDLER(TWM_SETTINGSCHANGED, OnTaskbarSettingsChanged)
+        MESSAGE_HANDLER(WM_NOTIFY, OnNotify)
+        MESSAGE_HANDLER(WM_LBUTTONDOWN, OnLButtonDown)
         MESSAGE_HANDLER(WM_LBUTTONDBLCLK, OnLButtonDblClick)
     END_MSG_MAP()
 
@@ -742,6 +811,50 @@ LRESULT CTrayClockWnd::OnTaskbarSettingsChanged(UINT uMsg, WPARAM wParam, LPARAM
         NMHDR nmh = {GetParent(), 0, NTNWM_REALIGN};
         GetParent().SendMessage(WM_NOTIFY, 0, (LPARAM) &nmh);
         Update();
+    }
+    return 0;
+}
+
+LRESULT CTrayClockWnd::OnNotify(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+    NMHDR &nmh = *(LPNMHDR)lParam;
+    if (nmh.code == TTN_SHOW && m_clocktoast)
+    {
+        ::SetWindowPos(nmh.hwndFrom, NULL, 0, 0, 0, 0, SWP_NOACTIVATE); // Hide the tooltip
+        return TRUE;
+    }
+    return 0;
+}
+
+LRESULT CTrayClockWnd::OnLButtonDown(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+    if (m_clocktoast)
+    {
+        m_clocktoast.DestroyWindow();
+    }
+    else if (m_clocktoast.Create(NULL))
+    {
+        RECT rect;
+        INITCOMMONCONTROLSEX icex = { sizeof(icex), ICC_DATE_CLASSES };
+        InitCommonControlsEx(&icex);
+        UINT temp1 = GetSystemMetrics(SM_CXEDGE), temp2 = GetSystemMetrics(SM_CYEDGE);
+        const UINT offset = max(2, min(temp1, temp2)), pad = max(4, offset * 4);
+
+        HWND hCal = CreateWindowExW(0, MONTHCAL_CLASS, NULL, WS_CHILD | WS_TABSTOP |
+                                    WS_VISIBLE | MCS_NOTODAY | MCS_SHORTDAYSOFWEEK,
+                                    0, 0, 0, 0, m_clocktoast, (HMENU)42, NULL, NULL);
+        rect.left = rect.top = 0;
+        MonthCal_GetMinReqRect(hCal, &rect);
+        ::SetWindowPos(hCal, NULL, pad, pad, rect.right - rect.left, rect.bottom - rect.top, SWP_NOZORDER);
+
+        rect.right += pad * 2 + GetSystemMetrics(SM_CXBORDER) * 2;
+        rect.bottom += pad * 2 + GetSystemMetrics(SM_CYBORDER) * 2;
+        if (CalculateToastPositionEx(rect, offset) >= 0)
+        {
+            UINT width = rect.right - rect.left, height = rect.bottom - rect.top;
+            m_clocktoast.SetWindowPos(HWND_TOPMOST, rect.left, rect.top, width, height, SWP_SHOWWINDOW);
+            ::SetForegroundWindow(m_clocktoast);
+        }
     }
     return 0;
 }
