@@ -171,6 +171,36 @@ HRESULT GetCLSIDForFileType(PCUIDLIST_RELATIVE pidl, LPCWSTR KeyName, CLSID* pcl
     return GetCLSIDForFileTypeFromExtension(pExtension, KeyName, pclsid);
 }
 
+static HRESULT GetShellFolderAttributes(REFCLSID clsid, SFGAOF &Attributes)
+{
+    HKEY hKey;
+    HRESULT hr = SHRegGetCLSIDKeyW(clsid, L"ShellFolder", FALSE, FALSE, &hKey);
+    if (SUCCEEDED(hr))
+    {
+        DWORD err, data, size;
+        // TODO: Support "CallForAttributes"
+        size = sizeof(data);
+        err = RegGetValueW(hKey, NULL, L"Attributes", RRF_RT_REG_DWORD, NULL, &data, &size);
+        hr = err ? S_FALSE : S_OK;
+        Attributes &= (err ? 0 : data);
+        RegCloseKey(hKey);
+    }
+    else
+    {
+        Attributes = 0;
+    }
+    return hr;
+}
+
+static HRESULT GetShellFolderAttributes(LPCWSTR Name, SFGAOF &Attributes)
+{
+    CLSID clsid;
+    LPCWSTR pszExt = PathFindExtensionW(Name);
+    if (*pszExt == L'.' && SUCCEEDED(GetCLSIDForFileTypeFromExtension(pszExt, L"CLSID", &clsid)))
+        return GetShellFolderAttributes(clsid, Attributes);
+    return E_FAIL;
+}
+
 static HRESULT
 getDefaultIconLocation(LPWSTR szIconFile, UINT cchMax, int *piIndex, UINT uFlags)
 {
@@ -385,6 +415,7 @@ be inserted in a removable drive.
 class CFileSysEnum :
     public CEnumIDListBase
 {
+    bool m_CanEnumShellFolderAsFolder;
 private:
     HRESULT _AddFindResult(LPWSTR sParentDir, const WIN32_FIND_DATAW& FindData, DWORD dwFlags)
     {
@@ -405,6 +436,7 @@ private:
         }
 
         BOOL bDirectory = (FindData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+        BOOL bBoth = (dwFlags & (SHCONTF_FOLDERS | SHCONTF_NONFOLDERS)) == (SHCONTF_FOLDERS | SHCONTF_NONFOLDERS);
 
         HRESULT hr;
         if (bDirectory)
@@ -428,26 +460,16 @@ private:
                 }
             }
         }
-        else
+        else if (!bBoth)
         {
-            CLSID clsidFile;
-            LPWSTR pExtension = PathFindExtensionW(FindData.cFileName);
-            if (pExtension)
+            if (m_CanEnumShellFolderAsFolder)
             {
                 // FIXME: Cache this?
-                hr = GetCLSIDForFileTypeFromExtension(pExtension, L"CLSID", &clsidFile);
-                if (hr == S_OK)
+                SFGAOF att = SFGAO_FOLDER;
+                if (SUCCEEDED(GetShellFolderAttributes(FindData.cFileName, att)) && (att & SFGAO_FOLDER))
                 {
-                    HKEY hkey;
-                    hr = SHRegGetCLSIDKeyW(clsidFile, L"ShellFolder", FALSE, FALSE, &hkey);
-                    if (SUCCEEDED(hr))
-                    {
-                        ::RegCloseKey(hkey);
-
-                        // This should be presented as directory!
-                        bDirectory = TRUE;
-                        TRACE("Treating '%S' as directory!\n", FindData.cFileName);
-                    }
+                    bDirectory = TRUE;
+                    TRACE("Treating '%S' as directory!\n", FindData.cFileName);
                 }
             }
         }
@@ -482,7 +504,7 @@ private:
 public:
     CFileSysEnum()
     {
-
+        m_CanEnumShellFolderAsFolder = LOBYTE(GetVersion()) >= 6;
     }
 
     ~CFileSysEnum()
@@ -651,44 +673,29 @@ HRESULT SHELL32_GetFSItemAttributes(IShellFolder * psf, LPCITEMIDLIST pidl, LPDW
 
     if (!bDirectory)
     {
-        // https://git.reactos.org/?p=reactos.git;a=blob;f=dll/shellext/zipfldr/res/zipfldr.rgs;hb=032b5aacd233cd7b83ab6282aad638c161fdc400#l9
-        WCHAR szFileName[MAX_PATH];
-        LPWSTR pExtension;
-        BOOL hasName = _ILSimpleGetTextW(pidl, szFileName, _countof(szFileName));
         dwShellAttributes |= SFGAO_STREAM;
+        WCHAR szBuf[MAX_PATH];
+        LPCWSTR pszFileName = GetItemFileName(pidl, szBuf, _countof(szBuf));
 
         // Vista+ feature: Hidden files with a leading tilde treated as super-hidden
         // See https://devblogs.microsoft.com/oldnewthing/20170526-00/?p=96235
-        if (hasName && szFileName[0] == '~' && (dwFileAttributes & FILE_ATTRIBUTE_HIDDEN))
+        if (pszFileName[0] == '~' && (dwFileAttributes & FILE_ATTRIBUTE_HIDDEN))
             dwShellAttributes |= SFGAO_HIDDEN | SFGAO_SYSTEM;
 
-        if (hasName && (pExtension = PathFindExtensionW(szFileName)))
+        HRESULT hr;
+        SFGAOF fRegAttr = ~SFGAO_VALIDATE;
+        // FIXME: Cache this?
+        if (SUCCEEDED(hr = GetShellFolderAttributes(pszFileName, fRegAttr)))
         {
-            CLSID clsidFile;
-            // FIXME: Cache this?
-            HRESULT hr = GetCLSIDForFileTypeFromExtension(pExtension, L"CLSID", &clsidFile);
             if (hr == S_OK)
             {
-                HKEY hkey;
-                hr = SHRegGetCLSIDKeyW(clsidFile, L"ShellFolder", FALSE, FALSE, &hkey);
-                if (SUCCEEDED(hr))
-                {
-                    DWORD dwAttributes = 0;
-                    DWORD dwSize = sizeof(dwAttributes);
-                    LSTATUS Status;
-
-                    Status = SHRegGetValueW(hkey, NULL, L"Attributes", RRF_RT_REG_DWORD, NULL, &dwAttributes, &dwSize);
-                    if (Status == STATUS_SUCCESS)
-                    {
-                        TRACE("Augmenting '%S' with dwAttributes=0x%x\n", szFileName, dwAttributes);
-                        dwShellAttributes |= dwAttributes;
-                    }
-                    ::RegCloseKey(hkey);
-
-                    // This should be presented as directory!
-                    bDirectory = (dwAttributes & SFGAO_FOLDER) != 0 || dwAttributes == 0;
-                    TRACE("Treating '%S' as directory!\n", szFileName);
-                }
+                TRACE("Augmenting '%S' with fRegAttr=%#x\n", pszFileName, fRegAttr);
+                dwShellAttributes |= fRegAttr;
+            }
+            bDirectory = (fRegAttr & SFGAO_FOLDER) != 0 || (hr == S_FALSE && fRegAttr == 0);
+            if (bDirectory)
+            {
+                TRACE("Treating '%S' as directory!\n", pszFileName);
             }
         }
     }

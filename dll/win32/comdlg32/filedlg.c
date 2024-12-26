@@ -4077,6 +4077,9 @@ static int FILEDLG95_LOOKIN_AddItem(HWND hwnd,LPITEMIDLIST pidl, int iInsertId)
     liInfos->iMaxIndentation = tmpFolder->m_iIndent;
 
   sfi.dwAttributes = SFGAO_FILESYSANCESTOR | SFGAO_FILESYSTEM;
+#ifdef __REACTOS__
+  sfi.dwAttributes |= SFGAO_FOLDER | SFGAO_STREAM;
+#endif
   SHGetFileInfoW((LPCWSTR)pidl,
                   0,
                   &sfi,
@@ -4085,6 +4088,9 @@ static int FILEDLG95_LOOKIN_AddItem(HWND hwnd,LPITEMIDLIST pidl, int iInsertId)
 
   TRACE("-- Add %s attr=0x%08x\n", debugstr_w(sfi.szDisplayName), sfi.dwAttributes);
 
+#ifdef __REACTOS__
+  if ((sfi.dwAttributes & (SFGAO_FOLDER | SFGAO_STREAM)) != (SFGAO_FOLDER | SFGAO_STREAM)) /* Ignore .zip files */
+#endif
   if((sfi.dwAttributes & SFGAO_FILESYSANCESTOR) || (sfi.dwAttributes & SFGAO_FILESYSTEM))
   {
     int iItemID;
