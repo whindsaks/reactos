@@ -164,6 +164,11 @@ BOOL WINAPI
 RestoreFileFromRecycleBin(
     IN HDELFILE hDeletedFile);
 
+/* Parses a deleted filename
+*/
+EXTERN_C UINT
+ParseRecycleBinFileName(IN LPCWSTR Name, OUT DELETED_FILE_INFO *pDFI);
+
 /* COM interface */
 
 #define INTERFACE IRecycleBinFile

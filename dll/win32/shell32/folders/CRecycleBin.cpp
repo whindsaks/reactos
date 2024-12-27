@@ -636,8 +636,26 @@ HRESULT WINAPI CRecycleBin::ParseDisplayName(HWND hwnd, LPBC pbc,
         LPOLESTR pszDisplayName, ULONG *pchEaten, PIDLIST_RELATIVE *ppidl,
         ULONG *pdwAttributes)
 {
-    FIXME("stub\n");
-    return E_NOTIMPL; // FIXME: Parse "D<Drive><UniqueId>.ext"
+    if (!ppidl)
+        return E_INVALIDARG;
+    *ppidl = NULL;
+    if (!pszDisplayName)
+        return E_INVALIDARG;
+
+    HRESULT hr = E_FAIL;
+    DELETED_FILE_INFO info;
+    UINT eaten = ParseRecycleBinFileName(pszDisplayName, &info);
+    if (eaten)
+    {
+        *ppidl = CreateItem(info.RecycledFullPath.String, info.OriginalFullPath.String, info);
+        if (*ppidl)
+            hr = pdwAttributes ? GetAttributesOf(1, ppidl, (SFGAOF*)pdwAttributes) : S_OK;
+        FreeRecycleBinString(&info.OriginalFullPath);
+        FreeRecycleBinString(&info.RecycledFullPath);
+    }
+    if (pchEaten)
+        *pchEaten = eaten;
+    return hr;
 }
 
 HRESULT WINAPI CRecycleBin::EnumObjects(HWND hwndOwner, DWORD dwFlags, LPENUMIDLIST *ppEnumIDList)

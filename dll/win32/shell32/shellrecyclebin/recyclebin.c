@@ -7,6 +7,7 @@
  */
 
 #include "recyclebin_private.h"
+#include <shlwapi.h>
 
 BOOL WINAPI
 CloseRecycleBinHandle(
@@ -345,4 +346,60 @@ GetRecycleBinPathFromDriveNumber(UINT Drive, LPWSTR Path)
         IRecycleBin_Release(pRB);
     }
     return hr;
+}
+
+typedef struct _PARSEENUMCONTEXT
+{
+    LPCWSTR Name;
+    DELETED_FILE_INFO *pDFI;
+    UINT Eaten;
+} PARSEENUMCONTEXT;
+
+static BOOL CALLBACK
+ParseRecycleBinFileNameCallback(IN PVOID Context, IN HDELFILE hDeletedFile)
+{
+    PARSEENUMCONTEXT *pCtx = (PARSEENUMCONTEXT*)Context;
+    IRecycleBinFile *pRBF = IRecycleBinFileFromHDELFILE(hDeletedFile);
+    if (SUCCEEDED(IRecycleBinFile_GetInfo(pRBF, pCtx->pDFI)))
+    {
+        if (!lstrcmpiW(pCtx->Name, PathFindFileNameW(pCtx->pDFI->RecycledFullPath.String)))
+        {
+            pCtx->Eaten = wcslen(pCtx->Name);
+        }
+        else
+        {
+            FreeRecycleBinString(&pCtx->pDFI->OriginalFullPath);
+            FreeRecycleBinString(&pCtx->pDFI->RecycledFullPath);
+        }
+    }
+    CloseRecycleBinHandle(hDeletedFile);
+    return pCtx->Eaten == 0;
+}
+
+EXTERN_C UINT
+ParseRecycleBinFileName(IN LPCWSTR Name, OUT DELETED_FILE_INFO *pDFI)
+{
+    PARSEENUMCONTEXT ctx = { Name, pDFI, 0 };
+
+    if (wcschr(Name, L'\\'))
+        goto die;
+
+    /* RecycleBin5: "D<Drive><UniqueId>.ext" */
+    if (*Name == 'D')
+    {
+        const WCHAR drive = Name[1] & ~32;
+        const WCHAR volume[] = { drive, ':', '\\', '\0' };
+        if (drive >= 'A' && drive <= 'Z')
+        {
+            /* TODO: Lookup the database entry directly by UniqueId instead of enumerating */
+            EnumerateRecycleBinW(volume, ParseRecycleBinFileNameCallback, &ctx);
+        }
+    }
+die:
+    if (!ctx.Eaten)
+    {
+        InitializeRecycleBinStringRef(&pDFI->OriginalFullPath, L"");
+        InitializeRecycleBinStringRef(&pDFI->RecycledFullPath, L"");
+    }
+    return ctx.Eaten;
 }
