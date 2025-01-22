@@ -204,7 +204,7 @@ BOOL CExplorerBand::_NavigateToCurrentFolder()
     // Find PIDL into our explorer
     ++m_mtxBlockNavigate;
     HTREEITEM hItem;
-    BOOL result = _NavigateToPIDL(pidl, &hItem, TRUE, FALSE, TRUE);
+    BOOL result = _NavigateToPIDL(pidl, &hItem, TRUE, TRUE, TRUE);
     --m_mtxBlockNavigate;
 
     return result;
@@ -306,6 +306,8 @@ CExplorerBand::_NavigateToPIDL(
         if (bInsert)
         {
             *phItem = hItem = _InsertItem(hParent, dest, ILFindLastID(dest), TRUE);
+            if (bSelect && hItem)
+                TreeView_SelectItem(m_hwndTreeView, hItem);
             return TRUE;
         }
 

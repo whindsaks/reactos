@@ -476,6 +476,7 @@ CNSCBand::_InsertItem(
     INT iIcon = SHMapPIDLToSystemImageListIndex(psfParent, pEltRelative, NULL);
 
     CItemData* pChildInfo = new CItemData;
+    // FIXME: std::bad_alloc exception
     if (!pChildInfo)
     {
         ERR("Failed to allocate CItemData\n");
