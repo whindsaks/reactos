@@ -588,7 +588,7 @@ CInstalledApplicationInfo::GetInstallerType() const
 BOOL
 CInstalledApplicationInfo::UninstallApplication(UninstallCommandFlags Flags)
 {
-    if (GetInstallerType() == INSTALLER_GENERATE)
+    if (GetInstallerType() == INSTALLER_GENERATE && (Flags & UCF_INTERNALINVOKE))
     {
         return UninstallGenerated(*this, Flags);
     }
