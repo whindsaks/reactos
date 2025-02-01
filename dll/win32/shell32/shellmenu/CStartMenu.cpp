@@ -56,6 +56,8 @@ WINE_DEFAULT_DEBUG_CHANNEL(CStartMenu);
  * 4. showing the programs start menu is SLOW compared to windows. this needs some investigation
  */
 
+#define OVERRIDABLEICONRES_XP(resid) ((resid) - 1)
+
 class CShellMenuCallback :
     public CComObjectRootEx<CComMultiThreadModelNoCS>,
     public IShellMenuCallback
@@ -120,10 +122,10 @@ private:
         case IDM_MYDOCUMENTS: iconIndex = -IDI_SHELL_MY_DOCUMENTS; break;
         case IDM_MYPICTURES: iconIndex = -IDI_SHELL_MY_PICTURES; break;
 
-        case IDM_CONTROLPANEL: iconIndex = -IDI_SHELL_CONTROL_PANEL; break;
+        case IDM_CONTROLPANEL: iconIndex = OVERRIDABLEICONRES_XP(IDI_SHELL_CONTROL_PANEL2); break;
         case IDM_NETWORKCONNECTIONS: iconIndex = -IDI_SHELL_NETWORK_CONNECTIONS2; break;
-        case IDM_PRINTERSANDFAXES: iconIndex = -IDI_SHELL_PRINTER2; break;
-        case IDM_TASKBARANDSTARTMENU: iconIndex = -IDI_SHELL_TSKBAR_STARTMENU; break;
+        case IDM_PRINTERSANDFAXES: iconIndex = OVERRIDABLEICONRES_XP(IDI_SHELL_PRINTERS_FOLDER); break;
+        case IDM_TASKBARANDSTARTMENU: iconIndex = OVERRIDABLEICONRES_XP(IDI_SHELL_TSKBAR_STARTMENU); break;
         //case IDM_SECURITY: iconIndex = -21; break;
         //case IDM_SYNCHRONIZE: iconIndex = -21; break;
         //case IDM_DISCONNECT: iconIndex = -21; break;

@@ -1887,7 +1887,7 @@ BOOL WINAPI WriteCabinetState(CABINETSTATE *cs)
  */
 BOOL WINAPI FileIconInit(BOOL bFullInit)
 {
-    return SIC_Initialize();
+    return SIC_Initialize(bFullInit);
 }
 
 /*************************************************************************
@@ -2670,21 +2670,20 @@ void WINAPI SHFlushSFCache(void)
  *   only supports the traditional small and large image lists, so requests
  *   for the others will currently fail.
  */
+EXTERN_C HIMAGELIST SHELL32_GetImageList(UINT SHIL);
 HRESULT WINAPI SHGetImageList(int iImageList, REFIID riid, void **ppv)
 {
-    HIMAGELIST hLarge, hSmall;
     HIMAGELIST hNew;
     HRESULT ret = E_FAIL;
-
+#ifndef __REACTOS__
+    HIMAGELIST hLarge, hSmall;
     /* Wine currently only maintains large and small image lists */
     if ((iImageList != SHIL_LARGE) && (iImageList != SHIL_SMALL) && (iImageList != SHIL_SYSSMALL))
     {
         FIXME("Unsupported image list %i requested\n", iImageList);
         return E_FAIL;
     }
-
     Shell_GetImageLists(&hLarge, &hSmall);
-#ifndef __REACTOS__
     hNew = ImageList_Duplicate(iImageList == SHIL_LARGE ? hLarge : hSmall);
 
     /* Get the interface for the new image list */
@@ -2697,10 +2696,10 @@ HRESULT WINAPI SHGetImageList(int iImageList, REFIID riid, void **ppv)
     /* Duplicating the imagelist causes the start menu items not to draw on
      * the first show. Was the Duplicate necessary for some reason? I believe
      * Windows returns the raw pointer here. */
-    hNew = (iImageList == SHIL_LARGE ? hLarge : hSmall);
-    ret = IImageList2_QueryInterface((IImageList2 *) hNew, riid, ppv);
+    hNew = SHELL32_GetImageList(iImageList);
+    if (hNew)
+        ret = IImageList2_QueryInterface((IImageList2 *)hNew, riid, ppv);
 #endif
-
     return ret;
 }
 
