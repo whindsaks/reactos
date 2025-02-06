@@ -30,6 +30,7 @@ BOOLEAN
 TuiDisplayMenu(
     IN PCSTR MenuHeader,
     IN PCSTR MenuFooter OPTIONAL,
+    IN BOOLEAN ShowBootOptions,
     IN PCSTR MenuItemList[],
     IN ULONG MenuItemCount,
     IN ULONG DefaultMenuItem,
@@ -79,6 +80,7 @@ TuiDisplayMenu(
     /* Setup the MENU_INFO structure */
     MenuInformation.MenuHeader = MenuHeader;
     MenuInformation.MenuFooter = MenuFooter;
+    MenuInformation.ShowBootOptions = ShowBootOptions;
     MenuInformation.MenuItemList = MenuItemList;
     MenuInformation.MenuItemCount = MenuItemCount;
     MenuInformation.MenuTimeRemaining = MenuTimeOut;
@@ -216,6 +218,12 @@ TuiDrawMenu(
     // FIXME: Theme-specific
     /* Update the status bar */
     UiVtbl.DrawStatusText("Use \x18 and \x19 to select, then press ENTER.");
+
+    /* Display the boot options if needed */
+    if (MenuInfo->ShowBootOptions)
+    {
+        DisplayBootTimeOptions();
+    }
 
     VideoCopyOffScreenBufferToVRAM();
 }

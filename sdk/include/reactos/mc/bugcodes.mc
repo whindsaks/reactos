@@ -292,7 +292,7 @@ Severity=Success
 Facility=System
 SymbolicName=CREATE_DELETE_LOCK_NOT_LOCKED
 Language=English
-CREATE_DELETE_LOCK_NOT_LOCKED
+The thread reaper was handed a thread to reap, but the thread's process'
 .
 
 MessageId=0x15

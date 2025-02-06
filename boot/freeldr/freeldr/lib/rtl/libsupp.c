@@ -35,7 +35,7 @@ NTAPI
 RtlpAllocateMemory(ULONG Bytes,
                    ULONG Tag)
 {
-    return FrLdrHeapAlloc(Bytes, Tag);
+    return FrLdrHeapAllocateEx(FrLdrDefaultHeap, Bytes, Tag);
 }
 
 
@@ -44,7 +44,7 @@ NTAPI
 RtlpFreeMemory(PVOID Mem,
                ULONG Tag)
 {
-    FrLdrHeapFree(Mem, Tag);
+    FrLdrHeapFreeEx(FrLdrDefaultHeap, Mem, Tag);
 }
 
 NTSTATUS

@@ -120,7 +120,7 @@ LoadSettings(
         CmdLineParse(CmdLine);
         return;
     }
-    else if (IsListEmpty(IniGetFileSectionListHead()))
+    else if (IsListEmpty(&IniFileSectionListHead))
     {
         // ERR("LoadSettings() called but no freeldr.ini\n");
         return;
@@ -186,11 +186,6 @@ LoadSettings(
             BootMgrInfo.DefaultOs = DefaultOs;
         }
     }
-}
-
-PBOOTMGRINFO GetBootMgrInfo(VOID)
-{
-    return &BootMgrInfo;
 }
 
 /* EOF */

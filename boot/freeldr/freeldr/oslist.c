@@ -75,7 +75,7 @@ InitOperatingSystemList(
         return NULL;
 
     /* Retrieve the default OS */
-    DefaultOSName = GetBootMgrInfo()->DefaultOs;
+    DefaultOSName = BootMgrInfo.DefaultOs;
 
     /* Now loop through the operating system section and load each item */
     for (i = 0; i < Count; ++i)

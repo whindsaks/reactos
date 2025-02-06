@@ -145,8 +145,8 @@ LoadAndBootSector(
         BiosDriveNumber = 0;
     if (!BiosDriveNumber)
     {
-        BiosDriveNumber = FrldrGetBootDrive();
-        PartitionNumber = FrldrGetBootPartition();
+        BiosDriveNumber = FrldrBootDrive;
+        PartitionNumber = FrldrBootPartition;
     }
 
 
@@ -161,7 +161,11 @@ LoadAndBootSector(
         return Status;
     }
 
-    LoadAddress = MachGetBootSectorLoadAddress(BiosDriveNumber);
+#if defined(SARCH_PC98)
+    LoadAddress = Pc98GetBootSectorLoadAddress(BiosDriveNumber);
+#else
+    LoadAddress = 0x7C00;
+#endif
 
     /*
      * Now try to load the boot sector: disk MBR (when PartitionNumber == 0),

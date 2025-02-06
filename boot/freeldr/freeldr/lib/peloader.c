@@ -528,9 +528,10 @@ PeLdrInitializeModuleList(VOID)
 
     InitializeListHead(&FrLdrModuleList);
 
-    /* Allocate a data table entry for freeldr.sys */
+    /* Allocate a data table entry for freeldr.sys.
+       The base name is scsiport.sys for imports from ntbootdd.sys */
     if (!PeLdrAllocateDataTableEntry(&FrLdrModuleList,
-                                     "freeldr.sys",
+                                     "scsiport.sys",
                                      "freeldr.sys",
                                      &__ImageBase,
                                      &FreeldrDTE))

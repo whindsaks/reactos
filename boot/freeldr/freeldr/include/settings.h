@@ -17,8 +17,6 @@ typedef struct _BOOTMGRINFO
 
 extern BOOTMGRINFO BootMgrInfo;
 
-PBOOTMGRINFO GetBootMgrInfo(VOID);
-
 VOID
 LoadSettings(
     _In_opt_ PCSTR CmdLine);

@@ -14,6 +14,8 @@
 #include <debug.h>
 DBG_DEFAULT_CHANNEL(WINDOWS);
 
+extern ULONG LoaderPagesSpanned;
+
 static const PCSTR MemTypeDesc[] = {
     "ExceptionBlock    ", // ?
     "SystemBlock       ", // ?
@@ -44,6 +46,11 @@ static const PCSTR MemTypeDesc[] = {
 static VOID
 WinLdrInsertDescriptor(IN OUT PLOADER_PARAMETER_BLOCK LoaderBlock,
                        IN PMEMORY_ALLOCATION_DESCRIPTOR NewDescriptor);
+
+extern PFREELDR_MEMORY_DESCRIPTOR BiosMemoryMap;
+extern ULONG BiosMemoryMapEntryCount;
+extern PFN_NUMBER MmLowestPhysicalPage;
+extern PFN_NUMBER MmHighestPhysicalPage;
 
 /* GLOBALS ***************************************************************/
 
@@ -107,7 +114,7 @@ MempSetupPagingForRegion(
           BasePage, PageCount, Type);
 
     /* Make sure we don't map too high */
-    if (BasePage + PageCount > MmGetLoaderPagesSpanned()) return;
+    if (BasePage + PageCount > LoaderPagesSpanned) return;
 
     switch (Type)
     {
@@ -303,16 +310,12 @@ WinLdrSetupMemoryLayout(IN OUT PLOADER_PARAMETER_BLOCK LoaderBlock)
         MadCount++;
     }
 #endif
-    PFREELDR_MEMORY_DESCRIPTOR BiosMemoryMap;
-    ULONG BiosMemoryMapEntryCount;
-
-    BiosMemoryMapEntryCount = MmGetBiosMemoryMap(&BiosMemoryMap);
 
     /* Now we need to add high descriptors from the bios memory map */
     for (i = 0; i < BiosMemoryMapEntryCount; i++)
     {
         /* Check if its higher than the lookup table */
-        if (BiosMemoryMap->BasePage > MmGetHighestPhysicalPage())
+        if (BiosMemoryMap->BasePage > MmHighestPhysicalPage)
         {
             /* Copy this descriptor */
             MempAddMemoryBlock(LoaderBlock,

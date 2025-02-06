@@ -1,7 +1,6 @@
 
 list(APPEND SOURCE
     MRUList.cpp
-    WinList.cpp
     testlist.c)
 
 add_executable(shdocvw_apitest ${SOURCE})

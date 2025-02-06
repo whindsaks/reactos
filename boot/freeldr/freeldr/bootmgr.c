@@ -85,7 +85,7 @@ WarnDeprecated(
     CHAR msgString[300];
 
     /* If the user didn't cancel the timeout, don't display the warning */
-    if (GetBootMgrInfo()->TimeOut >= 0)
+    if (BootMgrInfo.TimeOut >= 0)
         return;
 
     va_start(ap, MsgFmt);
@@ -183,7 +183,6 @@ BuildArgvForOsLoader(
     PCHAR* Argv;
     PCHAR* Args;
     PCHAR SettingName, SettingValue;
-    PCCHAR BootPath = FrLdrGetBootPath();
 
     *pArgc = 0;
 
@@ -209,7 +208,7 @@ BuildArgvForOsLoader(
     /* i == 0: Program name */
     // TODO: Provide one in the future...
     /* i == 1: SystemPartition : from where FreeLdr has been started */
-    Size += (strlen("SystemPartition=") + strlen(BootPath) + 1) * sizeof(CHAR);
+    Size += (strlen("SystemPartition=") + strlen(FrLdrBootPath) + 1) * sizeof(CHAR);
     /* i == 2: LoadIdentifier  : ASCII string that may be used
      * to associate an identifier with a set of load parameters */
     if (LoadIdentifier)
@@ -237,7 +236,7 @@ BuildArgvForOsLoader(
     /* i == 1: SystemPartition */
     {
         strcpy(SettingName, "SystemPartition=");
-        strcat(SettingName, BootPath);
+        strcat(SettingName, FrLdrBootPath);
 
         *Args++ = SettingName;
         SettingName += (strlen(SettingName) + 1);
@@ -334,13 +333,12 @@ MainBootMenuKeyPressFilter(
     IN PVOID Context OPTIONAL)
 {
     /* Any key-press cancels the global timeout */
-    GetBootMgrInfo()->TimeOut = -1;
+    BootMgrInfo.TimeOut = -1;
 
     switch (KeyPress)
     {
     case KEY_F8:
         DoOptionsMenu(&((OperatingSystemItem*)Context)[SelectedMenuItem]);
-        DisplayBootTimeOptions();
         return TRUE;
 
 #ifdef HAS_OPTION_MENU_EDIT_CMDLINE
@@ -363,6 +361,12 @@ VOID RunLoader(VOID)
     ULONG DefaultOperatingSystem;
     ULONG SelectedOperatingSystem;
     ULONG i;
+
+    if (!MachInitializeBootDevices())
+    {
+        UiMessageBoxCritical("Error when detecting hardware.");
+        return;
+    }
 
 #ifdef _M_IX86
 #ifndef UEFIBOOT
@@ -390,7 +394,7 @@ VOID RunLoader(VOID)
 #endif
 
     /* Debugger main initialization */
-    DebugInit(GetBootMgrInfo()->DebugString);
+    DebugInit(BootMgrInfo.DebugString);
 
     /* UI main initialization */
     if (!UiInitialize(TRUE))
@@ -423,7 +427,7 @@ VOID RunLoader(VOID)
     }
 
     /* Find all the message box settings and run them */
-    UiShowMessageBoxesInSection(GetBootMgrInfo()->FrLdrSection);
+    UiShowMessageBoxesInSection(BootMgrInfo.FrLdrSection);
 
     for (;;)
     {
@@ -434,10 +438,11 @@ VOID RunLoader(VOID)
         if (!UiDisplayMenu("Please select the operating system to start:",
                            "For troubleshooting and advanced startup options for "
                                "ReactOS, press F8.",
+                           TRUE,
                            OperatingSystemDisplayNames,
                            OperatingSystemCount,
                            DefaultOperatingSystem,
-                           GetBootMgrInfo()->TimeOut,
+                           BootMgrInfo.TimeOut,
                            &SelectedOperatingSystem,
                            FALSE,
                            MainBootMenuKeyPressFilter,
@@ -450,12 +455,12 @@ VOID RunLoader(VOID)
         /* Load the chosen operating system */
         LoadOperatingSystem(&OperatingSystemList[SelectedOperatingSystem]);
 
-        GetBootMgrInfo()->TimeOut = -1;
+        BootMgrInfo.TimeOut = -1;
 
         /* If we get there, the OS loader failed. As it may have
          * messed up the display, re-initialize the UI. */
 #ifndef _M_ARM
-        UiUnInitialize("");
+        UiVtbl.UnInitialize();
 #endif
         UiInitialize(TRUE);
     }

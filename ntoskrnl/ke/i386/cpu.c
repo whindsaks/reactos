@@ -209,13 +209,13 @@ KiSetProcessorType(VOID)
 }
 
 CODE_SEG("INIT")
-ULONG64
+ULONG
 NTAPI
 KiGetFeatureBits(VOID)
 {
     PKPRCB Prcb = KeGetCurrentPrcb();
     ULONG Vendor;
-    ULONG64 FeatureBits = KF_WORKING_PTE;
+    ULONG FeatureBits = KF_WORKING_PTE;
     CPU_INFO CpuInfo, DummyCpuInfo;
     UCHAR Ccr1;
     BOOLEAN ExtendedCPUID = TRUE;
@@ -360,14 +360,6 @@ KiGetFeatureBits(VOID)
 
             break;
     }
-
-    /* Get some features from ECX */
-    if (CpuInfo.Ecx & X86_FEATURE_SSE3) FeatureBits |= KF_SSE3;
-    if (CpuInfo.Ecx & X86_FEATURE_SSSE3) FeatureBits |= KF_SSSE3;
-    if (CpuInfo.Ecx & X86_FEATURE_SSE4_1) FeatureBits |= KF_SSE4_1;
-    if (CpuInfo.Ecx & X86_FEATURE_SSE4_2) FeatureBits |= KF_SSE4_2;
-    if (CpuInfo.Ecx & X86_FEATURE_XSAVE) FeatureBits |= KF_XSTATE;
-    if (CpuInfo.Ecx & X86_FEATURE_RDRAND) FeatureBits |= KF_RDRAND;
 
     /* Set the current features */
     CpuFeatures = CpuInfo.Edx;

@@ -126,6 +126,7 @@ VOID OptionMenuCustomBoot(VOID)
     OperatingSystemItem OperatingSystem;
 
     if (!UiDisplayMenu("Please choose a boot method:", NULL,
+                       FALSE,
                        CustomBootMenuList,
                        RTL_NUMBER_OF(CustomBootMenuList),
                        0, -1,

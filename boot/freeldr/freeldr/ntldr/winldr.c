@@ -15,10 +15,12 @@
 #include <debug.h>
 DBG_DEFAULT_CHANNEL(WINDOWS);
 
-ULONG ArcGetDiskCount(VOID);
-PARC_DISK_SIGNATURE_EX ArcGetDiskInfo(ULONG Index);
+// FIXME: Find a better way to retrieve ARC disk information
+extern ULONG reactos_disk_count;
+extern ARC_DISK_SIGNATURE_EX reactos_arc_disk_info[];
 
-BOOLEAN IsAcpiPresent(VOID);
+extern ULONG LoaderPagesSpanned;
+extern BOOLEAN AcpiPresent;
 
 extern HEADLESS_LOADER_BLOCK LoaderRedirectionInformation;
 extern BOOLEAN WinLdrTerminalConnected;
@@ -197,8 +199,7 @@ WinLdrInitializePhase1(PLOADER_PARAMETER_BLOCK LoaderBlock,
     InitializeListHead(&LoaderBlock->ArcDiskInformation->DiskSignatureListHead);
 
     /* Convert ARC disk information from freeldr to a correct format */
-    ULONG DiscCount = ArcGetDiskCount();
-    for (i = 0; i < DiscCount; i++)
+    for (i = 0; i < reactos_disk_count; i++)
     {
         PARC_DISK_SIGNATURE_EX ArcDiskSig;
 
@@ -207,12 +208,12 @@ WinLdrInitializePhase1(PLOADER_PARAMETER_BLOCK LoaderBlock,
         if (!ArcDiskSig)
         {
             ERR("Failed to allocate ARC structure! Ignoring remaining ARC disks. (i = %lu, DiskCount = %lu)\n",
-                i, DiscCount);
+                i, reactos_disk_count);
             break;
         }
 
         /* Copy the data over */
-        RtlCopyMemory(ArcDiskSig, ArcGetDiskInfo(i), sizeof(ARC_DISK_SIGNATURE_EX));
+        RtlCopyMemory(ArcDiskSig, &reactos_arc_disk_info[i], sizeof(ARC_DISK_SIGNATURE_EX));
 
         /* Set the ARC Name pointer */
         ArcDiskSig->DiskSignature.ArcName = PaToVa(ArcDiskSig->ArcName);
@@ -247,7 +248,7 @@ WinLdrInitializePhase1(PLOADER_PARAMETER_BLOCK LoaderBlock,
     Extension->Profile.Status = 2;
 
     /* Check if FreeLdr detected a ACPI table */
-    if (IsAcpiPresent())
+    if (AcpiPresent)
     {
         /* Set the pointer to something for compatibility */
         Extension->AcpiTable = (PVOID)1;
@@ -1264,7 +1265,7 @@ LoadAndBootWindowsCommon(
     WinLdrSetProcessorContext(OperatingSystemVersion);
 
     /* Save final value of LoaderPagesSpanned */
-    LoaderBlock->Extension->LoaderPagesSpanned = MmGetLoaderPagesSpanned();
+    LoaderBlock->Extension->LoaderPagesSpanned = LoaderPagesSpanned;
 
     TRACE("Hello from paged mode, KiSystemStartup %p, LoaderBlockVA %p!\n",
           KiSystemStartup, LoaderBlockVA);
