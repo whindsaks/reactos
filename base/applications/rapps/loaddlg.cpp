@@ -1078,6 +1078,8 @@ run:
             app.ReleaseBuffer();
         }
 
+        ExecuteUserScript("PreInstall", Info.szPackageName, NULL, 0);
+
         /* FIXME: Do we want to log installer status? */
         WriteLogMessage(EVENTLOG_SUCCESS, MSG_SUCCESS_INSTALL, Info.szName);
 
@@ -1093,9 +1095,12 @@ run:
             // TODO: issue an install operation separately so that the apps could be downloaded in the background
             if (shExInfo.hProcess)
             {
+                DWORD dwExitCode;
                 WaitForSingleObject(shExInfo.hProcess, INFINITE);
+                GetExitCodeProcess(shExInfo.hProcess, &dwExitCode);
                 CloseHandle(shExInfo.hProcess);
                 SendMessageW(hMainWnd, WM_NOTIFY_INSTALLERFINISHED, 0, (LPARAM)(PCWSTR)Info.szPackageName);
+                ExecuteUserScript("PostInstall", Info.szPackageName, NULL, dwExitCode);
             }
         }
         else

@@ -430,3 +430,36 @@ ParseCmdAndExecute(LPWSTR lpCmdLine, BOOL bIsFirstLaunch, int nCmdShow)
         return FALSE;
     }
 }
+
+HRESULT
+ExecuteUserScript(PCSTR Stage, PCWSTR Id, PCWSTR UninstLocation, UINT ExitCode)
+{
+    CStringW DbDir, Cmd, UserScript;
+    GetStorageDirectory(DbDir);
+    CAppDB db(DbDir);
+
+    HRESULT hr = GetSpecialPath(CSIDL_APPDATA, UserScript);
+    if (FAILED(hr))
+        return hr;
+    UserScript = BuildPath(UserScript, RAPPS_NAME L"\\UserScript.cmd");
+
+    BOOL wait = (Stage[1] | 32) == 'r'; // Pre vs Post
+    const CAppInfo *App = NULL;
+    //if (UninstLocation)
+    //    
+    //else
+    {
+        db.UpdateAvailable();
+        App = db.FindAvailableByPackageName(Id);
+    }
+    if (!App)
+        return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+
+    WCHAR Exe[MAX_PATH];
+    GetSystemDirectory(Exe, _countof(Exe));
+    PathAppend(Exe, L"cmd.exe");
+    Cmd.Format(L"\"cmd.exe\" /C call \"%s\" %hs %s %s %d",(PCWSTR)UserScript,
+               Stage, Id, (PCWSTR)App->szDisplayVersion, ExitCode);
+    UINT Error = StartProcess(Exe, Cmd, wait, SW_HIDE) ? 0 : GetLastError();
+    return HRESULT_FROM_WIN32(Error);
+}

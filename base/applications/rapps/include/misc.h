@@ -33,7 +33,9 @@ ShowPopupMenuEx(HWND hwnd, HWND hwndOwner, UINT MenuID, UINT DefaultItem, POINT 
 VOID
 EmulateDialogReposition(HWND hwnd);
 BOOL
-StartProcess(const CStringW &Path, BOOL Wait);
+StartProcess(LPCWSTR App, const CStringW &CommandLine, BOOL Wait, SHORT ShowCmd);
+BOOL
+StartProcess(const CStringW &CommandLine, BOOL Wait);
 BOOL
 GetStorageDirectory(CStringW &lpDirectory);
 

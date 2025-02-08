@@ -28,4 +28,7 @@ struct CUpdateDatabaseMutex : public CScopedMutex
     CUpdateDatabaseMutex() : CScopedMutex(UPDATEDBMUTEX, 1000 * 60 * 10, FALSE) { };
 };
 
+HRESULT
+ExecuteUserScript(PCSTR Stage, PCWSTR Id, PCWSTR UninstLocation, UINT ExitCode);
+
 #endif /* _RAPPS_H */

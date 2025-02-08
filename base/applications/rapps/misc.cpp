@@ -108,7 +108,7 @@ ShowPopupMenuEx(HWND hwnd, HWND hwndOwner, UINT MenuID, UINT DefaultItem, POINT 
 }
 
 BOOL
-StartProcess(const CStringW &Path, BOOL Wait)
+StartProcess(LPCWSTR App, const CStringW &CommandLine, BOOL Wait, SHORT ShowCmd)
 {
     PROCESS_INFORMATION pi;
     STARTUPINFOW si;
@@ -118,11 +118,11 @@ StartProcess(const CStringW &Path, BOOL Wait)
     ZeroMemory(&si, sizeof(si));
     si.cb = sizeof(si);
     si.dwFlags = STARTF_USESHOWWINDOW;
-    si.wShowWindow = SW_SHOW;
+    si.wShowWindow = ShowCmd;
 
     // The Unicode version of CreateProcess can modify the contents of this string.
-    CStringW Tmp = Path;
-    BOOL fSuccess = CreateProcessW(NULL, Tmp.GetBuffer(), NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi);
+    CStringW Tmp = CommandLine;
+    BOOL fSuccess = CreateProcessW(App, Tmp.GetBuffer(), NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi);
     Tmp.ReleaseBuffer();
     if (!fSuccess)
     {
@@ -166,6 +166,12 @@ StartProcess(const CStringW &Path, BOOL Wait)
     }
 
     return TRUE;
+}
+
+BOOL
+StartProcess(const CStringW &CommandLine, BOOL Wait)
+{
+    return StartProcess(NULL, CommandLine, Wait, SW_SHOW);
 }
 
 BOOL
