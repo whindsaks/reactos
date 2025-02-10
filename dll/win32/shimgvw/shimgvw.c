@@ -358,6 +358,7 @@ Preview_UpdateTitle(PPREVIEW_DATA pData, LPCWSTR FileName)
     }
 
     SetWindowTextW(pData->m_hwnd, szText);
+    SetWindowTextW(pData->m_hwndZoom, FileName ? FileName : L""); /* For single instance detection */
 }
 
 static VOID
@@ -417,6 +418,7 @@ static VOID
 Preview_pLoadImage(PPREVIEW_DATA pData, LPCWSTR szOpenFileName)
 {
     Preview_pFreeImage(pData);
+    InvalidateRect(pData->m_hwnd, NULL, FALSE); /* Schedule redraw in case we change to IDS_NOPREVIEW */
 
     pData->m_pMemStream = MemStreamFromFile(szOpenFileName);
     if (!pData->m_pMemStream)
@@ -439,13 +441,13 @@ Preview_pLoadImage(PPREVIEW_DATA pData, LPCWSTR szOpenFileName)
 
     Anime_LoadInfo(&pData->m_Anime);
 
-    SHAddToRecentDocs(SHARD_PATHW, szOpenFileName);
     GetFullPathNameW(szOpenFileName, _countof(pData->m_szFile), pData->m_szFile, NULL);
+    SHAddToRecentDocs(SHARD_PATHW, pData->m_szFile);
 
     /* Reset zoom and redraw display */
     Preview_ResetZoom(pData);
 
-    Preview_UpdateTitle(pData, szOpenFileName);
+    Preview_UpdateTitle(pData, pData->m_szFile);
 }
 
 static VOID
@@ -1737,6 +1739,10 @@ PreviewWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             }
             break;
         }
+        case WM_SINGLEINSTANCE:
+        {
+            return Preview_IsMainWnd(hwnd);
+        }
         default:
         {
             return DefWindowProcW(hwnd, uMsg, wParam, lParam);
@@ -1753,13 +1759,28 @@ ImageView_Main(HWND hwnd, LPCWSTR szFileName)
     ULONG_PTR gdiplusToken;
     WNDCLASSW WndClass;
     WCHAR szTitle[256];
-    HWND hMainWnd;
+    HWND hMainWnd, hWnd;
     MSG msg;
     HACCEL hAccel;
     HRESULT hrCoInit;
     INITCOMMONCONTROLSEX Icc = { .dwSize = sizeof(Icc), .dwICC = ICC_WIN95_CLASSES };
 
     InitCommonControlsEx(&Icc);
+
+    for (hWnd = NULL; (hWnd = FindWindowExW(NULL, hWnd, WC_PREVIEW, NULL)) != NULL;)
+    {
+        WCHAR path[MAX_PATH];
+        UINT cch = GetFullPathNameW(szFileName, _countof(path), path, NULL);
+        HWND hWndChild = FindWindowExW(hWnd, NULL, WC_ZOOM, path);
+        if (cch && cch < _countof(path) && hWndChild)
+        {
+            if (SendMessageW(hWnd, WM_SINGLEINSTANCE, 0, 0))
+            {
+                SwitchToThisWindow(hWnd, TRUE);
+                return 0;
+            }
+        }
+    }
 
     /* Initialize COM */
     hrCoInit = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
