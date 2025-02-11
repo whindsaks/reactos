@@ -4622,12 +4622,15 @@ HRESULT WINAPI CDefView::GetAdvise(DWORD *pAspects, DWORD *pAdvf, IAdviseSink **
 
 HRESULT STDMETHODCALLTYPE CDefView::QueryService(REFGUID guidService, REFIID riid, void **ppvObject)
 {
-    if (IsEqualIID(guidService, SID_IShellBrowser) && m_pShellBrowser)
-        return m_pShellBrowser->QueryInterface(riid, ppvObject);
-    else if (IsEqualIID(guidService, SID_IFolderView))
+    if (IsEqualIID(guidService, SID_IFolderView))
         return QueryInterface(riid, ppvObject);
 
-    return E_NOINTERFACE;
+    // TODO: SID_DefView:IDefViewFrame
+
+    if (m_pShellBrowser) // SID_IShellBrowser, SID_STopLevelBrowser etc.
+        return IUnknown_QueryService(m_pShellBrowser, guidService, riid, ppvObject);
+    else
+        return E_NOINTERFACE;
 }
 
 HRESULT CDefView::_MergeToolbar()

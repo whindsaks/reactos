@@ -2564,20 +2564,47 @@ HRESULT STDMETHODCALLTYPE CShellLink::QueryContextMenu(HMENU hMenu, UINT indexMe
     return MAKE_HRESULT(SEVERITY_SUCCESS, 0, id);
 }
 
+static inline bool IsDesktop(IShellView *pSV)
+{
+    FOLDERSETTINGS fs;
+    return SUCCEEDED(pSV->GetCurrentInfo(&fs)) && (fs.fFlags & FWF_DESKTOP) != 0;
+}
+
 HRESULT CShellLink::DoOpenFileLocation()
 {
-    WCHAR szParams[MAX_PATH + 64];
-    StringCbPrintfW(szParams, sizeof(szParams), L"/select,%s", m_sPath);
+    // Try browsing in-place
+    CComPtr<IShellBrowser> pSB;
+    CComPtr<IShellView> pSV;
+    HRESULT hr = IUnknown_QueryService(m_site, SID_STopLevelBrowser, IID_PPV_ARG(IShellBrowser, &pSB));
+    if (SUCCEEDED(hr) && SUCCEEDED(pSB->QueryActiveShellView(&pSV)) && !IsDesktop(pSV))
+    {
+        pSV = NULL;
+        CComHeapPtr<ITEMIDLIST_ABSOLUTE> pidl(ILCreateFromPath(m_sPath));
+        if (pidl)
+        {
+            LPITEMIDLIST pidlChild = ILFindLastID(pidl);
+            const WORD cbOrg = pidlChild->mkid.cb;
+            pidlChild->mkid.cb = 0; // Effectively ILRemoveLastID but we can undo it
+            if (SUCCEEDED(hr = pSB->BrowseObject(pidl, SBSP_ABSOLUTE | SBSP_SAMEBROWSER)))
+            {
+                pidlChild->mkid.cb = cbOrg;
+                if (SUCCEEDED(pSB->QueryActiveShellView(&pSV))) // Directory changed, must get the view again
+                    pSV->SelectItem(pidlChild, SVSI_ENSUREVISIBLE | SVSI_SELECT | SVSI_DESELECTOTHERS);
+                return hr;
+            }
+        }
+    }
 
-    INT_PTR ret;
-    ret = reinterpret_cast<INT_PTR>(ShellExecuteW(NULL, NULL, L"explorer.exe", szParams,
-                                                  NULL, m_Header.nShowCommand));
+    WCHAR szParams[MAX_PATH + 64];
+    PCWSTR pszExplore = GetKeyState(VK_SHIFT) < 0 ? L"/e," : L"";
+    StringCbPrintfW(szParams, sizeof(szParams), L"%s/select,%s", pszExplore, m_sPath);
+
+    INT_PTR ret = (INT_PTR)ShellExecuteW(NULL, NULL, L"explorer.exe", szParams, NULL, SW_SHOW);
     if (ret <= 32)
     {
         ERR("ret: %08lX\n", ret);
         return E_FAIL;
     }
-
     return S_OK;
 }
 
