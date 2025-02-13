@@ -97,15 +97,58 @@ namespace
 inline BOOL
 IsCheckedDlgItem(HWND hDlg, INT nIDDlgItem)
 {
-    return (SendDlgItemMessageW(hDlg, nIDDlgItem, BM_GETCHECK, 0, 0) == BST_CHECKED) ? TRUE : FALSE;
+    return SendDlgItemMessageW(hDlg, nIDDlgItem, BM_GETCHECK, 0, 0) == BST_CHECKED;
+}
+
+static void
+HandleGeneralListItems(HWND hWndList, PSETTINGS_INFO Load, PSETTINGS_INFO Save)
+{
+    PSETTINGS_INFO Info = Load ? Load : Save;
+    const struct {
+        WORD Id;
+        BOOL *Member;
+    } map[] = {
+        { IDS_CFG_SAVE_WINDOW_POS, &Info->bSaveWndPos },
+        { IDS_CFG_UPDATE_AVLIST, &Info->bUpdateAtStart },
+        { IDS_CFG_LOG_ENABLED, &Info->bLogEnabled },
+        { IDS_CFG_ICON_SIZE, &Info->bSmallIcons },
+    };
+
+    if (Load)
+    {
+        UINT exstyle = LVS_EX_CHECKBOXES | LVS_EX_FULLROWSELECT | LVS_EX_LABELTIP;
+        ListView_SetExtendedListViewStyleEx(hWndList, exstyle, exstyle);
+        CStringW name;
+        for (SIZE_T i = 0; i < _countof(map); ++i)
+        {
+            LVITEMW lvi;
+            lvi.mask = LVIF_TEXT | LVIF_PARAM;
+            lvi.iItem = 0x7fff;
+            lvi.iSubItem = 0;
+            lvi.lParam = map[i].Id;
+            name.LoadStringW(map[i].Id);
+            lvi.pszText = const_cast<PWSTR>(name.GetString());
+            lvi.iItem = ListView_InsertItem(hWndList, &lvi);
+            ListView_SetCheckState(hWndList, lvi.iItem, *map[i].Member);
+        }
+        ListView_SetItemState(hWndList, 0, LVIS_SELECTED, LVIS_SELECTED);
+    }
+    else
+    {
+        for (SIZE_T i = 0; i < _countof(map); ++i)
+        {
+            LVFINDINFOW lvfi = { LVFI_PARAM, NULL, map[i].Id };
+            int idx = ListView_FindItem(hWndList, -1, &lvfi);
+            if (idx >= 0)
+                *map[i].Member = ListView_GetCheckState(hWndList, idx);
+        }
+    }
 }
 
 VOID
 InitSettingsControls(HWND hDlg, PSETTINGS_INFO Info)
 {
-    SendDlgItemMessageW(hDlg, IDC_SAVE_WINDOW_POS, BM_SETCHECK, Info->bSaveWndPos, 0);
-    SendDlgItemMessageW(hDlg, IDC_UPDATE_AVLIST, BM_SETCHECK, Info->bUpdateAtStart, 0);
-    SendDlgItemMessageW(hDlg, IDC_LOG_ENABLED, BM_SETCHECK, Info->bLogEnabled, 0);
+    HandleGeneralListItems(GetDlgItem(hDlg, IDC_GENERALLIST), Info, NULL);
     SendDlgItemMessageW(hDlg, IDC_DEL_AFTER_INSTALL, BM_SETCHECK, Info->bDelInstaller, 0);
 
     HWND hCtl = GetDlgItem(hDlg, IDC_DOWNLOAD_DIR_EDIT);
@@ -152,18 +195,6 @@ SettingsDlgProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lParam)
                     ChooseFolder(hDlg);
                     break;
 
-                case IDC_SAVE_WINDOW_POS:
-                    NewSettingsInfo.bSaveWndPos = IsCheckedDlgItem(hDlg, IDC_SAVE_WINDOW_POS);
-                    break;
-
-                case IDC_UPDATE_AVLIST:
-                    NewSettingsInfo.bUpdateAtStart = IsCheckedDlgItem(hDlg, IDC_UPDATE_AVLIST);
-                    break;
-
-                case IDC_LOG_ENABLED:
-                    NewSettingsInfo.bLogEnabled = IsCheckedDlgItem(hDlg, IDC_LOG_ENABLED);
-                    break;
-
                 case IDC_DEL_AFTER_INSTALL:
                     NewSettingsInfo.bDelInstaller = IsCheckedDlgItem(hDlg, IDC_DEL_AFTER_INSTALL);
                     break;
@@ -203,6 +234,13 @@ SettingsDlgProc(HWND hDlg, UINT Msg, WPARAM wParam, LPARAM lParam)
 
                 case IDOK:
                 {
+                    HandleGeneralListItems(GetDlgItem(hDlg, IDC_GENERALLIST), NULL, &NewSettingsInfo);
+                    if (NewSettingsInfo.bSmallIcons != SettingsInfo.bSmallIcons)
+                    {
+                        PostMessage(hMainWnd, WM_SETTINGCHANGE, SPI_SETICONMETRICS, 0);
+                        PostMessage(hMainWnd, WM_COMMAND, ID_REFRESH, 0);
+                    }
+
                     CStringW szDir;
                     CStringW szSource;
                     CStringW szProxy;

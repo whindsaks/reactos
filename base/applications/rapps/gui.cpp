@@ -519,9 +519,9 @@ CMainWindow::ProcessWindowMessage(HWND hwnd, UINT Msg, WPARAM wParam, LPARAM lPa
         }
         break;
 
-        case WM_SETTINGCHANGE:
+        case WM_SETTINGCHANGE:OutputDebugStringA("WM_SETTINGCHANGE\n");
             if (wParam == SPI_SETNONCLIENTMETRICS || wParam == SPI_SETICONMETRICS)
-            {
+            {OutputDebugStringA("SPI_SETICONMETRICS\n");
                 DestroyIcon(g_hDefaultPackageIcon);
                 g_hDefaultPackageIcon = NULL; // Trigger imagelist recreation on next load
             }

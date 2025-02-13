@@ -1392,7 +1392,8 @@ CAppsListView::SetDisplayAppType(APPLICATION_VIEW_TYPE AppType)
     if (!g_hDefaultPackageIcon)
     {
         ImageList_Destroy(m_hImageListView);
-        UINT IconSize = GetSystemMetrics(SM_CXICON);
+        UINT IconSize = GetSystemMetrics(SettingsInfo.bSmallIcons == 1 ? SM_CXSMICON : SM_CXICON);
+        IconSize = max(IconSize, 16);
         UINT ilc = GetSystemColorDepth() | ILC_MASK;
         m_hImageListView = ImageList_Create(IconSize, IconSize, ilc, 0, 1);
         SetImageList(m_hImageListView, LVSIL_SMALL);
