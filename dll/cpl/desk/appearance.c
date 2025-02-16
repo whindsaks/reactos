@@ -212,6 +212,15 @@ GetSelectedData(HWND hwndDlg, int nIDDlgItem)
     return (PVOID)SendMessage(hwndCombo, CB_GETITEMDATA, (WPARAM)sel, 0);
 }
 
+static BOOL CALLBACK
+ThemeRefreshWindowsEnumProc(HWND hWnd, LPARAM lParam)
+{todo: this causes Notepad to resize its titlebar but the statusbar size does not update correctly (its bug but still)
+    SetWindowPos(hWnd, NULL, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOSIZE | SWP_NOMOVE |
+                 SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_ASYNCWINDOWPOS);
+    InvalidateRect(hWnd, NULL, FALSE);
+    return TRUE;
+}
+
 INT_PTR CALLBACK
 AppearancePageProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
@@ -339,6 +348,10 @@ AppearancePageProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     }
 
                     AppearancePage_UpdateThemePreview(hwndDlg, g);
+                    if (g->bThemeChanged)
+                    {
+                        EnumWindows(ThemeRefreshWindowsEnumProc, 0);
+                    }
                     g->bThemeChanged = FALSE;
                     g->bSchemeChanged = FALSE;
                     SetWindowLongPtr(hwndDlg, DWLP_MSGRESULT, (LONG_PTR)PSNRET_NOERROR);
