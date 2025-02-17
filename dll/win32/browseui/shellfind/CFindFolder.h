@@ -68,6 +68,7 @@ private:
     CComPtr<IShellFolderView> m_shellFolderView;
     CComPtr<IShellBrowser> m_shellBrowser;
     HANDLE m_hStopEvent;
+    UINT m_SearchTaskId;
 
     void NotifyConnections(DISPID id);
     static DWORD WINAPI SearchThreadProc(LPVOID lpParameter);

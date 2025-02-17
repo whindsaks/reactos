@@ -154,8 +154,11 @@ struct _SearchData
     CStringW szQueryW;
     CStringW szQueryU16BE;
     CStringA szQueryU8;
+    CStringW szStatusBuffer;
     BOOL SearchHidden;
+    UINT uTotalFound;
     CComPtr<CFindFolder> pFindFolder;
+    UINT TaskId;
 };
 
 template<typename TChar, typename TString, int (&StrNCmp)(const TChar *, const TChar *, size_t)>
@@ -398,16 +401,30 @@ static BOOL AttribHiddenMatch(DWORD FileAttributes, _SearchData *pSearchData)
     return FALSE;
 }
 
-static UINT RecursiveFind(LPCWSTR lpPath, _SearchData *pSearchData)
+static inline void NotifyStringMessage(_SearchData &Data, UINT Msg, PCWSTR String)
+{
+    LPWSTR pszDup;
+    SHStrDupW(String, &pszDup);
+    if (!PostMessageW(Data.hwnd, Msg, Data.TaskId, (LPARAM)pszDup))
+        SHFree(pszDup);
+}
+
+static inline void AddResult(_SearchData &Data, PCWSTR pszPath)
+{
+    LPITEMIDLIST pidl = _ILCreate(pszPath);
+    if (!PostMessageW(Data.hwnd, WM_SEARCH_ADD_RESULT, Data.TaskId, (LPARAM)pidl))
+        SHFree(pidl);
+}
+
+static void RecursiveFind(LPCWSTR lpPath, _SearchData *pSearchData)
 {
     if (WaitForSingleObject(pSearchData->hStopEvent, 0) != WAIT_TIMEOUT)
-        return 0;
+        return;
 
     WCHAR szPath[MAX_PATH];
     WIN32_FIND_DATAW FindData;
     HANDLE hFindFile;
     BOOL bMoreFiles = TRUE;
-    UINT uTotalFound = 0;
 
     PathCombineW(szPath, lpPath, L"*");
 
@@ -423,58 +440,58 @@ static UINT RecursiveFind(LPCWSTR lpPath, _SearchData *pSearchData)
 
         if (FindData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
         {
-            CStringW status;
             if (pSearchData->szQueryW.IsEmpty() &&
                 FileNameMatch(FindData.cFileName, pSearchData) &&
                 AttribHiddenMatch(FindData.dwFileAttributes, pSearchData))
             {
-                LPWSTR pszPathDup;
-                SHStrDupW(szPath, &pszPathDup);
-                PostMessageW(pSearchData->hwnd, WM_SEARCH_ADD_RESULT, 0, (LPARAM)pszPathDup);
-                uTotalFound++;
+                pSearchData->uTotalFound++;
+                AddResult(*pSearchData, szPath);
             }
-            status.Format(IDS_SEARCH_FOLDER, FindData.cFileName);
-            LPWSTR pszStatusDup;
-            SHStrDupW(status.GetBuffer(), &pszStatusDup);
-            PostMessageW(pSearchData->hwnd, WM_SEARCH_UPDATE_STATUS, 0, (LPARAM)pszStatusDup);
+            pSearchData->szStatusBuffer.Format(IDS_SEARCH_FOLDER, FindData.cFileName);
+            NotifyStringMessage(*pSearchData, WM_SEARCH_UPDATE_STATUS, pSearchData->szStatusBuffer);
 
-            uTotalFound += RecursiveFind(szPath, pSearchData);
+            RecursiveFind(szPath, pSearchData);
         }
         else if (FileNameMatch(FindData.cFileName, pSearchData)
                 && AttribHiddenMatch(FindData.dwFileAttributes, pSearchData)
                 && ContentsMatch(szPath, pSearchData))
         {
-            uTotalFound++;
-            LPWSTR pszPathDup;
-            SHStrDupW(szPath, &pszPathDup);
-            PostMessageW(pSearchData->hwnd, WM_SEARCH_ADD_RESULT, 0, (LPARAM)pszPathDup);
+            pSearchData->uTotalFound++;
+            AddResult(*pSearchData, szPath);
         }
     }
 
     if (hFindFile != INVALID_HANDLE_VALUE)
         FindClose(hFindFile);
-
-    return uTotalFound;
 }
 
 DWORD WINAPI CFindFolder::SearchThreadProc(LPVOID lpParameter)
 {
     _SearchData *data = static_cast<_SearchData*>(lpParameter);
 
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+
     HRESULT hrCoInit = CoInitializeEx(NULL, COINIT_MULTITHREADED);
 
     data->pFindFolder->NotifyConnections(DISPID_SEARCHSTART);
 
-    UINT uTotalFound = RecursiveFind(data->szPath, data);
+#if DBG
+    const DWORD TickStart = GetTickCount();
+#endif
+
+    RecursiveFind(data->szPath, data);
+
+#if DBG
+    const DWORD TickEnd = GetTickCount();
+    DbgPrint("Finished in %ums\n", TickEnd - TickStart);
+#endif
 
     data->pFindFolder->NotifyConnections(DISPID_SEARCHCOMPLETE);
 
-    CStringW status;
-    status.Format(IDS_SEARCH_FILES_FOUND, uTotalFound);
-    LPWSTR pszStatusDup;
-    SHStrDupW(status.GetBuffer(), &pszStatusDup);
-    ::PostMessageW(data->hwnd, WM_SEARCH_UPDATE_STATUS, 0, (LPARAM)pszStatusDup);
-    ::SendMessageW(data->hwnd, WM_SEARCH_STOP, 0, 0);
+    data->szStatusBuffer.Format(IDS_SEARCH_FILES_FOUND, data->uTotalFound);
+    NotifyStringMessage(*data, WM_SEARCH_UPDATE_STATUS, data->szStatusBuffer);
+
+    ::SendMessageW(data->hwnd, WM_SEARCH_STOP, data->TaskId, (LPARAM)data);
 
     CloseHandle(data->hStopEvent);
     delete data;
@@ -525,6 +542,7 @@ LRESULT CFindFolder::StartSearch(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &
     pSearchData->szFileName = pSearchParams->szFileName;
     pSearchData->szQueryA = pSearchParams->szQuery;
     pSearchData->szQueryW = pSearchParams->szQuery;
+    pSearchData->TaskId = ++m_SearchTaskId;
 
     // UTF-16 BE
     {
@@ -600,6 +618,9 @@ LRESULT CFindFolder::StartSearch(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &
 
 LRESULT CFindFolder::StopSearch(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled)
 {
+    if (wParam != m_SearchTaskId && lParam)
+        return 0;
+
     if (m_hStopEvent)
     {
         SetEvent(m_hStopEvent);
@@ -613,26 +634,20 @@ LRESULT CFindFolder::AddResult(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bH
     if (!lParam)
         return 0;
 
-    CComHeapPtr<WCHAR> lpPath((LPWSTR) lParam);
-
-    CComHeapPtr<ITEMIDLIST> lpSearchPidl(_ILCreate(lpPath));
-    if (lpSearchPidl)
+    CComHeapPtr<ITEMIDLIST> pidl((LPITEMIDLIST)lParam);
+    if (wParam == m_SearchTaskId)
     {
         UINT uItemIndex;
-        m_shellFolderView->AddObject(lpSearchPidl, &uItemIndex);
+        m_shellFolderView->AddObject(pidl, &uItemIndex);
     }
-
     return 0;
 }
 
 LRESULT CFindFolder::UpdateStatus(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled)
 {
-    CComHeapPtr<WCHAR> status((LPWSTR) lParam);
-    if (m_shellBrowser)
-    {
+    CComHeapPtr<WCHAR> status((PWSTR)lParam);
+    if (m_shellBrowser && wParam == m_SearchTaskId && status)
         m_shellBrowser->SetStatusTextSB(status);
-    }
-
     return 0;
 }
 
