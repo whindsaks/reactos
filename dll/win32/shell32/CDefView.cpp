@@ -316,7 +316,7 @@ public:
     PCUITEMID_CHILD _PidlByItem(int i);
     PCUITEMID_CHILD _PidlByItem(LVITEM& lvItem);
     int LV_FindItemByPidl(PCUITEMID_CHILD pidl);
-    int LV_AddItem(PCUITEMID_CHILD pidl);
+    int LV_AddItem(PCUITEMID_CHILD pidl, bool TakeOwnership = false);
     BOOLEAN LV_DeleteItem(PCUITEMID_CHILD pidl);
     BOOLEAN LV_RenameItem(PCUITEMID_CHILD pidlOld, PCUITEMID_CHILD pidlNew);
     BOOLEAN LV_UpdateItem(PCUITEMID_CHILD pidl);
@@ -1331,7 +1331,7 @@ int CDefView::LV_FindItemByPidl(PCUITEMID_CHILD pidl)
     return -1;
 }
 
-int CDefView::LV_AddItem(PCUITEMID_CHILD pidl)
+int CDefView::LV_AddItem(PCUITEMID_CHILD pidl, bool TakeOwnership)
 {
     LVITEMW lvItem;
 
@@ -1341,16 +1341,21 @@ int CDefView::LV_AddItem(PCUITEMID_CHILD pidl)
 
     if (_DoFolderViewCB(SFVM_ADDINGOBJECT, 0, (LPARAM)pidl) == S_FALSE)
         return -1;
+    if (!TakeOwnership && (pidl = ILClone(pidl)) == NULL)
+        return -1;
 
     lvItem.mask = LVIF_TEXT | LVIF_IMAGE | LVIF_PARAM;    // set mask
     lvItem.iItem = m_ListView.GetItemCount();             // add item to lists end
     lvItem.iSubItem = 0;
-    lvItem.lParam = reinterpret_cast<LPARAM>(ILClone(pidl)); // set item's data
+    lvItem.lParam = reinterpret_cast<LPARAM>(pidl);       // set item's data
     lvItem.pszText = LPSTR_TEXTCALLBACKW;                 // get text on a callback basis
     lvItem.iImage = I_IMAGECALLBACK;                      // get image on a callback basis
     lvItem.stateMask = LVIS_CUT;
 
-    return m_ListView.InsertItem(&lvItem);
+    int idx = m_ListView.InsertItem(&lvItem);
+    if (idx < 0)
+        ILFree(const_cast<PUITEMID_CHILD>(pidl));
+    return idx;
 }
 
 BOOLEAN CDefView::LV_DeleteItem(PCUITEMID_CHILD pidl)
@@ -1465,12 +1470,14 @@ INT CALLBACK CDefView::fill_list(LPVOID ptr, LPVOID arg)
 {
     PITEMID_CHILD pidl = static_cast<PITEMID_CHILD>(ptr);
     CDefView *pThis = static_cast<CDefView *>(arg);
+    bool FreePidl = TRUE;
 
     // in a commdlg this works as a filemask
     if (pThis->IncludeObject(pidl) == S_OK && pThis->m_ListView)
-        pThis->LV_AddItem(pidl);
+        FreePidl = pThis->LV_AddItem(pidl, TRUE) < 0;
 
-    SHFree(pidl);
+    if (FreePidl)
+        SHFree(pidl);
     return TRUE;
 }
 
@@ -1487,7 +1494,7 @@ HRESULT CDefView::FillList(BOOL IsRefreshCommand)
     HDPA          hdpa;
     DWORD         dFlags = SHCONTF_NONFOLDERS | ((m_FolderSettings.fFlags & FWF_NOSUBFOLDERS) ? 0 : SHCONTF_FOLDERS);
 
-    TRACE("%p\n", this);
+    TRACE("%p\n", this);LARGE_INTEGER statS, statE; QueryPerformanceCounter(&statS);
 
     SHELLSTATE shellstate;
     SHGetSetSettings(&shellstate, SSF_SHOWALLOBJECTS | SSF_SHOWSUPERHIDDEN, FALSE);
@@ -1513,7 +1520,7 @@ HRESULT CDefView::FillList(BOOL IsRefreshCommand)
             return(NOERROR);
         return(hRes);
     }
-
+#if 0
     // create a pointer array
     hdpa = DPA_Create(16);
     if (!hdpa)
@@ -1532,6 +1539,18 @@ HRESULT CDefView::FillList(BOOL IsRefreshCommand)
     m_ListView.SetRedraw(FALSE);
 
     DPA_DestroyCallback( hdpa, fill_list, this);
+#else
+    hdpa=0;hdpa;pidl=0;pidl;//FIXME: This is not really that much faster :(?!?!?
+    m_ListView.SetRedraw(FALSE);
+    PITEMID_CHILD items[200];
+    for (dwFetched = 1; hRes == S_OK || dwFetched > 1;)
+    {
+        if (FAILED(hRes = pEnumIDList->Next(_countof(items), items, &dwFetched)))
+            break;
+        for (SIZE_T i = 0; i < dwFetched; ++i)
+            fill_list(items[i], (LPVOID)this);
+    }
+#endif
 
     /* sort the array */
     int sortCol = -1;
@@ -1562,7 +1581,7 @@ HRESULT CDefView::FillList(BOOL IsRefreshCommand)
     _DoFolderViewCB(SFVM_GET_CUSTOMVIEWINFO, 0, (LPARAM)&m_viewinfo_data);
 
     // turn listview's redrawing back on and force it to draw
-    m_ListView.SetRedraw(TRUE);
+    m_ListView.SetRedraw(TRUE);QueryPerformanceCounter(&statE);DbgPrint("fill=%I64u\n", statE.QuadPart - statS.QuadPart);
 
     UpdateListColors();
 
