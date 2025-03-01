@@ -23,13 +23,14 @@ BEGIN
     IDS_TOOLTIP_ZOOM_OUT "Malpligrandigi (-)"
     IDS_TOOLTIP_ROT_CLOCKW "Rotacii horloĝdirekte (Ctrl+K)"
     IDS_TOOLTIP_ROT_COUNCW "Rotacii kontraŭhorloĝdirekte (Ctrl+L)"
-    IDS_TOOLTIP_ROT_CWSAVE "Rotacii horloĝdirekte kaj konservi (perda)"
-    IDS_TOOLTIP_ROT_CCWSAVE "Rotacii kontraŭhorloĝdirekte kaj konservi (perda)"
+    IDS_TOOLTIP_ROT_CWSAVE "Rotacii horloĝdirekte kaj konservi %s"
+    IDS_TOOLTIP_ROT_CCWSAVE "Rotacii kontraŭhorloĝdirekte kaj konservi %s"
     IDS_TOOLTIP_DELETE "Forigi (DEL)"
     IDS_TOOLTIP_PRINT "Printi (Ctrl+P)"
     IDS_TOOLTIP_SAVEAS "Konservi kiel... (Ctrl+S)"
     IDS_TOOLTIP_MODIFY "Ŝanĝi (Ctrl+E)"
     IDS_TOOLTIP_HELP_TOC "Helpilo (F1)"
+    IDS_TOOLTIP_LOSSY "(perda)"
 END
 
 STRINGTABLE

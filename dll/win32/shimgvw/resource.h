@@ -103,6 +103,7 @@
 #define IDS_TOOLTIP_HELP_TOC   413
 #define IDS_TOOLTIP_ROT_CWSAVE 414
 #define IDS_TOOLTIP_ROT_CCWSAVE 415
+#define IDS_TOOLTIP_LOSSY      499
 
 /* Keyboard accelerators */
 #define IDR_ACCELERATOR 600

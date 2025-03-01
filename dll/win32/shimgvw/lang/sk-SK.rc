@@ -24,13 +24,14 @@ BEGIN
     IDS_TOOLTIP_ZOOM_OUT "Vzdialiť (-)"
     IDS_TOOLTIP_ROT_CLOCKW "Otočiť v smere hodinových ručičiek (Ctrl+K)" // Otočiť vpravo
     IDS_TOOLTIP_ROT_COUNCW "Otočiť proti smeru hodinových ručičiek (Ctrl+L)" // Otočiť vľavo
-    IDS_TOOLTIP_ROT_CWSAVE "Otočiť v smere hodinových ručičiek a uložiť (stratové)"
-    IDS_TOOLTIP_ROT_CCWSAVE "Otočiť proti smeru hodinových ručičiek a uložiť (stratové)"
+    IDS_TOOLTIP_ROT_CWSAVE "Otočiť v smere hodinových ručičiek a uložiť %s"
+    IDS_TOOLTIP_ROT_CCWSAVE "Otočiť proti smeru hodinových ručičiek a uložiť %s"
     IDS_TOOLTIP_DELETE "Smazať (DEL)"
     IDS_TOOLTIP_PRINT "Vytlačiť (Ctrl+P)"
     IDS_TOOLTIP_SAVEAS "Uložiť ako... (Ctrl+S)"
     IDS_TOOLTIP_MODIFY "Upraviť (Ctrl+E)"
     IDS_TOOLTIP_HELP_TOC "Nápoveda (F1)"
+    IDS_TOOLTIP_LOSSY "(stratové)"
 END
 
 STRINGTABLE

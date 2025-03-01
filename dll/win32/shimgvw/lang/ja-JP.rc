@@ -16,13 +16,14 @@ BEGIN
     IDS_TOOLTIP_ZOOM_OUT "ズームアウト (-)"
     IDS_TOOLTIP_ROT_CLOCKW "時計回りに回転 (Ctrl+K)"
     IDS_TOOLTIP_ROT_COUNCW "反時計回りに回転 (Ctrl+L)"
-    IDS_TOOLTIP_ROT_CWSAVE "時計回りに回転して保存 (劣化あり)"
-    IDS_TOOLTIP_ROT_CCWSAVE "反時計回りに回転して保存 (劣化あり)"
+    IDS_TOOLTIP_ROT_CWSAVE "時計回りに回転して保存 %s"
+    IDS_TOOLTIP_ROT_CCWSAVE "反時計回りに回転して保存 %s"
     IDS_TOOLTIP_DELETE "Delete (DEL)"
     IDS_TOOLTIP_PRINT "印刷 (Ctrl+P)"
     IDS_TOOLTIP_SAVEAS "名前を付けて保存... (Ctrl+S)"
     IDS_TOOLTIP_MODIFY "変更 (Ctrl+E)"
     IDS_TOOLTIP_HELP_TOC "ヘルプ トピックス (F1)"
+    IDS_TOOLTIP_LOSSY "(劣化あり)"
 END
 
 STRINGTABLE

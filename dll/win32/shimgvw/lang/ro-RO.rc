@@ -24,13 +24,14 @@ BEGIN
     IDS_TOOLTIP_ZOOM_OUT "Micşorare (-)"
     IDS_TOOLTIP_ROT_CLOCKW "Rotire în sensul acelor de ceasornic (Ctrl+K)"
     IDS_TOOLTIP_ROT_COUNCW "Rotire în sens contrar acelor de ceasornic (Ctrl+L)"
-    IDS_TOOLTIP_ROT_CWSAVE "Rotire în sensul acelor de ceasornic și salvare (cu pierderi)"
-    IDS_TOOLTIP_ROT_CCWSAVE "Rotire în sens contrar acelor de ceasornic și salvare(cu pierderi)"
+    IDS_TOOLTIP_ROT_CWSAVE "Rotire în sensul acelor de ceasornic și salvare %s"
+    IDS_TOOLTIP_ROT_CCWSAVE "Rotire în sens contrar acelor de ceasornic și salvare %s"
     IDS_TOOLTIP_DELETE "Ștergere (DEL)"
     IDS_TOOLTIP_PRINT "Imprimare (Ctrl+P)"
     IDS_TOOLTIP_SAVEAS "Salvare ca… (Ctrl+S)"
     IDS_TOOLTIP_MODIFY "Modificare (Ctrl+E)"
     IDS_TOOLTIP_HELP_TOC "Ajutor (F1)"
+    IDS_TOOLTIP_LOSSY "(cu pierderi)"
 END
 
 STRINGTABLE

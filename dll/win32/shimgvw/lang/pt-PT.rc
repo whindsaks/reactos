@@ -23,13 +23,14 @@ BEGIN
     IDS_TOOLTIP_ZOOM_OUT "Zoom (-)"
     IDS_TOOLTIP_ROT_CLOCKW "Girar no sentido dos ponteiros do relógio (Ctrl+K)"
     IDS_TOOLTIP_ROT_COUNCW "Girar no sentido contrário aos ponteiros do relógio (Ctrl+L)"
-    IDS_TOOLTIP_ROT_CWSAVE "Girar no sentido dos ponteiros do relógio e guardar (com perdas)"
-    IDS_TOOLTIP_ROT_CCWSAVE "Girar no sentido contrário aos ponteiros do relógio e guardar (com perdas)"
+    IDS_TOOLTIP_ROT_CWSAVE "Girar no sentido dos ponteiros do relógio e guardar %s"
+    IDS_TOOLTIP_ROT_CCWSAVE "Girar no sentido contrário aos ponteiros do relógio e guardar %s"
     IDS_TOOLTIP_DELETE "Eliminar (DEL)"
     IDS_TOOLTIP_PRINT "Imprimir (Ctrl+P)"
     IDS_TOOLTIP_SAVEAS "Guardar como... (Ctrl+S)"
     IDS_TOOLTIP_MODIFY "Modificar (Ctrl+E)"
     IDS_TOOLTIP_HELP_TOC "Tópicos da ajuda (F1)"
+    IDS_TOOLTIP_LOSSY "(com perdas)"
 END
 
 STRINGTABLE

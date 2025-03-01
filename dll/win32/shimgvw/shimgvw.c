@@ -34,6 +34,7 @@ SHIMGVW_FILENODE *  g_pCurrentFile      = NULL;
 GpImage *           g_pImage            = NULL;
 SHIMGVW_SETTINGS    g_Settings;
 UINT                g_ImageId;
+UINT                g_ImageIsLossless;
 
 static const UINT s_ZoomSteps[] =
 {
@@ -381,6 +382,7 @@ Preview_pFreeImage(PPREVIEW_DATA pData)
 static VOID
 Preview_pLoadImage(PPREVIEW_DATA pData, LPCWSTR szOpenFileName)
 {
+    GUID format;
     HRESULT hr;
     Preview_pFreeImage(pData);
     InvalidateRect(pData->m_hwnd, NULL, FALSE); /* Schedule redraw in case we change to "No preview" */
@@ -395,6 +397,11 @@ Preview_pLoadImage(PPREVIEW_DATA pData, LPCWSTR szOpenFileName)
     }
 
     Anime_LoadInfo(&pData->m_Anime);
+    GdipGetImageRawFormat(g_pImage, &format);
+    g_ImageIsLossless = IsEqualGUID(&format, &ImageFormatBMP) || IsEqualGUID(&format, &ImageFormatGIF) ||
+                        IsEqualGUID(&format, &ImageFormatPNG) || IsEqualGUID(&format, &ImageFormatIcon);
+    if (Preview_IsMainWnd(pData->m_hwnd))
+        SendMessageW((HWND)SendMessageW(pData->m_hwndToolBar, TB_GETTOOLTIPS, 0, 0), TTM_POP, 0, 0);
 
     GetFullPathNameW(szOpenFileName, _countof(pData->m_szFile), pData->m_szFile, NULL);
     SHAddToRecentDocs(SHARD_PATHW, pData->m_szFile);
@@ -1388,7 +1395,7 @@ Preview_Delete(PPREVIEW_DATA pData)
 
     /* Confirm file deletion and delete if allowed */
     FileOp.pFrom = szCurFile;
-    FileOp.fFlags = FOF_ALLOWUNDO;
+    FileOp.fFlags = GetKeyState(VK_SHIFT) < 0 ? 0 : FOF_ALLOWUNDO;
     if (SHFileOperationW(&FileOp) != 0)
     {
         DPRINT("Preview_Delete: SHFileOperationW() failed or canceled\n");
@@ -1585,8 +1592,14 @@ Preview_OnNotify(HWND hwnd, LPNMHDR pnmhdr)
         case TTN_GETDISPINFOW:
         {
             LPTOOLTIPTEXTW lpttt = (LPTOOLTIPTEXTW)pnmhdr;
-            lpttt->hinst = g_hInstance;
-            lpttt->lpszText = MAKEINTRESOURCEW(s_ButtonConfig[lpttt->hdr.idFrom - IDC_TOOL_BASE].ids);
+            WCHAR fmt[80], param1[80];
+            LoadStringW(g_hInstance, s_ButtonConfig[lpttt->hdr.idFrom - IDC_TOOL_BASE].ids, fmt, _countof(fmt));
+            if (!g_ImageIsLossless)
+                LoadStringW(g_hInstance, IDS_TOOLTIP_LOSSY, param1, _countof(param1));
+            else
+                *param1 = UNICODE_NULL;
+            wsprintfW(lpttt->szText, fmt, param1);
+            StrTrimW(lpttt->szText, L" "); /* Remove empty %s */
             break;
         }
     }
