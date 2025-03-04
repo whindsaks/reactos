@@ -1,6 +1,10 @@
 #ifndef _MMC_PCH_
 #define _MMC_PCH_
 
+#ifndef __cplusplus
+#define COBJMACROS
+#endif
+
 #include <stdarg.h>
 
 #include <windef.h>

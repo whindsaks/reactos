@@ -18,12 +18,60 @@
  */
 
 #include "precomp.h"
-
+#include <ole2.h>
+#include <unknwn.h>
+//#include <shobjidl.h>
+#include <shlobj.h>
+#include <shellapi.h>
+#include <shlwapi.h>
+#include <shlwapi_undoc.h>
 
 HINSTANCE hAppInstance;
 HANDLE hAppHeap;
 HWND hwndMainConsole;
 HWND hwndMDIClient;
+
+static HRESULT
+LoadLinkFromFile(IShellLink *pSL, PCWSTR LnkPath)
+{
+    HRESULT hr;
+    IPersistFile *pPF;
+    if (SUCCEEDED(hr = IUnknown_QueryInterface(pSL, &IID_IPersistFile, (void**)&pPF)))
+    {
+        hr = IPersistFile_Load(pPF, LnkPath, STGM_READ);
+        IUnknown_Release(pPF);
+    }
+    return hr;
+}
+
+static BOOL
+HandleRosMscFile(PCWSTR pszParams)
+{
+    HRESULT hr = E_FAIL;
+    IShellLinkW *pSL;
+    int argc;
+    PWSTR *argv = CommandLineToArgvW(pszParams, &argc);
+    if (!argv)
+        return FALSE;
+
+    if (argc)
+        hr = CoCreateInstance(&CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, &IID_IShellLinkW, (void**)&pSL);
+    if (SUCCEEDED(hr))
+    {
+        if (SUCCEEDED(hr = LoadLinkFromFile(pSL, argv[0])))
+        {
+            IContextMenu *pCM;
+            if (SUCCEEDED(IUnknown_QueryInterface(pSL, &IID_IContextMenu, (void**)&pCM)))
+            {
+                IContextMenu_Invoke(pCM, NULL, NULL, CMF_NORMAL);
+                IUnknown_Release(pCM);
+            }
+        }
+        IUnknown_Release(pSL);
+    }
+    LocalFree(argv);
+    return SUCCEEDED(hr);
+}
 
 
 int WINAPI
@@ -32,17 +80,23 @@ _tWinMain(HINSTANCE hInstance,
           LPTSTR lpCmdLine,
           int nCmdShow)
 {
+    int retval = 0;
     MSG Msg;
+    HRESULT hrInit = OleInitialize(NULL);
 
     hAppInstance = hInstance; // GetModuleHandle(NULL);
     hAppHeap = GetProcessHeap();
 
     InitCommonControls();
 
+    if (HandleRosMscFile(lpCmdLine))
+        goto exit;
+
     if (!RegisterMMCWndClasses())
     {
         /* FIXME - Display error */
-        return 1;
+        retval = 1;
+        goto exit;
     }
 
     hwndMainConsole = CreateConsoleWindow(NULL /*argc > 1 ? argv[1] : NULL*/, nCmdShow);
@@ -59,6 +113,8 @@ _tWinMain(HINSTANCE hInstance,
     }
 
     UnregisterMMCWndClasses();
-
-    return 0;
+exit:
+    if (SUCCEEDED(hrInit))
+        OleUninitialize();
+    return retval;
 }
