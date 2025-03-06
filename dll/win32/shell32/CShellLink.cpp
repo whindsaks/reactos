@@ -1756,6 +1756,24 @@ static HRESULT SHELL_PidlGetIconLocationW(PCIDLIST_ABSOLUTE pidl,
     return S_OK;
 }
 
+static HRESULT SHELL_GetExtractIconOfFileExtension(PCWSTR pszExt, IExtractIconW **ppEIW)
+{
+    HRESULT hr = E_OUTOFMEMORY;
+    WCHAR buf[MAX_PATH + 255];
+    GetSystemDirectory(buf, _countof(buf));
+    PathAppend(buf, L"*");
+    ASSERT(pszExt && *pszExt == L'.');
+    if (SUCCEEDED(StringCchCatW(buf, _countof(buf), pszExt)))
+    {
+        if (LPITEMIDLIST pidl = SHSimpleIDListFromPathW(buf))
+        {
+            hr = SHELL_GetUIObjectOfAbsoluteItem(NULL, pidl, IID_PPV_ARG(IExtractIconW, ppEIW));
+            ILFree(pidl);
+        }
+    }
+    return hr;
+}
+
 HRESULT STDMETHODCALLTYPE CShellLink::GetIconLocation(UINT uFlags, PWSTR pszIconFile, UINT cchMax, int *piIndex, UINT *pwFlags)
 {
     HRESULT hr;
@@ -1784,13 +1802,27 @@ HRESULT STDMETHODCALLTYPE CShellLink::GetIconLocation(UINT uFlags, PWSTR pszIcon
         return S_FALSE;
 
     hr = GetIconLocation(pszIconFile, cchMax, piIndex);
+    if (SUCCEEDED(hr) && cchMax && pszIconFile[0] == L'.')
+    {
+        // Special handling for ".ext" icon paths (LNKTOOL Create Test.lnk /Path %windir%\Explorer.exe /Icon .txt)
+        CComPtr<IExtractIconW> pEI;
+        if (SUCCEEDED(hr = SHELL_GetExtractIconOfFileExtension(pszIconFile, &pEI)))
+        {
+            hr = pEI->GetIconLocation(uFlags, pszIconFile, cchMax, piIndex, pwFlags);
+            *pwFlags |= GIL_PERINSTANCE;
+            if (SUCCEEDED(hr))
+                return hr;
+        }
+    }
+
     if (FAILED(hr) || pszIconFile[0] == UNICODE_NULL)
     {
         hr = SHELL_PidlGetIconLocationW(m_pPidl, uFlags, pszIconFile, cchMax, piIndex, pwFlags);
     }
     else
     {
-        *pwFlags = GIL_NOTFILENAME | GIL_PERCLASS;
+        // TODO: If GetIconLocation succeeded with a path+index, why are we setting GIL_NOTFILENAME?
+        *pwFlags = GIL_NOTFILENAME | GIL_PERINSTANCE;
     }
 
     return hr;
@@ -1801,6 +1833,19 @@ CShellLink::Extract(PCWSTR pszFile, UINT nIconIndex, HICON *phiconLarge, HICON *
 {
     HRESULT hr = NOERROR;
     UINT cxyLarge = LOWORD(nIconSize), cxySmall = HIWORD(nIconSize);
+
+    // Special shell32 GIL_NOTFILENAME handling
+    if (pszFile && pszFile[0] == L'*' && pszFile[1] == UNICODE_NULL)
+    {
+        WCHAR buf[MAX_PATH];
+        INT index;
+        if (SUCCEEDED(GetIconLocation(buf, _countof(buf), &index)))
+        {
+            CComPtr<IExtractIconW> pEI;
+            if (SUCCEEDED(SHELL_GetExtractIconOfFileExtension(PathFindExtensionW(buf), &pEI)))
+                return pEI->Extract(pszFile, nIconIndex, phiconLarge, phiconSmall, nIconSize);
+        }
+    }
 
     if (phiconLarge)
     {

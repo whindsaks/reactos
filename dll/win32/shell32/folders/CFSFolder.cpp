@@ -337,7 +337,7 @@ HRESULT CFSExtractIcon_CreateInstance(IShellFolder * psf, LPCITEMIDLIST pidl, RE
         if (hkey && !SHQueryValueExW(hkey, NULL, NULL, NULL, wTemp, &dwSize))
         {
             WCHAR sNum[5];
-            if (ParseFieldW (wTemp, 2, sNum, 5))
+            if (ParseFieldW (wTemp, 2, sNum, 5)) // FIXME: PathParseIconLocationW
                 icon_idx = _wtoi(sNum);
             else
                 icon_idx = 0; /* sometimes the icon number is missing */

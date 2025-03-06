@@ -431,7 +431,6 @@ DWORD_PTR WINAPI SHGetFileInfoW(LPCWSTR path,DWORD dwFileAttributes,
                                 SHFILEINFOW *psfi, UINT sizeofpsfi, UINT flags )
 {
     WCHAR szLocation[MAX_PATH], szFullPath[MAX_PATH];
-    int iIndex;
     DWORD_PTR ret = TRUE;
     DWORD dwAttributes = 0;
     IShellFolder * psfParent = NULL;
@@ -610,8 +609,6 @@ DWORD_PTR WINAPI SHGetFileInfoW(LPCWSTR path,DWORD dwFileAttributes,
     /* get the iconlocation */
     if (SUCCEEDED(hr) && (flags & SHGFI_ICONLOCATION ))
     {
-        UINT uDummy,uFlags;
-
         if (flags & SHGFI_USEFILEATTRIBUTES && !(flags & SHGFI_PIDL))
         {
             if (dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
@@ -646,18 +643,18 @@ DWORD_PTR WINAPI SHGetFileInfoW(LPCWSTR path,DWORD dwFileAttributes,
         {
             hr = IShellFolder_GetUIObjectOf(psfParent, 0, 1,
                 (LPCITEMIDLIST*)&pidlLast, &IID_IExtractIconW,
-                &uDummy, (LPVOID*)&pei);
+                NULL, (LPVOID*)&pei);
             if (SUCCEEDED(hr))
             {
-                hr = IExtractIconW_GetIconLocation(pei, uGilFlags,
-                    szLocation, MAX_PATH, &iIndex, &uFlags);
-
+                UINT uFlags = 0;
+                if (FAILED(IExtractIconW_GetIconLocation(pei, uGilFlags, psfi->szDisplayName,
+                                                         MAX_PATH, &psfi->iIcon, &uFlags)))
+                    psfi->szDisplayName[0] = UNICODE_NULL;
                 if (uFlags & GIL_NOTFILENAME)
-                    ret = FALSE;
-                else
                 {
-                    lstrcpyW (psfi->szDisplayName, szLocation);
-                    psfi->iIcon = iIndex;
+                    if (psfi->szDisplayName[0] != L'*')
+                        psfi->iIcon = 0;
+                    psfi->szDisplayName[0] = UNICODE_NULL;
                 }
                 IExtractIconW_Release(pei);
             }
