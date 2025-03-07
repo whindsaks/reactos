@@ -1353,12 +1353,15 @@ cpp_quote("#define GIL_FORSHELL     0x0002")
 cpp_quote("#define GIL_ASYNC        0x0020")
 cpp_quote("#define GIL_DEFAULTICON  0x0040")
 cpp_quote("#define GIL_FORSHORTCUT  0x0080")
+cpp_quote("#define GIL_CHECKSHIELD  0x0200")
 
 cpp_quote("#define GIL_SIMULATEDOC  0x0001")
 cpp_quote("#define GIL_PERINSTANCE  0x0002")
 cpp_quote("#define GIL_PERCLASS     0x0004")
 cpp_quote("#define GIL_NOTFILENAME  0x0008")
 cpp_quote("#define GIL_DONTCACHE    0x0010")
+cpp_quote("#define GIL_SHIELD       0x0200")
+cpp_quote("#define GIL_FORCENOSHIELD 0x0400")
 
     typedef IExtractIconA *LPEXTRACTICONA;
 

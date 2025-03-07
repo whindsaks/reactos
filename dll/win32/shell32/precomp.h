@@ -13,6 +13,7 @@
 #include <windef.h>
 #include <winbase.h>
 #include <winreg.h>
+#include <wingdi.h> // This has to come before winuser.h to unlock NONCLIENTMETRICS!
 #include <winuser.h>
 #include <wincon.h>
 #include <commdlg.h>

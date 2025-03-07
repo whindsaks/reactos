@@ -108,7 +108,8 @@ HRESULT CAddressEditBox::RefreshAddress()
     /* Get ready to set the displayed item */
     COMBOBOXEXITEMW item = { CBEIF_IMAGE | CBEIF_SELECTEDIMAGE | CBEIF_TEXT | CBEIF_LPARAM };
     item.iItem = -1; /* -1 to specify the displayed item */
-    item.iImage = SHMapPIDLToSystemImageListIndex(pShellFolder, pidlChild, &item.iSelectedImage);
+    item.iImage = SHMapPIDLToSystemImageListIndex(pShellFolder, pidlChild, NULL);
+    item.iSelectedImage = item.iImage;
 
     /* Set the path if filesystem; otherwise use the name */
     WCHAR szPathOrName[MAX_PATH];
