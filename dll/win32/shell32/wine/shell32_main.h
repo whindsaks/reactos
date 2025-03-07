@@ -42,11 +42,13 @@ BOOL WINAPI Shell_GetImageLists(HIMAGELIST * lpBigList, HIMAGELIST * lpSmallList
 #define INVALID_INDEX -1
 BOOL SIC_Initialize(void);
 void SIC_Destroy(void) DECLSPEC_HIDDEN;
-BOOL PidlToSicIndex (IShellFolder * sh, LPCITEMIDLIST pidl, BOOL bBigIcon, UINT uFlags, int * pIndex) DECLSPEC_HIDDEN;
-INT SIC_GetIconIndex (LPCWSTR sSourceFile, INT dwSourceIndex, DWORD dwFlags ) DECLSPEC_HIDDEN;
+BOOL PidlToSicIndex(IShellFolder *sh, LPCITEMIDLIST pidl, UINT uFlags, int *pIndex);
+INT SIC_GetIconIndex(LPCWSTR sSourceFile, INT dwSourceIndex, DWORD dwFlags);
+EXTERN_C UINT SIC_GetIconSize(UINT ListId);
 extern INT ShellLargeIconSize;
 extern INT ShellSmallIconSize;
 extern INT ShellIconBPP;
+EXTERN_C int SHELL_GetShell32IconLocation(UINT GilIn, PCWSTR Hint, PWSTR Output);
 
 /* Classes Root */
 HRESULT HCR_GetProgIdKeyOfExtension(PCWSTR szExtension, PHKEY phKey, BOOL AllowFallback);
@@ -199,7 +201,8 @@ extern const GUID CLSID_UnixDosFolder DECLSPEC_HIDDEN;
 HRESULT SHELL_RegisterShellFolders(void) DECLSPEC_HIDDEN;
 
 /* Detect Shell Links */
-BOOL SHELL_IsShortcut(LPCITEMIDLIST) DECLSPEC_HIDDEN;
+BOOL SHELL_IsExtensionRegShortcut(LPCWSTR pszExt);
+BOOL SHELL_IsShortcut(LPCITEMIDLIST);
 
 HPROPSHEETPAGE SH_CreatePropertySheetPage(WORD wDialogId, DLGPROC pfnDlgProc, LPARAM lParam, LPCWSTR pwszTitle);
 HPROPSHEETPAGE SH_CreatePropertySheetPageEx(WORD wDialogId, DLGPROC pfnDlgProc, LPARAM lParam,

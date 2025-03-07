@@ -276,7 +276,7 @@ static BOOL HCR_RegGetIconW(HKEY hkey, LPWSTR szDest, LPCWSTR szName, DWORD len,
         ExpandEnvironmentStringsW(szDest, sTemp, MAX_PATH);
         lstrcpynW(szDest, sTemp, len);
       }
-        if (ParseFieldW (szDest, 2, sNum, _countof(sNum)))
+        if (ParseFieldW (szDest, 2, sNum, _countof(sNum))) /* FIXME: PathParseIconLocation? */
              *picon_idx = atoiW(sNum);
           else
              *picon_idx=0; /* sometimes the icon number is missing */

@@ -2537,7 +2537,7 @@ HRESULT STDMETHODCALLTYPE CShellLink::Initialize(PCIDLIST_ABSOLUTE pidlFolder, I
     }
     ReleaseStgMedium(&stgm);
 
-    return S_OK;
+    return S_OK; // TODO: Why does this ignore the HRESULT from Load()?
 }
 
 HRESULT STDMETHODCALLTYPE CShellLink::QueryContextMenu(HMENU hMenu, UINT indexMenu, UINT idCmdFirst, UINT idCmdLast, UINT uFlags)

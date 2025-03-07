@@ -11,10 +11,61 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(shell);
 
+#define STOCKICONLOCATION MAKEINTRESOURCEW(1)
+
+static inline bool IsValidStockIconIdForShell32Icon(UINT id)
+{
+    return id <= SIID_RECYCLERFULL || id == SIID_MEDIACDAUDIO || id == SIID_LOCK;
+}
+
+static inline bool IsValidStockIconId(UINT id)
+{
+    return IsValidStockIconIdForShell32Icon(id);
+}
+
 struct IconLocation
 {
     LPWSTR file;
     UINT index;
+
+    inline void Free()
+    {
+        if (!IS_INTRESOURCE(file))
+            CoTaskMemFree(file);
+        file = NULL;
+    }
+
+    HRESULT SetString(LPCWSTR pszSource)
+    {
+        if (pszSource)
+        {
+            LPWSTR pszDup;
+            HRESULT hr = SHStrDupW(pszSource, &pszDup);
+            if (FAILED(hr))
+                return hr;
+            Free();
+            file = pszDup;
+            return S_OK;
+        }
+        Free();
+        file = STOCKICONLOCATION;
+        return S_OK;
+    }
+
+    HRESULT Set(LPCWSTR pszSource, int IconIndex)
+    {
+        if (!pszSource)
+        {
+            if (!IsValidStockIconId(IconIndex))
+                return E_INVALIDARG;
+            pszSource = STOCKICONLOCATION;
+            IconIndex = (IconIndex + 1) * -1; // Resource Id
+        }
+        HRESULT hr = SetString(pszSource);
+        if (SUCCEEDED(hr))
+            index = IconIndex;
+        return hr;
+    }
 };
 
 class CExtractIcon :
@@ -69,22 +120,6 @@ BEGIN_COM_MAP(CExtractIcon)
 END_COM_MAP()
 };
 
-VOID DuplicateString(
-    LPCWSTR Source,
-    LPWSTR *Destination)
-{
-    SIZE_T cb;
-
-    if (*Destination)
-        CoTaskMemFree(*Destination);
-
-    cb = (wcslen(Source) + 1) * sizeof(WCHAR);
-    *Destination = (LPWSTR)CoTaskMemAlloc(cb);
-    if (!*Destination)
-        return;
-    CopyMemory(*Destination, Source, cb);
-}
-
 CExtractIcon::CExtractIcon()
 {
     flags = 0;
@@ -96,10 +131,10 @@ CExtractIcon::CExtractIcon()
 
 CExtractIcon::~CExtractIcon()
 {
-    if (defaultIcon.file) CoTaskMemFree(defaultIcon.file);
-    if (normalIcon.file) CoTaskMemFree(normalIcon.file);
-    if (openIcon.file) CoTaskMemFree(openIcon.file);
-    if (shortcutIcon.file) CoTaskMemFree(shortcutIcon.file);
+    defaultIcon.Free();
+    normalIcon.Free();
+    openIcon.Free();
+    shortcutIcon.Free();
 }
 
 HRESULT STDMETHODCALLTYPE CExtractIcon::SetDefaultIcon(
@@ -107,12 +142,7 @@ HRESULT STDMETHODCALLTYPE CExtractIcon::SetDefaultIcon(
     int iIcon)
 {
     TRACE("(%p, %s, %d)\n", this, debugstr_w(pszFile), iIcon);
-
-    DuplicateString(pszFile, &defaultIcon.file);
-    if (!defaultIcon.file)
-        return E_OUTOFMEMORY;
-    defaultIcon.index = iIcon;
-    return S_OK;
+    return defaultIcon.Set(pszFile, iIcon);
 }
 
 HRESULT STDMETHODCALLTYPE CExtractIcon::SetFlags(
@@ -137,12 +167,7 @@ HRESULT STDMETHODCALLTYPE CExtractIcon::SetNormalIcon(
     int iIcon)
 {
     TRACE("(%p, %s, %d)\n", this, debugstr_w(pszFile), iIcon);
-
-    DuplicateString(pszFile, &normalIcon.file);
-    if (!normalIcon.file)
-        return E_OUTOFMEMORY;
-    normalIcon.index = iIcon;
-    return S_OK;
+    return normalIcon.Set(pszFile, iIcon);
 }
 
 HRESULT STDMETHODCALLTYPE CExtractIcon::SetOpenIcon(
@@ -150,12 +175,7 @@ HRESULT STDMETHODCALLTYPE CExtractIcon::SetOpenIcon(
     int iIcon)
 {
     TRACE("(%p, %s, %d)\n", this, debugstr_w(pszFile), iIcon);
-
-    DuplicateString(pszFile, &openIcon.file);
-    if (!openIcon.file)
-        return E_OUTOFMEMORY;
-    openIcon.index = iIcon;
-    return S_OK;
+    return openIcon.Set(pszFile, iIcon);
 }
 
 HRESULT STDMETHODCALLTYPE CExtractIcon::SetShortcutIcon(
@@ -163,12 +183,7 @@ HRESULT STDMETHODCALLTYPE CExtractIcon::SetShortcutIcon(
     int iIcon)
 {
     TRACE("(%p, %s, %d)\n", this, debugstr_w(pszFile), iIcon);
-
-    DuplicateString(pszFile, &shortcutIcon.file);
-    if (!shortcutIcon.file)
-        return E_OUTOFMEMORY;
-    shortcutIcon.index = iIcon;
-    return S_OK;
+    return shortcutIcon.Set(pszFile, iIcon);
 }
 
 HRESULT STDMETHODCALLTYPE CExtractIcon::GetIconLocation(
@@ -195,13 +210,16 @@ HRESULT STDMETHODCALLTYPE CExtractIcon::GetIconLocation(
     else
         icon = &normalIcon;
 
-    if (!icon->file)
+    PCWSTR pszFile = icon->file;
+    if (!pszFile)
         return E_FAIL;
+    else if (pszFile == STOCKICONLOCATION)
+        pszFile = swShell32Name;
 
-    cb = wcslen(icon->file) + 1;
+    cb = wcslen(pszFile) + 1;
     if (cchMax < (UINT)cb)
         return E_FAIL;
-    CopyMemory(szIconFile, icon->file, cb * sizeof(WCHAR));
+    CopyMemory(szIconFile, pszFile, cb * sizeof(WCHAR));
     *piIndex = icon->index;
     *pwFlags = flags;
     return S_OK;

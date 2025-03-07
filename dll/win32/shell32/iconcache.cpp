@@ -10,9 +10,15 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(shell);
 
+EXTERN_C BOOL PathIsExeW(LPCWSTR lpszPath);
+
 /********************** THE ICON CACHE ********************************/
 
 #define INVALID_INDEX -1
+#define GIL_CACHEMASK_DOCUMENTED (GIL_SIMULATEDOC | GIL_NOTFILENAME) // SHUpdateImage
+#define GIL_CACHEMASK GIL_FORSHORTCUT // FIXME: Change to GIL_CACHEMASK_DOCUMENTED
+
+INT g_SIL_NoAssocIndex = INVALID_INDEX;
 
 typedef struct
 {
@@ -41,6 +47,15 @@ CRITICAL_SECTION_DEBUG critsect_debug =
       0, 0, { (DWORD_PTR)(__FILE__ ": SHELL32_SicCS") }
 };
 CRITICAL_SECTION SHELL32_SicCS = { &critsect_debug, -1, 0, 0, 0, 0 };
+}
+
+EXTERN_C UINT SIC_GetIconSize(UINT ListId)
+{
+    if (ListId == SHIL_LARGE)
+        return ShellLargeIconSize;
+    if (ListId == SHIL_SMALL)
+        return ShellSmallIconSize;
+    return 0;
 }
 
 // Load metric value from registry
@@ -104,8 +119,8 @@ static INT CALLBACK SIC_CompareEntries( LPVOID p1, LPVOID p2, LPARAM lparam)
     if (e1->dwSourceIndex != e2->dwSourceIndex)
       return (e1->dwSourceIndex < e2->dwSourceIndex) ? -1 : 1;
 
-    if ((e1->dwFlags & GIL_FORSHORTCUT) != (e2->dwFlags & GIL_FORSHORTCUT))
-      return ((e1->dwFlags & GIL_FORSHORTCUT) < (e2->dwFlags & GIL_FORSHORTCUT)) ? -1 : 1;
+    if ((e1->dwFlags & GIL_CACHEMASK) != (e2->dwFlags & GIL_CACHEMASK))
+      return ((e1->dwFlags & GIL_CACHEMASK) < (e2->dwFlags & GIL_CACHEMASK)) ? -1 : 1;
 
     return _wcsicmp(e1->sSourceFile,e2->sSourceFile);
 }
@@ -367,7 +382,7 @@ static INT SIC_IconAppend (LPCWSTR sSourceFile, INT dwSourceIndex, HICON hSmallI
     wcscpy( lpsice->sSourceFile, path );
 
     lpsice->dwSourceIndex = dwSourceIndex;
-    lpsice->dwFlags = dwFlags;
+    lpsice->dwFlags = dwFlags & GIL_CACHEMASK;
 
     EnterCriticalSection(&SHELL32_SicCS);
 
@@ -480,6 +495,7 @@ INT SIC_GetIconIndex (LPCWSTR sSourceFile, INT dwSourceIndex, DWORD dwFlags )
     TRACE("%s %i\n", debugstr_w(sSourceFile), dwSourceIndex);
 
     GetFullPathNameW(sSourceFile, MAX_PATH, path, NULL);
+    // FIXME: shell32.dll is special and should be stored without the path
     sice.sSourceFile = path;
     sice.dwSourceIndex = dwSourceIndex;
     sice.dwFlags = dwFlags;
@@ -527,6 +543,7 @@ BOOL SIC_Initialize(void)
         return TRUE;
     }
 
+    g_SIL_NoAssocIndex = INVALID_INDEX;
     sic_hdpa = DPA_Create(16);
     if (!sic_hdpa)
     {
@@ -701,13 +718,67 @@ BOOL WINAPI Shell_GetImageLists(HIMAGELIST * lpBigList, HIMAGELIST * lpSmallList
 
     return TRUE;
 }
+
+static int SIC_GetDefaultOverridableCachedIndex(int index)
+{
+    PCWSTR path = swShell32Name;
+    WCHAR buf[MAX_PATH];
+    if (HLM_GetIconW(index, buf, _countof(buf), &index))
+        path = buf;
+    return Shell_GetCachedImageIndexW(path, index, 0);
+}
+
+#define SIC_GetNoAssocCachedIndex() SIC_GetDefaultOverridableCachedIndex(SIID_DOCNOASSOC)
+#define SIC_GetFallbackSimulateDocCachedIndex() SIC_GetDefaultOverridableCachedIndex(SIID_DOCASSOC)
+#define SIC_GetFallbackExeCachedIndex() SIC_GetDefaultOverridableCachedIndex(SIID_APPLICATION)
+
+static inline int SIC_GetDefaultIconCachedIndex(PCWSTR szIconPath, UINT GilOut)
+{
+    int index = INVALID_INDEX;
+    if (GilOut & GIL_SIMULATEDOC)
+        index = SIC_GetFallbackSimulateDocCachedIndex();
+    else if ((GilOut & GIL_PERINSTANCE) && szIconPath && PathIsExeW(szIconPath))
+        index = SIC_GetFallbackExeCachedIndex();
+
+    if (index < 0)
+    {
+        if ((index = g_SIL_NoAssocIndex) == INVALID_INDEX)
+            index = g_SIL_NoAssocIndex = SIC_GetNoAssocCachedIndex();
+    }
+    return index;
+}
+
+EXTERN_C int SHELL_GetShell32IconLocation(UINT GilIn, PCWSTR Hint, PWSTR Output)
+{
+    int index = SIID_DOCNOASSOC, fallback = INVALID_INDEX;
+    if (Hint == MAKEINTRESOURCEW('D'))
+    {
+        fallback = SIID_FOLDER;
+        index = (GilIn & GIL_OPENICON) ? SIID_FOLDEROPEN : fallback;
+    }
+    else if (Hint == MAKEINTRESOURCEW('V'))
+    {
+        index = SIID_DRIVEFIXED;
+    }
+    else if (!IS_INTRESOURCE(Hint) && PathIsExeW(Hint))
+    {
+        index = SIID_APPLICATION;
+    }
+
+    if (!HLM_GetIconW(index, Output, MAX_PATH, &index))
+    {
+        if (fallback < 0 || !HLM_GetIconW(fallback, Output, MAX_PATH, &index))
+            wcscpy(Output, swShell32Name);
+    }
+    return index;
+}
+
 /*************************************************************************
  * PidlToSicIndex            [INTERNAL]
  *
  * PARAMETERS
  *    sh    [IN]    IShellFolder
  *    pidl    [IN]
- *    bBigIcon [IN]
  *    uFlags    [IN]    GIL_*
  *    pIndex    [OUT]    index within the SIC
  *
@@ -715,79 +786,76 @@ BOOL WINAPI Shell_GetImageLists(HIMAGELIST * lpBigList, HIMAGELIST * lpSmallList
 BOOL PidlToSicIndex (
     IShellFolder * sh,
     LPCITEMIDLIST pidl,
-    BOOL bBigIcon,
-    UINT uFlags,
+    UINT GilIn,
     int * pIndex)
 {
     CComPtr<IExtractIconW>        ei;
     WCHAR        szIconFile[MAX_PATH];    /* file containing the icon */
     INT        iSourceIndex;        /* index or resID(negated) in this file */
     BOOL        ret = FALSE;
-    UINT        dwFlags = 0;
-    int        iShortcutDefaultIndex = INVALID_INDEX;
+    UINT        GilOut = 0;
 
-    TRACE("sf=%p pidl=%p %s\n", sh, pidl, bBigIcon?"Big":"Small");
+    TRACE("GIL=%#x sf=%p pidl=%p\n", GilIn, sh, pidl);
 
     if (!sic_hdpa)
         SIC_Initialize();
 
-    if (SUCCEEDED (sh->GetUIObjectOf(0, 1, &pidl, IID_NULL_PPV_ARG(IExtractIconW, &ei))))
+    *szIconFile = UNICODE_NULL;
+    *pIndex = INVALID_INDEX;
+    if (SUCCEEDED (sh->GetUIObjectOf(0, 1, &pidl, IID_NULL_PPV_ARG(IExtractIconW, &ei))) && ei)
     {
-      if (SUCCEEDED(ei->GetIconLocation(uFlags &~ GIL_FORSHORTCUT, szIconFile, MAX_PATH, &iSourceIndex, &dwFlags)))
-      {
-        *pIndex = SIC_GetIconIndex(szIconFile, iSourceIndex, uFlags);
-        ret = TRUE;
-      }
+        if (SUCCEEDED(ei->GetIconLocation(GilIn &~ GIL_FORSHORTCUT, szIconFile, MAX_PATH, &iSourceIndex, &GilOut)))
+        {
+          *pIndex = SIC_GetIconIndex(szIconFile, iSourceIndex, GilOut);
+          ret = TRUE;
+        }
+    }
+    else
+    {
+        // TODO: Fallback to IExtractIconA
     }
 
     if (INVALID_INDEX == *pIndex)    /* default icon when failed */
     {
-      if (0 == (uFlags & GIL_FORSHORTCUT))
-      {
-        *pIndex = 0;
-      }
-      else
-      {
-        if (INVALID_INDEX == iShortcutDefaultIndex)
-        {
-          iShortcutDefaultIndex = SIC_LoadIcon(swShell32Name, 0, GIL_FORSHORTCUT);
-        }
-        *pIndex = (INVALID_INDEX != iShortcutDefaultIndex ? iShortcutDefaultIndex : 0);
-      }
+        if (GilIn & GIL_FORSHORTCUT) // TODO: This shortcut handling is incorrect?
+            iSourceIndex = SIC_LoadIcon(swShell32Name, 0, GIL_FORSHORTCUT);
+        else
+            iSourceIndex = SIC_GetDefaultIconCachedIndex(szIconFile, GilOut);
+        *pIndex = iSourceIndex >= 0 ? iSourceIndex : 0;
     }
-
     return ret;
-
 }
 
 /*************************************************************************
  * SHMapPIDLToSystemImageListIndex    [SHELL32.77]
  *
  * PARAMETERS
- *    sh    [IN]        pointer to an instance of IShellFolder
- *    pidl    [IN]
- *    pIndex    [OUT][OPTIONAL]    SIC index for big icon
+ *    sh     [IN]
+ *    pidl   [IN]
+ *    pIndex [OUT][OPTIONAL]    SIC index for GIL_OPENICON
  *
  */
 int WINAPI SHMapPIDLToSystemImageListIndex(
     IShellFolder *sh,
     LPCITEMIDLIST pidl,
-    int *pIndex)
+    int *pOpenIndex)
 {
     int Index;
     UINT uGilFlags = 0;
 
-    TRACE("(SF=%p,pidl=%p,%p)\n",sh,pidl,pIndex);
+    TRACE("(SF=%p,pidl=%p,%p)\n",sh,pidl,pOpenIndex);
     pdump(pidl);
 
     if (SHELL_IsShortcut(pidl))
         uGilFlags |= GIL_FORSHORTCUT;
 
-    if (pIndex)
-        if (!PidlToSicIndex ( sh, pidl, 1, uGilFlags, pIndex))
-            *pIndex = -1;
+    if (pOpenIndex)
+    {
+        if (!PidlToSicIndex(sh, pidl, uGilFlags | GIL_OPENICON, pOpenIndex))
+            *pOpenIndex = -1;
+    }
 
-    if (!PidlToSicIndex ( sh, pidl, 0, uGilFlags, &Index))
+    if (!PidlToSicIndex(sh, pidl, uGilFlags, &Index))
         return -1;
 
     return Index;
