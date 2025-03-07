@@ -23,11 +23,29 @@
 
 extern "C" const GUID CLSID_SendToMenu;
 
+template<unsigned int SIMSH_ICONSIZE_INIT = SHGFI_SMALLICON | SHGFI_SHELLICONSIZE>
+class CShellIconMenuSizeHelper
+{
+    UINT m_IconSize = 0;
+public:
+    enum { SIMSH_ICONSIZE = SIMSH_ICONSIZE_INIT };
+    UINT GetIconSize();
+    void MeasureIconCallback(MEASUREITEMSTRUCT &MIS);
+    SIZE GetDrawIconCallbackPos(const DRAWITEMSTRUCT &DIS);
+    BOOL DrawIconCallbackIcon(const DRAWITEMSTRUCT &DIS, HICON hIco);
+};
+
+template<> UINT CShellIconMenuSizeHelper<>::GetIconSize();
+template<> void CShellIconMenuSizeHelper<>::MeasureIconCallback(MEASUREITEMSTRUCT &MIS);
+template<> SIZE CShellIconMenuSizeHelper<>::GetDrawIconCallbackPos(const DRAWITEMSTRUCT &DIS);
+template<> BOOL CShellIconMenuSizeHelper<>::DrawIconCallbackIcon(const DRAWITEMSTRUCT &DIS, HICON hIco);
+
 class CSendToMenu :
     public CComCoClass<CSendToMenu, &CLSID_SendToMenu>,
     public CComObjectRootEx<CComMultiThreadModelNoCS>,
     public IContextMenu3,
-    public IShellExtInit
+    public IShellExtInit,
+    public CShellIconMenuSizeHelper<>
 {
 private:
     struct SENDTO_ITEM

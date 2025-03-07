@@ -249,22 +249,11 @@ typedef struct
  * System Imagelist Routines
  */
 
-int WINAPI Shell_GetCachedImageIndexA(
-    LPCSTR lpszFileName,
-    int nIconIndex,
-    UINT bSimulateDoc);
-
-BOOL WINAPI Shell_GetImageLists(
-    HIMAGELIST *lphimlLarge,
-    HIMAGELIST *lphimlSmall);
-
 HICON WINAPI SHGetFileIcon(
     DWORD dwReserved,
     LPCSTR lpszPath,
     DWORD dwFileAttributes,
     UINT uFlags);
-
-BOOL WINAPI FileIconInit(BOOL bFullInit);
 
 WORD WINAPI
 ExtractIconResInfoA(
@@ -781,11 +770,9 @@ BOOL WINAPI SHInitRestricted(LPCVOID unused, LPCVOID inpRegKey);
 #include <stdio.h>
 
 #define SMC_EXEC 4
-INT WINAPI Shell_GetCachedImageIndex(LPCWSTR szPath, INT nIndex, UINT bSimulateDoc);
 
 HRESULT WINAPI SHCreatePropertyBag(_In_ REFIID riid, _Out_ void **ppvObj);
 HRESULT WINAPI SHLimitInputCombo(HWND hWnd, IShellFolder *psf);
-HRESULT WINAPI SHGetImageList(int iImageList, REFIID riid, void **ppv);
 
 BOOL WINAPI GUIDFromStringA(
     _In_   PCSTR psz,

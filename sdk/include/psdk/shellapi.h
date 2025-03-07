@@ -1,6 +1,15 @@
 #ifndef _SHELLAPI_H
 #define _SHELLAPI_H
 
+#ifndef SHSTDAPI
+#ifdef _SHELL32_
+#define SHSTDAPI_(type) type WINAPI
+#else
+#define SHSTDAPI_(type) EXTERN_C DECLSPEC_IMPORT type WINAPI
+#endif
+#define SHSTDAPI SHSTDAPI_(HRESULT)
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -194,6 +203,7 @@ extern "C" {
 #define SHIL_LAST         SHIL_SYSSMALL
 #endif
 #endif
+SHSTDAPI SHGetImageList(int iImageList, REFIID riid, void **ppv);
 
 typedef struct _SHCREATEPROCESSINFOW
 {

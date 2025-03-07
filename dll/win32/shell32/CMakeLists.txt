@@ -1,17 +1,17 @@
 PROJECT(SHELL)
 
-add_subdirectory(shelldesktop)
-add_subdirectory(shellmenu)
-add_subdirectory(shellrecyclebin)
+add_definitions(
+    -D_SHELL32_
+    -D_WINE)
 
 spec2def(shell32.dll shell32.spec ADD_IMPORTLIB)
 
 remove_definitions(-D_WIN32_WINNT=0x502)
 add_definitions(-D_WIN32_WINNT=0x600)
 
-add_definitions(
-    -D_SHELL32_
-    -D_WINE)
+add_subdirectory(shelldesktop)
+add_subdirectory(shellmenu)
+add_subdirectory(shellrecyclebin)
 
 if(DBG)
     add_definitions(-D_DEBUG=1) # CORE-17505

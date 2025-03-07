@@ -730,9 +730,11 @@ HRESULT SHELL32_GetFSItemAttributes(IShellFolder * psf, LPCITEMIDLIST pidl, LPDW
     if (SFGAO_LINK & *pdwAttributes)
     {
         WCHAR ext[MAX_PATH];
-
-        if (_ILGetExtension(pidl, ext, _countof(ext)) && !lstrcmpiW(ext, L"lnk"))
-            dwShellAttributes |= SFGAO_LINK;
+        if (_ILGetExtension(pidl, ext, _countof(ext)))
+        {
+            if (!lstrcmpiW(ext, L"lnk") || SHELL_IsExtensionRegShortcut(ext))
+                dwShellAttributes |= SFGAO_LINK;
+        }
     }
 
     if (SFGAO_HASSUBFOLDER & *pdwAttributes)
@@ -1931,13 +1933,11 @@ HRESULT CFSFolder::_CreateShellExtInstance(const CLSID *pclsid, LPCITEMIDLIST pi
     if (FAILED_UNEXPECTEDLY(hr))
         return hr;
 
-    pp->Load(wszPath, 0);
-
-    hr = pp->QueryInterface(riid, ppvOut);
-    if (hr != S_OK)
+    if (SUCCEEDED(hr = pp->Load(wszPath, 0)))
     {
-        ERR("Failed to query for interface IID_IShellExtInit hr %x pclsid %s\n", hr, wine_dbgstr_guid(pclsid));
-        return hr;
+        hr = pp->QueryInterface(riid, ppvOut);
+        if (hr != S_OK)
+            ERR("Failed to query for interface IID_IShellExtInit hr %x pclsid %s\n", hr, wine_dbgstr_guid(pclsid));
     }
     return hr;
 }
