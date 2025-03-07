@@ -80,7 +80,7 @@ void CNewMenu::UnloadAllItems()
     m_pLinkItem = NULL;
 }
 
-CNewMenu::SHELLNEW_ITEM *CNewMenu::LoadItem(LPCWSTR pwszExt)
+CNewMenu::SHELLNEW_ITEM *CNewMenu::LoadItem(LPCWSTR pwszExt, SHELLNEW_EXTENSIONTYPE &ExtType)
 {
     HKEY hKey;
     WCHAR wszBuf[MAX_PATH];
@@ -145,8 +145,17 @@ CNewMenu::SHELLNEW_ITEM *CNewMenu::LoadItem(LPCWSTR pwszExt)
         return NULL;
     }
 
+    // (SHGFI_USEFILEATTRIBUTES | SHGFI_ICON) on ".lnk" returns the IDI_SHELL_DOCUMENT icon with a link overlay.
+    // The ".lnk" file does not exist and even if it did, we don't want its icon so we don't even try.
+    UINT FileInfoFlags = SHGFI_USEFILEATTRIBUTES | SHGFI_TYPENAME;
+    ExtType = SHELLNEW_EXT_GENERIC;
+    if (!_wcsicmp(pwszExt, L".lnk"))
+        ExtType = SHELLNEW_EXT_SHORTCUT;
+    else
+        FileInfoFlags |= (SHGFI_ICON | SHGFI_SMALLICON);
+
     SHFILEINFOW fi;
-    if (!SHGetFileInfoW(pwszExt, FILE_ATTRIBUTE_NORMAL, &fi, sizeof(fi), SHGFI_USEFILEATTRIBUTES | SHGFI_TYPENAME | SHGFI_ICON | SHGFI_SMALLICON))
+    if (!SHGetFileInfoW(pwszExt, FILE_ATTRIBUTE_NORMAL, &fi, sizeof(fi), FileInfoFlags))
     {
         free(pData);
         return NULL;
@@ -166,8 +175,7 @@ CNewMenu::SHELLNEW_ITEM *CNewMenu::LoadItem(LPCWSTR pwszExt)
     pNewItem->cbData = pData ? cbData : 0;
     pNewItem->pwszExt = _wcsdup(pwszExt);
     pNewItem->pwszDesc = _wcsdup(fi.szTypeName);
-    if (fi.hIcon)
-        pNewItem->hIcon = fi.hIcon;
+    pNewItem->hIcon = fi.hIcon;
 
     return pNewItem;
 }
@@ -190,11 +198,12 @@ CNewMenu::CacheItems()
         if (wszName[0] != L'.')
             continue;
 
-        pNewItem = LoadItem(wszName);
+        SHELLNEW_EXTENSIONTYPE ExtType;
+        pNewItem = LoadItem(wszName, ExtType);
         if (pNewItem)
         {
             dwSize += wcslen(wszName) + 1;
-            if (!m_pLinkItem && _wcsicmp(pNewItem->pwszExt, L".lnk") == 0)
+            if (ExtType == SHELLNEW_EXT_SHORTCUT && !m_pLinkItem)
             {
                 /* The unique link handler */
                 m_pLinkItem = pNewItem;
@@ -274,10 +283,11 @@ CNewMenu::LoadCachedItems()
 
     for (; *wszName != '\0'; wszName += wcslen(wszName) + 1)
     {
-        pNewItem = LoadItem(wszName);
+        SHELLNEW_EXTENSIONTYPE ExtType;
+        pNewItem = LoadItem(wszName, ExtType);
         if (pNewItem)
         {
-            if (!m_pLinkItem && _wcsicmp(pNewItem->pwszExt, L".lnk") == 0)
+            if (ExtType == SHELLNEW_EXT_SHORTCUT && !m_pLinkItem)
             {
                 /* The unique link handler */
                 m_pLinkItem = pNewItem;
@@ -606,7 +616,7 @@ HRESULT CNewMenu::CreateNewItem(SHELLNEW_ITEM *pItem, LPCMINVOKECOMMANDINFO lpcm
             NewItemByNonCommand(pItem, wszName, _countof(wszName), wszPath);
             break;
 
-        case SHELLNEW_TYPE_INVALID:
+        default:
             ERR("Invalid type\n");
             break;
     }

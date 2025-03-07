@@ -35,11 +35,10 @@ class CNewMenu :
 private:
     enum SHELLNEW_TYPE
     {
-        SHELLNEW_TYPE_INVALID = -1,
-        SHELLNEW_TYPE_COMMAND = 1,
-        SHELLNEW_TYPE_DATA = 2,
-        SHELLNEW_TYPE_FILENAME = 4,
-        SHELLNEW_TYPE_NULLFILE = 8
+        SHELLNEW_TYPE_COMMAND,
+        SHELLNEW_TYPE_DATA,
+        SHELLNEW_TYPE_FILENAME,
+        SHELLNEW_TYPE_NULLFILE,
     };
 
     struct SHELLNEW_ITEM
@@ -53,6 +52,13 @@ private:
         SHELLNEW_ITEM *pNext;
     };
 
+    enum SHELLNEW_EXTENSIONTYPE
+    {
+        SHELLNEW_EXT_GENERIC,
+        SHELLNEW_EXT_FOLDER,
+        SHELLNEW_EXT_SHORTCUT,
+    };
+
     LPITEMIDLIST m_pidlFolder;
     SHELLNEW_ITEM *m_pItems;
     SHELLNEW_ITEM *m_pLinkItem; // Points to the link handler item in the m_pItems list.
@@ -62,7 +68,7 @@ private:
     BOOL m_bCustomIconFolder, m_bCustomIconLink;
     HICON m_hIconFolder, m_hIconLink;
 
-    SHELLNEW_ITEM *LoadItem(LPCWSTR pwszExt);
+    SHELLNEW_ITEM *LoadItem(LPCWSTR pwszExt, SHELLNEW_EXTENSIONTYPE &ExtType);
     void UnloadItem(SHELLNEW_ITEM *pItem);
     void UnloadAllItems();
     BOOL CacheItems();

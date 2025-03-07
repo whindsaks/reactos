@@ -249,22 +249,11 @@ typedef struct
  * System Imagelist Routines
  */
 
-int WINAPI Shell_GetCachedImageIndexA(
-    LPCSTR lpszFileName,
-    int nIconIndex,
-    UINT bSimulateDoc);
-
-BOOL WINAPI Shell_GetImageLists(
-    HIMAGELIST *lphimlLarge,
-    HIMAGELIST *lphimlSmall);
-
 HICON WINAPI SHGetFileIcon(
     DWORD dwReserved,
     LPCSTR lpszPath,
     DWORD dwFileAttributes,
     UINT uFlags);
-
-BOOL WINAPI FileIconInit(BOOL bFullInit);
 
 WORD WINAPI
 ExtractIconResInfoA(

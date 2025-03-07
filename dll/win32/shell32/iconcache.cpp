@@ -14,6 +14,8 @@ WINE_DEFAULT_DEBUG_CHANNEL(shell);
 
 #define INVALID_INDEX -1
 
+INT g_SIL_NoAssocIndex = INVALID_INDEX;
+
 typedef struct
 {
     LPWSTR sSourceFile;    /* file (not path!) containing the icon */
@@ -527,6 +529,7 @@ BOOL SIC_Initialize(void)
         return TRUE;
     }
 
+    g_SIL_NoAssocIndex = INVALID_INDEX;
     sic_hdpa = DPA_Create(16);
     if (!sic_hdpa)
     {
@@ -707,7 +710,6 @@ BOOL WINAPI Shell_GetImageLists(HIMAGELIST * lpBigList, HIMAGELIST * lpSmallList
  * PARAMETERS
  *    sh    [IN]    IShellFolder
  *    pidl    [IN]
- *    bBigIcon [IN]
  *    uFlags    [IN]    GIL_*
  *    pIndex    [OUT]    index within the SIC
  *
@@ -715,7 +717,6 @@ BOOL WINAPI Shell_GetImageLists(HIMAGELIST * lpBigList, HIMAGELIST * lpSmallList
 BOOL PidlToSicIndex (
     IShellFolder * sh,
     LPCITEMIDLIST pidl,
-    BOOL bBigIcon,
     UINT uFlags,
     int * pIndex)
 {
@@ -724,70 +725,75 @@ BOOL PidlToSicIndex (
     INT        iSourceIndex;        /* index or resID(negated) in this file */
     BOOL        ret = FALSE;
     UINT        dwFlags = 0;
-    int        iShortcutDefaultIndex = INVALID_INDEX;
 
-    TRACE("sf=%p pidl=%p %s\n", sh, pidl, bBigIcon?"Big":"Small");
+    TRACE("GIL=%#x sf=%p pidl=%p\n", uFlags, sh, pidl);
 
     if (!sic_hdpa)
         SIC_Initialize();
 
-    if (SUCCEEDED (sh->GetUIObjectOf(0, 1, &pidl, IID_NULL_PPV_ARG(IExtractIconW, &ei))))
+    *pIndex = INVALID_INDEX;
+    if (SUCCEEDED (sh->GetUIObjectOf(0, 1, &pidl, IID_NULL_PPV_ARG(IExtractIconW, &ei))) && ei)
     {
-      if (SUCCEEDED(ei->GetIconLocation(uFlags &~ GIL_FORSHORTCUT, szIconFile, MAX_PATH, &iSourceIndex, &dwFlags)))
-      {
-        *pIndex = SIC_GetIconIndex(szIconFile, iSourceIndex, uFlags);
-        ret = TRUE;
-      }
+        if (SUCCEEDED(ei->GetIconLocation(uFlags &~ GIL_FORSHORTCUT, szIconFile, MAX_PATH, &iSourceIndex, &dwFlags)))
+        {
+          *pIndex = SIC_GetIconIndex(szIconFile, iSourceIndex, uFlags);
+          ret = TRUE;
+        }
+    }
+    else
+    {
+        // TODO: Fallback to IExtractIconA
     }
 
     if (INVALID_INDEX == *pIndex)    /* default icon when failed */
     {
-      if (0 == (uFlags & GIL_FORSHORTCUT))
-      {
-        *pIndex = 0;
-      }
-      else
-      {
-        if (INVALID_INDEX == iShortcutDefaultIndex)
+        if (!(uFlags & GIL_FORSHORTCUT))
         {
-          iShortcutDefaultIndex = SIC_LoadIcon(swShell32Name, 0, GIL_FORSHORTCUT);
+            if (g_SIL_NoAssocIndex == INVALID_INDEX)
+            {
+                g_SIL_NoAssocIndex = Shell_GetCachedImageIndexW(swShell32Name, 0, 0);
+                if (g_SIL_NoAssocIndex < 0)
+                    g_SIL_NoAssocIndex = 0;
+            }
+            *pIndex = g_SIL_NoAssocIndex;
         }
-        *pIndex = (INVALID_INDEX != iShortcutDefaultIndex ? iShortcutDefaultIndex : 0);
-      }
+        else
+        {
+            int iLnkIndex = SIC_LoadIcon(swShell32Name, 0, GIL_FORSHORTCUT);
+            *pIndex = (iLnkIndex != INVALID_INDEX ? iLnkIndex : 0);
+        }
     }
-
     return ret;
-
 }
 
 /*************************************************************************
  * SHMapPIDLToSystemImageListIndex    [SHELL32.77]
  *
  * PARAMETERS
- *    sh    [IN]        pointer to an instance of IShellFolder
- *    pidl    [IN]
- *    pIndex    [OUT][OPTIONAL]    SIC index for big icon
+ *    sh     [IN]
+ *    pidl   [IN]
+ *    pIndex [OUT][OPTIONAL]    SIC index for GIL_OPENICON
  *
  */
 int WINAPI SHMapPIDLToSystemImageListIndex(
     IShellFolder *sh,
     LPCITEMIDLIST pidl,
-    int *pIndex)
+    int *pOpenIndex)
 {
     int Index;
     UINT uGilFlags = 0;
 
-    TRACE("(SF=%p,pidl=%p,%p)\n",sh,pidl,pIndex);
+    TRACE("(SF=%p,pidl=%p,%p)\n",sh,pidl,pOpenIndex);
     pdump(pidl);
 
     if (SHELL_IsShortcut(pidl))
         uGilFlags |= GIL_FORSHORTCUT;
 
-    if (pIndex)
-        if (!PidlToSicIndex ( sh, pidl, 1, uGilFlags, pIndex))
-            *pIndex = -1;
+    if (pOpenIndex)
+        if (!PidlToSicIndex(sh, pidl, uGilFlags | GIL_OPENICON, pOpenIndex))
+            *pOpenIndex = -1;
 
-    if (!PidlToSicIndex ( sh, pidl, 0, uGilFlags, &Index))
+    if (!PidlToSicIndex(sh, pidl, uGilFlags, &Index))
         return -1;
 
     return Index;
