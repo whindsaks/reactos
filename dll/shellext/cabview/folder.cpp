@@ -622,13 +622,15 @@ IFACEMETHODIMP CCabFolder::GetIconOf(PCUITEMID_CHILD pidl, UINT flags, int *pIco
 {
     if (CABITEM *item = CABITEM::Validate(pidl))
     {
-        int index = MapPIDLToSystemImageListIndex(this, pidl, flags);
-        if (index == -1 && item->IsFolder())
-            index = (flags & GIL_OPENICON) ? SIID_FOLDEROPEN : SIID_FOLDER;
-        if (index != -1)
+        if (item->IsFolder())
         {
-            *pIconIndex = index;
-            return S_OK;
+            int index = (flags & GIL_OPENICON) ? SIID_FOLDEROPEN : SIID_FOLDER;
+            index = Shell_GetCachedImageIndex(L"shell32.dll", index, 0);
+            if (index >= 0)
+            {
+                *pIconIndex = index;
+                return S_OK;
+            }
         }
     }
     return S_FALSE;
