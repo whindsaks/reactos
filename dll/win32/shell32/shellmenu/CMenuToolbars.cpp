@@ -1384,7 +1384,7 @@ HRESULT CMenuSFToolbar::FillToolbar(BOOL clearFirst)
     WCHAR szAdminTools[MAX_PATH];
     if (bMustHideAdminTools)
     {
-        LoadStringW(GetModuleHandleW(L"shell32.dll"), IDS_ADMINISTRATIVETOOLS,
+        LoadStringW(shell32_hInstance, IDS_ADMINISTRATIVETOOLS,
                     szAdminTools, _countof(szAdminTools));
     }
 
@@ -1410,8 +1410,7 @@ HRESULT CMenuSFToolbar::FillToolbar(BOOL clearFirst)
             continue;
         }
 
-        INT indexOpen = 0;
-        INT index = SHMapPIDLToSystemImageListIndex(m_shellFolder, item, &indexOpen);
+        INT index = SHMapPIDLToSystemImageListIndex(m_shellFolder, item, NULL);
 
         LPCITEMIDLIST itemc = item;
 

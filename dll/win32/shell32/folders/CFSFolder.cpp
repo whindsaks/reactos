@@ -186,49 +186,32 @@ HRESULT GetItemCLSID(PCUIDLIST_RELATIVE pidl, CLSID *pclsid)
     return hr;
 }
 
-static HRESULT
-getDefaultIconLocation(LPWSTR szIconFile, UINT cchMax, int *piIndex, UINT uFlags)
-{
-    if (!HLM_GetIconW(IDI_SHELL_FOLDER - 1, szIconFile, cchMax, piIndex))
-    {
-        if (!HCR_GetIconW(L"Folder", szIconFile, NULL, cchMax, piIndex))
-        {
-            StringCchCopyW(szIconFile, cchMax, swShell32Name);
-            *piIndex = -IDI_SHELL_FOLDER;
-        }
-    }
-
-    if (uFlags & GIL_OPENICON)
-    {
-        // next icon
-        if (*piIndex < 0)
-            (*piIndex)--;
-        else
-            (*piIndex)++;
-    }
-
-    return S_OK;
-}
-
-static BOOL
+static inline BOOL
 getShellClassInfo(LPCWSTR Entry, LPWSTR pszValue, DWORD cchValueLen, LPCWSTR IniFile)
 {
     return GetPrivateProfileStringW(L".ShellClassInfo", Entry, NULL, pszValue, cchValueLen, IniFile);
 }
 
+static inline HRESULT
+getDefaultFolderIconLocation(LPWSTR szIconFile, UINT cchMax, int *piIndex, UINT GilIn)
+{
+    *piIndex = SHELL_GetShell32IconLocation(GilIn, MAKEINTRESOURCEW('D'), szIconFile);
+    return S_OK;
+}
+
 static HRESULT
-getIconLocationForFolder(IShellFolder * psf, PCITEMID_CHILD pidl, UINT uFlags,
-                         LPWSTR szIconFile, UINT cchMax, int *piIndex, UINT *pwFlags)
+getIconLocationForFolder(IShellFolder * psf, PCITEMID_CHILD pidl, UINT GilIn,
+                         LPWSTR szIconFile, UINT cchMax, int *piIndex)
 {
     DWORD dwFileAttrs;
     WCHAR wszPath[MAX_PATH];
     WCHAR wszIniFullPath[MAX_PATH];
 
-    if (uFlags & GIL_DEFAULTICON)
+    if (GilIn & GIL_DEFAULTICON)
         goto Quit;
 
     // get path
-    if (!ILGetDisplayNameExW(psf, pidl, wszPath, 0))
+    if (!ILGetDisplayNameExW(psf, pidl, wszPath, ILGDN_FORPARSING))
         goto Quit;
     if (!PathIsDirectoryW(wszPath))
         goto Quit;
@@ -275,7 +258,6 @@ getIconLocationForFolder(IShellFolder * psf, PCITEMID_CHILD pidl, UINT uFlags,
         // wszValue --> wszTemp
         ExpandEnvironmentStringsW(wszValue, wszTemp, _countof(wszTemp));
 
-        // parse the icon location
         *piIndex = PathParseIconLocationW(wszTemp);
 
         // wszPath + wszTemp --> wszPath
@@ -290,16 +272,16 @@ getIconLocationForFolder(IShellFolder * psf, PCITEMID_CHILD pidl, UINT uFlags,
     }
 
 Quit:
-    return getDefaultIconLocation(szIconFile, cchMax, piIndex, uFlags);
+    return getDefaultFolderIconLocation(szIconFile, cchMax, piIndex, GilIn);
 }
 
 HRESULT CFSExtractIcon_CreateInstance(IShellFolder * psf, LPCITEMIDLIST pidl, REFIID iid, LPVOID * ppvOut)
 {
     CComPtr<IDefaultExtractIconInit> initIcon;
     HRESULT hr;
-    int icon_idx = 0;
-    UINT flags = 0; // FIXME: Use it!
-    WCHAR wTemp[MAX_PATH] = L"";
+    int icon_idx = 0, Gil = 0;
+    WCHAR szIco[MAX_PATH];
+    *szIco = UNICODE_NULL;
 
     hr = SHCreateDefaultExtractIcon(IID_PPV_ARG(IDefaultExtractIconInit,&initIcon));
     if (FAILED(hr))
@@ -307,85 +289,56 @@ HRESULT CFSExtractIcon_CreateInstance(IShellFolder * psf, LPCITEMIDLIST pidl, RE
 
     if (_ILIsFolder (pidl))
     {
-        if (SUCCEEDED(getIconLocationForFolder(psf,
-                          pidl, 0, wTemp, _countof(wTemp),
-                          &icon_idx,
-                          &flags)))
-        {
-            initIcon->SetNormalIcon(wTemp, icon_idx);
-            // FIXME: if/when getIconLocationForFolder does something for
-            //        GIL_FORSHORTCUT, code below should be uncommented. and
-            //        the following line removed.
-            initIcon->SetShortcutIcon(wTemp, icon_idx);
-        }
-        if (SUCCEEDED(getIconLocationForFolder(psf,
-                          pidl, GIL_DEFAULTICON, wTemp, _countof(wTemp),
-                          &icon_idx,
-                          &flags)))
-        {
-            initIcon->SetDefaultIcon(wTemp, icon_idx);
-        }
-        // if (SUCCEEDED(getIconLocationForFolder(psf,
-        //                   pidl, GIL_FORSHORTCUT, wTemp, _countof(wTemp),
-        //                   &icon_idx,
-        //                   &flags)))
-        // {
-        //     initIcon->SetShortcutIcon(wTemp, icon_idx);
-        // }
-        if (SUCCEEDED(getIconLocationForFolder(psf,
-                          pidl, GIL_OPENICON, wTemp, _countof(wTemp),
-                          &icon_idx,
-                          &flags)))
-        {
-            initIcon->SetOpenIcon(wTemp, icon_idx);
-        }
+        // Note: Not setting SetDefaultIcon, SetNormalIcon from getIconLocationForFolder is the fallback
+        if (SUCCEEDED(getIconLocationForFolder(psf, pidl, 0, szIco, _countof(szIco), &icon_idx)))
+            initIcon->SetNormalIcon(szIco, icon_idx);
+        // if (SUCCEEDED(getIconLocationForFolder(psf, pidl, GIL_FORSHORTCUT, szIco, _countof(szIco), &icon_idx)))
+        //     initIcon->SetShortcutIcon(szIco, icon_idx);
+        if (SUCCEEDED(getIconLocationForFolder(psf, pidl, GIL_OPENICON, szIco, _countof(szIco), &icon_idx)))
+            initIcon->SetOpenIcon(szIco, icon_idx);
     }
     else
     {
+        BOOL bPercentOne = FALSE;
         WCHAR extbuf[256];
         LPCWSTR pExtension = ExtensionFromPidl(pidl, extbuf, _countof(extbuf));
         HKEY hkey = pExtension ? OpenKeyFromFileType(pExtension, L"DefaultIcon") : NULL;
         if (!hkey)
             WARN("Could not open DefaultIcon key!\n");
 
-        DWORD dwSize = sizeof(wTemp);
-        if (hkey && !SHQueryValueExW(hkey, NULL, NULL, NULL, wTemp, &dwSize))
+        DWORD dwSize = sizeof(szIco);
+        if (hkey && !SHQueryValueExW(hkey, NULL, NULL, NULL, szIco, &dwSize))
         {
             WCHAR sNum[5];
-            if (ParseFieldW (wTemp, 2, sNum, 5))
+            if (ParseFieldW(szIco, 2, sNum, 5)) // FIXME: PathParseIconLocation?
                 icon_idx = _wtoi(sNum);
             else
                 icon_idx = 0; /* sometimes the icon number is missing */
-            ParseFieldW (wTemp, 1, wTemp, MAX_PATH);
-            PathUnquoteSpacesW(wTemp);
+            ParseFieldW(szIco, 1, szIco, MAX_PATH);
+            PathUnquoteSpacesW(szIco);
 
-            if (!wcscmp(L"%1", wTemp)) /* icon is in the file */
+            if (!wcscmp(L"%1", szIco)) /* icon is in the file */
             {
-                ILGetDisplayNameExW(psf, pidl, wTemp, ILGDN_FORPARSING);
+                bPercentOne = TRUE;
+                Gil |= GIL_PERINSTANCE;
+                ILGetDisplayNameExW(psf, pidl, szIco, ILGDN_FORPARSING);
                 icon_idx = 0;
-
-                INT ret = PrivateExtractIconsW(wTemp, 0, 0, 0, NULL, NULL, 0, 0);
+                INT ret = PrivateExtractIconsW(szIco, 0, 0, 0, NULL, NULL, 0, 0);
                 if (ret <= 0)
-                {
-                    StringCbCopyW(wTemp, sizeof(wTemp), swShell32Name);
-                    if (lstrcmpiW(pExtension, L".exe") == 0 || lstrcmpiW(pExtension, L".scr") == 0)
-                        icon_idx = -IDI_SHELL_EXE;
-                    else
-                        icon_idx = -IDI_SHELL_DOCUMENT;
-                }
+                    *szIco = UNICODE_NULL;
             }
-
-            initIcon->SetNormalIcon(wTemp, icon_idx);
         }
-        else
+        if (!*szIco)
         {
-            initIcon->SetNormalIcon(swShell32Name, 0);
+            // TODO: PerceivedType==Text?
+            icon_idx = SHELL_GetShell32IconLocation(Gil, bPercentOne ? pExtension : NULL, szIco);
         }
+        initIcon->SetNormalIcon(szIco, icon_idx);
 
         if (hkey)
             RegCloseKey(hkey);
     }
-
+    initIcon->SetFlags(Gil);
     return initIcon->QueryInterface(iid, ppvOut);
 }
 
@@ -745,9 +698,11 @@ HRESULT SHELL32_GetFSItemAttributes(IShellFolder * psf, LPCITEMIDLIST pidl, LPDW
     if (SFGAO_LINK & *pdwAttributes)
     {
         WCHAR ext[MAX_PATH];
-
-        if (_ILGetExtension(pidl, ext, _countof(ext)) && !lstrcmpiW(ext, L"lnk"))
-            dwShellAttributes |= SFGAO_LINK;
+        if (_ILGetExtension(pidl, ext, _countof(ext)))
+        {
+            if (!lstrcmpiW(ext, L"lnk") || SHELL_IsExtensionRegShortcut(ext))
+                dwShellAttributes |= SFGAO_LINK;
+        }
     }
 
     if (SFGAO_HASSUBFOLDER & *pdwAttributes)
@@ -1996,13 +1951,11 @@ HRESULT CFSFolder::_CreateShellExtInstance(const CLSID *pclsid, LPCITEMIDLIST pi
     if (FAILED_UNEXPECTEDLY(hr))
         return hr;
 
-    pp->Load(wszPath, 0);
-
-    hr = pp->QueryInterface(riid, ppvOut);
-    if (hr != S_OK)
+    if (SUCCEEDED(hr = pp->Load(wszPath, 0)))
     {
-        ERR("Failed to query for interface IID_IShellExtInit hr %x pclsid %s\n", hr, wine_dbgstr_guid(pclsid));
-        return hr;
+        hr = pp->QueryInterface(riid, ppvOut);
+        if (hr != S_OK)
+            ERR("Failed to query for interface IID_IShellExtInit hr %x pclsid %s\n", hr, wine_dbgstr_guid(pclsid));
     }
     return hr;
 }

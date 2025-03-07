@@ -31,6 +31,24 @@
 #undef GetObject
 #endif
 
+#ifndef SHSTDAPI
+#if defined(_SHELL32_) || 1 /* FIXME: DECLSPEC_IMPORT breaks delay loaded functions (CORE-6504) */
+#define SHSTDAPI_(type) EXTERN_C type WINAPI
+#else
+#define SHSTDAPI_(type) EXTERN_C DECLSPEC_IMPORT type WINAPI
+#endif
+#define SHSTDAPI SHSTDAPI_(HRESULT)
+#endif
+
+#ifndef SHDOCAPI
+#ifdef _SHDOCVW_
+#define SHDOCAPI_(type) type WINAPI
+#else
+#define SHDOCAPI_(type) EXTERN_C DECLSPEC_IMPORT type WINAPI
+#endif
+#define SHDOCAPI SHDOCAPI_(HRESULT)
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif /* defined(__cplusplus) */
@@ -243,14 +261,12 @@ SHGetPathFromIDListW(
 
 #define SHGetPathFromIDList WINELIB_NAME_AW(SHGetPathFromIDList)
 
-INT          WINAPI SHHandleUpdateImage(_In_ PCIDLIST_ABSOLUTE);
-
-HRESULT
-WINAPI
+SHSTDAPI
 SHILCreateFromPath(
   _In_ PCWSTR,
   _Outptr_ PIDLIST_ABSOLUTE*,
   _Inout_opt_ DWORD*);
+SHSTDAPI_(PIDLIST_ABSOLUTE) SHSimpleIDListFromPath(PCWSTR);
 
 HRESULT      WINAPI SHLoadOLE(LPARAM);
 
@@ -287,7 +303,13 @@ SHReplaceFromPropSheetExtArray(
   _In_ LPFNADDPROPSHEETPAGE,
   LPARAM);
 
-PIDLIST_ABSOLUTE WINAPI SHSimpleIDListFromPath(PCWSTR);
+SHSTDAPI_(BOOL) FileIconInit(BOOL bFullInit);
+SHSTDAPI_(BOOL) Shell_GetImageLists(HIMAGELIST *lphimlLarge, HIMAGELIST *lphimlSmall);
+SHSTDAPI_(int) Shell_GetCachedImageIndex(LPCWSTR pszIconPath, int iIndex, UINT GIL);
+#if (NTDDI_VERSION >= NTDDI_VISTA) || defined(_SHELL32_)
+SHSTDAPI_(int) Shell_GetCachedImageIndexA(LPCSTR pszIconPath, int iIndex, UINT GIL);
+SHSTDAPI_(int) Shell_GetCachedImageIndexW(LPCWSTR pszIconPath, int iIndex, UINT GIL);
+#endif
 
 int
 WINAPI
@@ -296,10 +318,12 @@ SHMapPIDLToSystemImageListIndex(
   _In_ PCUITEMID_CHILD,
   _Out_opt_ int*);
 
-HRESULT      WINAPI SHStartNetConnectionDialog(HWND,LPCSTR,DWORD);
 VOID         WINAPI SHUpdateImageA(_In_ LPCSTR, INT, UINT, INT);
 VOID         WINAPI SHUpdateImageW(_In_ LPCWSTR, INT, UINT, INT);
 #define             SHUpdateImage WINELIB_NAME_AW(SHUpdateImage)
+INT          WINAPI SHHandleUpdateImage(_In_ PCIDLIST_ABSOLUTE);
+
+HRESULT      WINAPI SHStartNetConnectionDialog(HWND,LPCSTR,DWORD);
 
 INT
 WINAPI
@@ -1507,6 +1531,10 @@ SHGetDataFromIDListW(
   int cb);
 
 #define SHGetDataFromIDList WINELIB_NAME_AW(SHGetDataFromIDList)
+
+#if (NTDDI_VERSION >= NTDDI_VISTA) || defined(_SHELL32_)
+SHSTDAPI SHGetIDListFromObject(IUnknown *pUnk, PIDLIST_ABSOLUTE *ppidl);
+#endif
 
 PIDLIST_ABSOLUTE
 WINAPI

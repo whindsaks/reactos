@@ -2897,6 +2897,15 @@ LRESULT CDefView::OnNotify(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandl
             }
             return FALSE;
         }
+        case LVN_KEYDOWN:
+        {
+            NMLVKEYDOWN *pLVKD = (NMLVKEYDOWN*)lParam;
+            if (m_HasCutItems && pLVKD->wVKey == VK_ESCAPE)
+                OleSetClipboard(NULL);
+            else
+                SH32DbgTrigger(DvDumpPIDL)(m_pSFParent, _PidlByItem(m_ListView.GetNextItem(-1, LVIS_FOCUSED | LVIS_SELECTED)));
+            break;
+        }
         default:
             TRACE("-- %p WM_COMMAND %x unhandled\n", this, lpnmh->code);
             break;

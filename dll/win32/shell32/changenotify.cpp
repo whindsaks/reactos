@@ -872,3 +872,15 @@ SHChangeNotifySuspendResume(BOOL bSuspend,
     FIXME("SHChangeNotifySuspendResume() stub\n");
     return FALSE;
 }
+
+EXTERN_C void SHELL_SendNotifyUpdateImage(int SourceType, LPCVOID Src)
+{
+    // TODO: Get the information from IExtractIcon so we can call SHUpdateImage
+
+    SHChangeDWORDAsIDList chdw;
+    chdw.cb = (USHORT)FIELD_OFFSET(SHChangeDWORDAsIDList, cbZero);
+    chdw.dwItem1 = -1; // Pretend everything changed
+    chdw.dwItem2 = 0;
+    chdw.cbZero = 0;
+    SHChangeNotify(SHCNE_UPDATEIMAGE, SHCNF_DWORD, &chdw, NULL);
+}

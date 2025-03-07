@@ -1763,6 +1763,10 @@ HRESULT STDMETHODCALLTYPE CShellLink::GetIconLocation(UINT uFlags, PWSTR pszIcon
 
     pszIconFile[0] = UNICODE_NULL;
 
+/*WCHAR dbg[MAX_PATH]={};
+if (m_pPidl)ILGetDisplayNameExW(0, m_pPidl, dbg, ILGDN_NORMAL);
+DbgPrint("LNK::IE::GIL GilI=%x %ls|\n", uFlags, dbg);*/
+
     /*
      * It is possible for a shell link to point to another shell link,
      * and in particular there is the possibility to point to itself.
@@ -1787,12 +1791,28 @@ HRESULT STDMETHODCALLTYPE CShellLink::GetIconLocation(UINT uFlags, PWSTR pszIcon
     hr = GetIconLocation(pszIconFile, cchMax, piIndex);
     if (FAILED(hr) || pszIconFile[0] == UNICODE_NULL)
     {
+//DbgPrint("LNK::IE::GIL %#x|%ls|\n", hr, pszIconFile);
         hr = SHELL_PidlGetIconLocationW(m_pPidl, uFlags, pszIconFile, cchMax, piIndex, pwFlags);
+//DbgPrint("LNK::IE::GIL IE::GIL of targ %#x|%ls| GilO=%x\n", hr, pszIconFile, *pwFlags);
     }
     else
     {
         // TODO: If GetIconLocation succeeded, why are we setting GIL_NOTFILENAME? And are we not PERINSTANCE?
         *pwFlags = GIL_NOTFILENAME | GIL_PERCLASS;
+*pwFlags = GIL_PERINSTANCE;//temp <<< remove before PR
+
+        if (pszIconFile[0] == '.') // Extension-only icon path
+        {
+            WCHAR buf[MAX_PATH];
+            SHFILEINFOW shfi;
+            if (SUCCEEDED(StringCchPrintfW(buf, _countof(buf), L"x:\\x%s", pszIconFile)) &&
+                SHGetFileInfoW(buf, 0, &shfi, sizeof(shfi), SHGFI_ICONLOCATION | SHGFI_USEFILEATTRIBUTES) &&
+                SUCCEEDED(StringCchCopyW(pszIconFile, cchMax, shfi.szDisplayName)))
+            {
+                *piIndex = shfi.iIcon;
+                *pwFlags = GIL_PERINSTANCE;
+            }
+        }
     }
 
     return hr;
@@ -2535,7 +2555,7 @@ HRESULT STDMETHODCALLTYPE CShellLink::Initialize(PCIDLIST_ABSOLUTE pidlFolder, I
     }
     ReleaseStgMedium(&stgm);
 
-    return S_OK;
+    return S_OK; // TODO: Why does this ignore the HRESULT from Load()?
 }
 
 HRESULT STDMETHODCALLTYPE CShellLink::QueryContextMenu(HMENU hMenu, UINT indexMenu, UINT idCmdFirst, UINT idCmdLast, UINT uFlags)
@@ -3261,7 +3281,7 @@ HICON CShellLink::CreateShortcutIcon(LPCWSTR wszIconPath, INT IconIndex)
     HIMAGELIST himl = ImageList_Create(cx, cy, ILC_COLOR32 | ILC_MASK, 1, 1);
     HICON hIcon = NULL, hNewIcon = NULL, hShortcut;
 
-    if (HLM_GetIconW(IDI_SHELL_SHORTCUT - 1, wszLnkIcon, _countof(wszLnkIcon), &lnk_idx))
+    if (HLM_GetIconW(SIID_LINK, wszLnkIcon, _countof(wszLnkIcon), &lnk_idx))
     {
         ::ExtractIconExW(wszLnkIcon, lnk_idx, &hShortcut, NULL, 1);
     }

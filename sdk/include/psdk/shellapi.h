@@ -1,6 +1,15 @@
 #ifndef _SHELLAPI_H
 #define _SHELLAPI_H
 
+#ifndef SHSTDAPI
+#if defined(_SHELL32_) || 1 /* FIXME: DECLSPEC_IMPORT breaks delay loaded functions (CORE-6504) */
+#define SHSTDAPI_(type) EXTERN_C type WINAPI
+#else
+#define SHSTDAPI_(type) EXTERN_C DECLSPEC_IMPORT type WINAPI
+#endif
+#define SHSTDAPI SHSTDAPI_(HRESULT)
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -193,6 +202,7 @@ extern "C" {
 #define SHIL_LAST         SHIL_SYSSMALL
 #endif
 #endif
+SHSTDAPI SHGetImageList(int iImageList, REFIID riid, void **ppv);
 
 typedef struct _SHCREATEPROCESSINFOW
 {
@@ -763,12 +773,12 @@ typedef enum SHSTOCKICONID
   SIID_FOLDEROPEN,
   SIID_DRIVE525,
   SIID_DRIVE35,
-  SIID_DRIVERREMOVE,
-  SIID_DRIVERFIXED,
-  SIID_DRIVERNET,
-  SIID_DRIVERNETDISABLE,
-  SIID_DRIVERCD,
-  SIID_DRIVERRAM,
+  SIID_DRIVEREMOVE,
+  SIID_DRIVEFIXED,
+  SIID_DRIVENET,
+  SIID_DRIVENETDISABLE,
+  SIID_DRIVECD,
+  SIID_DRIVERAM,
   SIID_WORLD,
   /* Missing: 14 */
   SIID_SERVER = 15,

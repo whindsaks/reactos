@@ -1888,7 +1888,7 @@ BOOL WINAPI WriteCabinetState(CABINETSTATE *cs)
  */
 BOOL WINAPI FileIconInit(BOOL bFullInit)
 {
-    return SIC_Initialize();
+    return SUCCEEDED(SIC_Initialize(bFullInit));
 }
 
 /*************************************************************************
@@ -2673,6 +2673,7 @@ void WINAPI SHFlushSFCache(void)
  */
 HRESULT WINAPI SHGetImageList(int iImageList, REFIID riid, void **ppv)
 {
+#ifndef __REACTOS__
     HIMAGELIST hLarge, hSmall;
     HIMAGELIST hNew;
     HRESULT ret = E_FAIL;
@@ -2685,7 +2686,7 @@ HRESULT WINAPI SHGetImageList(int iImageList, REFIID riid, void **ppv)
     }
 
     Shell_GetImageLists(&hLarge, &hSmall);
-#ifndef __REACTOS__
+
     hNew = ImageList_Duplicate(iImageList == SHIL_LARGE ? hLarge : hSmall);
 
     /* Get the interface for the new image list */
@@ -2698,8 +2699,8 @@ HRESULT WINAPI SHGetImageList(int iImageList, REFIID riid, void **ppv)
     /* Duplicating the imagelist causes the start menu items not to draw on
      * the first show. Was the Duplicate necessary for some reason? I believe
      * Windows returns the raw pointer here. */
-    hNew = (iImageList == SHIL_LARGE ? hLarge : hSmall);
-    ret = IImageList2_QueryInterface((IImageList2 *) hNew, riid, ppv);
+    HIMAGELIST hIL = SIL_GetImageList(iImageList);
+    int ret = hIL ? IImageList2_QueryInterface((IImageList2*)hIL, riid, ppv) : E_FAIL;
 #endif
 
     return ret;
