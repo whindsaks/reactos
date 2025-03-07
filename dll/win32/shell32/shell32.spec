@@ -293,6 +293,7 @@
 293 stdcall SHFreeNameMappings(ptr)
 294 stdcall SHGetDataFromIDListA(ptr ptr long ptr long)
 295 stdcall SHGetDataFromIDListW(ptr ptr long ptr long)
+@ stdcall -version=0x600+ SHGetIDListFromObject(ptr ptr)
 296 stdcall SHGetDesktopFolder(ptr)
 297 stdcall SHGetDiskFreeSpaceA(str ptr ptr ptr) kernel32.GetDiskFreeSpaceExA
 298 stdcall SHGetDiskFreeSpaceExA(str ptr ptr ptr) kernel32.GetDiskFreeSpaceExA
@@ -465,3 +466,5 @@
 754 stub -noname SHLimitInputEditWithFlags
 755 stdcall -noname PathIsEqualOrSubFolder(wstr wstr)
 756 stub -noname DeleteFileThumbnail
+848 stdcall -noname -version=0x600+ SHGetNoAssocIconIndex()
+873 stdcall -noname -version=0x600+ SHIconIndexFromPIDL(ptr ptr long ptr)

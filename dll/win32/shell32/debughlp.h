@@ -29,4 +29,12 @@ extern "C"
 #endif
 const char * shdebugstr_guid( const struct _GUID *id );
 
+#if !DBG
+#define SH32DbgTrigger(x) (void)0
+#else
+#define SH32DbgTrigger(x) SH32DbgTrigger_##x
+EXTERN_C void SH32DbgTrigger(ViewSIL)();
+EXTERN_C void SH32DbgTrigger(DvDumpPIDL)(IShellFolder* pSF, LPCITEMIDLIST pidl);
+#endif /* DBG */
+
 #endif /* __WINE_SHELL32_DEBUGHLP_H */
