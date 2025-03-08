@@ -31,6 +31,7 @@ HINSTANCE           g_hInstance         = NULL;
 HWND                g_hMainWnd          = NULL;
 HWND                g_hwndFullscreen    = NULL;
 SHIMGVW_FILENODE *  g_pCurrentFile      = NULL;
+WCHAR               g_szCurrentFile[MAX_PATH];
 GpImage *           g_pImage            = NULL;
 SHIMGVW_SETTINGS    g_Settings;
 UINT                g_ImageId;
@@ -119,10 +120,31 @@ typedef struct tagPREVIEW_DATA
     UINT m_nTimerInterval;
     BOOL m_bHideCursor;
     POINT m_ptOrigin;
-    WCHAR m_szFile[MAX_PATH];
 } PREVIEW_DATA, *PPREVIEW_DATA;
 
 static VOID Preview_ToggleSlideShowEx(PPREVIEW_DATA pData, BOOL StartTimer);
+static VOID Preview_GoNextPic(PPREVIEW_DATA pData, BOOL bNext);
+static VOID pFreeFileList(SHIMGVW_FILENODE *root);
+
+#if DBG && 01
+#include <shellutils.h>
+static void
+Preview_DbgDumpQueue(SHIMGVW_FILENODE *pStart, LPCSTR Msg)
+{
+    DbgPrint("%s\n", Msg);
+    for (SHIMGVW_FILENODE *p = pStart, *pPrev = NULL;; p = (pPrev = p)->Next)
+    {
+        if (p == (pPrev ? pStart : NULL))
+        {
+            DbgPrint("%p <END>\n", p);
+            break;
+        }
+        DbgPrint("%p %ls\n", p, p ? PathFindFileNameW(p->FileName) : L"<NULL>");
+    }
+}
+#else
+#define Preview_DbgDumpQueue(pStart, Msg) ( (pStart), (void)0 )
+#endif
 
 static inline PPREVIEW_DATA
 Preview_GetData(HWND hwnd)
@@ -374,18 +396,21 @@ Preview_pFreeImage(PPREVIEW_DATA pData)
         GdipDisposeImage(g_pImage);
         g_pImage = NULL;
     }
-
-    pData->m_szFile[0] = UNICODE_NULL;
 }
 
 static VOID
 Preview_pLoadImage(PPREVIEW_DATA pData, LPCWSTR szOpenFileName)
 {
+    BOOL CanDelete;
+    HWND hToolbar = GetDlgItem(g_hMainWnd, IDC_TOOLBAR);
     HRESULT hr;
     Preview_pFreeImage(pData);
     InvalidateRect(pData->m_hwnd, NULL, FALSE); /* Schedule redraw in case we change to "No preview" */
 
-    hr = LoadImageFromPath(szOpenFileName, &g_pImage);
+    GetFullPathNameW(szOpenFileName, _countof(g_szCurrentFile), g_szCurrentFile, NULL);
+    hr = LoadImageFromPath(g_szCurrentFile, &g_pImage);
+    CanDelete = hr != HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND) && hr != HRESULT_FROM_WIN32(ERROR_PATH_NOT_FOUND);
+    SendMessageW(hToolbar, TB_ENABLEBUTTON, IDC_DELETE, CanDelete);
     if (FAILED(hr))
     {
         DPRINT1("GdipLoadImageFromStream() failed, %d\n", hr);
@@ -396,23 +421,39 @@ Preview_pLoadImage(PPREVIEW_DATA pData, LPCWSTR szOpenFileName)
 
     Anime_LoadInfo(&pData->m_Anime);
 
-    GetFullPathNameW(szOpenFileName, _countof(pData->m_szFile), pData->m_szFile, NULL);
-    SHAddToRecentDocs(SHARD_PATHW, pData->m_szFile);
+    SHAddToRecentDocs(SHARD_PATHW, g_szCurrentFile);
 
     /* Reset zoom and redraw display */
     Preview_ResetZoom(pData);
-
     Preview_UpdateTitle(pData, szOpenFileName);
 
     ++g_ImageId;
-    EnableCommandIfVerbExists(g_ImageId, g_hMainWnd, IDC_PRINT, L"print", pData->m_szFile);
-    EnableCommandIfVerbExists(g_ImageId, g_hMainWnd, IDC_MODIFY, L"edit", pData->m_szFile);
+    EnableCommandIfVerbExists(g_ImageId, g_hMainWnd, IDC_PRINT, L"print", g_szCurrentFile);
+    EnableCommandIfVerbExists(g_ImageId, g_hMainWnd, IDC_MODIFY, L"edit", g_szCurrentFile);
 }
 
 static VOID
 Preview_pLoadImageFromNode(PPREVIEW_DATA pData, SHIMGVW_FILENODE *pNode)
 {
     Preview_pLoadImage(pData, (pNode ? pNode->FileName : NULL));
+}
+
+static VOID
+Preview_NotifyCurrentImageDeleted(PPREVIEW_DATA pData)
+{
+    SHIMGVW_FILENODE *const pDel = g_pCurrentFile;
+
+    Preview_DbgDumpQueue(g_pCurrentFile, "NotifyCurrentImageDeleted (Before)");
+    if (!g_pCurrentFile)
+        return;
+    pDel->Prev->Next = pDel->Next; /* Remove this entry from the list */
+    pDel->Next->Prev = pDel->Prev;
+    Preview_GoNextPic(pData, TRUE);
+    if (g_pCurrentFile == pDel)
+        g_pCurrentFile = NULL;
+    pDel->Prev = pDel->Next = pDel; /* Delete just this entry */
+    pFreeFileList(pDel);
+    Preview_DbgDumpQueue(g_pCurrentFile, "NotifyCurrentImageDeleted (After)");
 }
 
 static BOOL
@@ -562,7 +603,7 @@ Preview_pSaveImageAs(PPREVIEW_DATA pData)
 static VOID
 Preview_pPrintImage(PPREVIEW_DATA pData)
 {
-    ShellExecuteVerb(g_hMainWnd, L"print", pData->m_szFile, FALSE);
+    ShellExecuteVerb(g_hMainWnd, L"print", g_szCurrentFile, FALSE);
 }
 
 static VOID
@@ -584,18 +625,56 @@ Preview_UpdateImage(PPREVIEW_DATA pData)
     ZoomWnd_UpdateScroll(pData, TRUE);
 }
 
+static VOID
+pFreeFileList(SHIMGVW_FILENODE *root)
+{
+    SHIMGVW_FILENODE *conductor;
+
+    if (!root)
+        return;
+
+    root->Prev->Next = NULL;
+    root->Prev = NULL;
+
+    while (root)
+    {
+        conductor = root;
+        root = conductor->Next;
+        QuickFree(conductor);
+    }
+}
+
 static SHIMGVW_FILENODE*
-pBuildFileList(LPCWSTR szFirstFile)
+pCreateFileListItem(SHIMGVW_FILENODE **Head, SHIMGVW_FILENODE **Tail, PCWSTR Dir, PCWSTR Name)
+{
+    SHIMGVW_FILENODE *p = QuickAlloc(sizeof(SHIMGVW_FILENODE), FALSE);
+    if (p)
+    {
+        if (!*Head)
+            *Head = *Tail = p;
+        p->Prev = *Tail;
+        p->Next = *Head;
+        *Tail = (*Head)->Prev = (*Tail)->Next = p; // Circular list
+        PathCombineW(p->FileName, Dir, Name);
+    }
+    else
+    {
+        DPRINT1("QuickAlloc() failed in pCreateFileListItem()\n");
+    }
+    return p;
+}
+
+static SHIMGVW_FILENODE*
+pBuildFileList(LPCWSTR szFirstFile, BOOL MustIncludeCurrent)
 {
     HANDLE hFindHandle;
     WCHAR *extension, *buffer;
     WCHAR szSearchPath[MAX_PATH];
     WCHAR szSearchMask[MAX_PATH];
     WCHAR szFileTypes[MAX_PATH];
-    WIN32_FIND_DATAW findData;
+    WIN32_FIND_DATAW wfd;
     SHIMGVW_FILENODE *currentNode = NULL;
-    SHIMGVW_FILENODE *root = NULL;
-    SHIMGVW_FILENODE *conductor = NULL;
+    SHIMGVW_FILENODE *head = NULL, *tail = NULL;
     ImageCodecInfo *codecInfo;
     UINT num = 0, size = 0, ExtraSize = 0;
     UINT j;
@@ -622,16 +701,6 @@ pBuildFileList(LPCWSTR szFirstFile)
         codecInfo[num].FilenameExtension = wcscpy(buffer, ExtraExtensions);
     num += ExtraCount;
 
-    root = QuickAlloc(sizeof(SHIMGVW_FILENODE), FALSE);
-    if (!root)
-    {
-        DPRINT1("QuickAlloc() failed in pLoadFileList()\n");
-        QuickFree(codecInfo);
-        return NULL;
-    }
-
-    conductor = root;
-
     for (j = 0; j < num; ++j)
     {
         // FIXME: Parse each FilenameExtension list to bypass szFileTypes limit
@@ -642,39 +711,23 @@ pBuildFileList(LPCWSTR szFirstFile)
         {
             PathCombineW(szSearchMask, szSearchPath, extension);
 
-            hFindHandle = FindFirstFileW(szSearchMask, &findData);
+            hFindHandle = FindFirstFileW(szSearchMask, &wfd);
             if (hFindHandle != INVALID_HANDLE_VALUE)
             {
                 do
                 {
-                    PathCombineW(conductor->FileName, szSearchPath, findData.cFileName);
-
-                    // compare the name of the requested file with the one currently found.
-                    // if the name matches, the current node is returned by the function.
-                    if (_wcsicmp(szFirstFile, conductor->FileName) == 0)
+                    SHIMGVW_FILENODE *p = pCreateFileListItem(&head, &tail, szSearchPath, wfd.cFileName);
+                    if (!p)
                     {
-                        currentNode = conductor;
-                    }
-
-                    conductor->Next = QuickAlloc(sizeof(SHIMGVW_FILENODE), FALSE);
-
-                    // if QuickAlloc fails, make circular what we have and return it
-                    if (!conductor->Next)
-                    {
-                        DPRINT1("QuickAlloc() failed in pLoadFileList()\n");
-
-                        conductor->Next = root;
-                        root->Prev = conductor;
-
                         FindClose(hFindHandle);
-                        QuickFree(codecInfo);
-                        return conductor;
+                        goto end;
                     }
-
-                    conductor->Next->Prev = conductor;
-                    conductor = conductor->Next;
+                    else if (!_wcsicmp(szFirstFile, p->FileName))
+                    {
+                        currentNode = p;
+                    }
                 }
-                while (FindNextFileW(hFindHandle, &findData) != 0);
+                while (FindNextFileW(hFindHandle, &wfd));
 
                 FindClose(hFindHandle);
             }
@@ -682,47 +735,31 @@ pBuildFileList(LPCWSTR szFirstFile)
             extension = wcstok(NULL, L";");
         }
     }
-
-    // we now have a node too much in the list. In case the requested file was not found,
-    // we use this node to store the name of it, otherwise we free it.
-    if (currentNode == NULL)
-    {
-        StringCchCopyW(conductor->FileName, MAX_PATH, szFirstFile);
-        currentNode = conductor;
-    }
-    else
-    {
-        conductor = conductor->Prev;
-        QuickFree(conductor->Next);
-    }
-
-    // link the last node with the first one to make the list circular
-    conductor->Next = root;
-    root->Prev = conductor;
-    conductor = currentNode;
-
+end:
     QuickFree(codecInfo);
-
-    return conductor;
+    if (!currentNode)
+    {
+        if (MustIncludeCurrent)
+        {
+            currentNode = pCreateFileListItem(&head, &tail, NULL, szFirstFile);
+            if (!currentNode)
+                pFreeFileList(head);
+        }
+        else
+        {
+            currentNode = head;
+        }
+    }
+    Preview_DbgDumpQueue(currentNode, "pBuildFileList (New list)");
+    return currentNode;
 }
 
 static VOID
-pFreeFileList(SHIMGVW_FILENODE *root)
+Preview_LoadImage(PPREVIEW_DATA pData, SHIMGVW_FILENODE *pNode)
 {
-    SHIMGVW_FILENODE *conductor;
-
-    if (!root)
-        return;
-
-    root->Prev->Next = NULL;
-    root->Prev = NULL;
-
-    while (root)
-    {
-        conductor = root;
-        root = conductor->Next;
-        QuickFree(conductor);
-    }
+    Preview_pLoadImageFromNode(pData, pNode);
+    Preview_UpdateImage(pData);
+    Preview_UpdateUI(pData);
 }
 
 static HBRUSH CreateCheckerBoardBrush(VOID)
@@ -948,7 +985,7 @@ Preview_CreateToolBar(PPREVIEW_DATA pData)
 
     style |= CCS_BOTTOM;
     hwndToolBar = CreateWindowExW(0, TOOLBARCLASSNAMEW, NULL, style,
-                                  0, 0, 0, 0, pData->m_hwnd, NULL, g_hInstance, NULL);
+                                  0, 0, 0, 0, pData->m_hwnd, (HMENU)IDC_TOOLBAR, g_hInstance, NULL);
     if (!hwndToolBar)
         return FALSE;
 
@@ -1217,8 +1254,8 @@ ZoomWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             break;
         }
         case WM_CONTEXTMENU:
-            if (Preview_IsMainWnd(pData->m_hwnd))
-                DoShellContextMenuOnFile(hwnd, pData->m_szFile, lParam);
+            if (Preview_IsMainWnd(pData->m_hwnd) && *g_szCurrentFile)
+                DoShellContextMenuOnFile(hwnd, g_szCurrentFile, lParam);
             break;
         case WM_HSCROLL:
         case WM_VSCROLL:
@@ -1301,10 +1338,8 @@ Preview_OnCreate(HWND hwnd, LPCREATESTRUCT pCS)
         StringCchCopyW(szFile, _countof(szFile), pszFileName);
         PathUnquoteSpacesW(szFile);
 
-        g_pCurrentFile = pBuildFileList(szFile);
-        Preview_pLoadImageFromNode(pData, g_pCurrentFile);
-        Preview_UpdateImage(pData);
-        Preview_UpdateUI(pData);
+        g_pCurrentFile = pBuildFileList(szFile, TRUE);
+        Preview_LoadImage(pData, g_pCurrentFile);
     }
 
     return TRUE;
@@ -1367,45 +1402,36 @@ Preview_OnSize(HWND hwnd)
 static VOID
 Preview_Delete(PPREVIEW_DATA pData)
 {
-    WCHAR szCurFile[MAX_PATH + 1], szNextFile[MAX_PATH];
+    WCHAR szCurFile[MAX_PATH + 1];
     HWND hwnd = pData->m_hwnd;
     SHFILEOPSTRUCTW FileOp = { hwnd, FO_DELETE };
 
-    if (!pData->m_szFile[0])
+    if (!g_szCurrentFile[0])
         return;
 
     /* FileOp.pFrom must be double-null-terminated */
-    GetFullPathNameW(pData->m_szFile, _countof(szCurFile) - 1, szCurFile, NULL);
+    GetFullPathNameW(g_szCurrentFile, _countof(szCurFile) - 1, szCurFile, NULL);
     szCurFile[_countof(szCurFile) - 2] = UNICODE_NULL; /* Avoid buffer overrun */
     szCurFile[lstrlenW(szCurFile) + 1] = UNICODE_NULL;
 
-    szNextFile[0] = UNICODE_NULL;
-    if (g_pCurrentFile)
-    {
-        GetFullPathNameW(g_pCurrentFile->Next->FileName, _countof(szNextFile), szNextFile, NULL);
-        szNextFile[_countof(szNextFile) - 1] = UNICODE_NULL; /* Avoid buffer overrun */
-    }
-
     /* Confirm file deletion and delete if allowed */
     FileOp.pFrom = szCurFile;
-    FileOp.fFlags = FOF_ALLOWUNDO;
-    if (SHFileOperationW(&FileOp) != 0)
+    FileOp.fFlags = GetKeyState(VK_SHIFT) < 0 ? 0 : FOF_ALLOWUNDO;
+    if (SHFileOperationW(&FileOp) != 0 || FileOp.fAnyOperationsAborted)
     {
         DPRINT("Preview_Delete: SHFileOperationW() failed or canceled\n");
         return;
     }
 
     /* Reload the file list and go next file */
-    pFreeFileList(g_pCurrentFile);
-    g_pCurrentFile = pBuildFileList(szNextFile);
-    Preview_pLoadImageFromNode(pData, g_pCurrentFile);
+    Preview_NotifyCurrentImageDeleted(pData);
 }
 
 static VOID
 Preview_Edit(HWND hwnd)
 {
     PPREVIEW_DATA pData = Preview_GetData(g_hMainWnd);
-    ShellExecuteVerb(pData->m_hwnd, L"edit", pData->m_szFile, TRUE);
+    ShellExecuteVerb(pData->m_hwnd, L"edit", g_szCurrentFile, TRUE);
 }
 
 static VOID
@@ -1445,6 +1471,9 @@ Preview_ToggleSlideShow(PPREVIEW_DATA pData)
 static VOID
 Preview_GoNextPic(PPREVIEW_DATA pData, BOOL bNext)
 {
+    SHIMGVW_FILENODE *const pOld = g_pCurrentFile;
+    UINT tries = 0;
+retry:
     Preview_RestartTimer(pData->m_hwnd);
     if (g_pCurrentFile)
     {
@@ -1452,10 +1481,17 @@ Preview_GoNextPic(PPREVIEW_DATA pData, BOOL bNext)
             g_pCurrentFile = g_pCurrentFile->Next;
         else
             g_pCurrentFile = g_pCurrentFile->Prev;
-        Preview_pLoadImageFromNode(pData, g_pCurrentFile);
-        Preview_UpdateImage(pData);
-        Preview_UpdateUI(pData);
     }
+DbgPrint("next %p==%p |%ls|\n", pOld , g_pCurrentFile, g_szCurrentFile);
+    if ((pOld == g_pCurrentFile || !g_pImage) && *g_szCurrentFile && !tries++)
+    {
+        /* We had just one image, check to see if there are more now */
+        g_pCurrentFile = pBuildFileList(g_szCurrentFile, FALSE);
+        pFreeFileList(pOld);
+        if (g_pCurrentFile && g_pCurrentFile->Next != g_pCurrentFile)
+            goto retry;
+    }
+    Preview_LoadImage(pData, g_pCurrentFile);
 }
 
 static VOID
@@ -1544,7 +1580,7 @@ Preview_OnCommand(HWND hwnd, UINT nCommandID)
             if (g_pImage)
             {
                 GdipImageRotateFlip(g_pImage, Rotate270FlipNone);
-                Preview_pSaveImage(pData, pData->m_szFile);
+                Preview_pSaveImage(pData, g_szCurrentFile);
                 Preview_UpdateImage(pData);
             }
             break;
@@ -1553,7 +1589,7 @@ Preview_OnCommand(HWND hwnd, UINT nCommandID)
             if (g_pImage)
             {
                 GdipImageRotateFlip(g_pImage, Rotate90FlipNone);
-                Preview_pSaveImage(pData, pData->m_szFile);
+                Preview_pSaveImage(pData, g_szCurrentFile);
                 Preview_UpdateImage(pData);
             }
             break;
@@ -1628,8 +1664,8 @@ Preview_OnDropFiles(HWND hwnd, HDROP hDrop)
     DragQueryFileW(hDrop, 0, szFile, _countof(szFile));
 
     pFreeFileList(g_pCurrentFile);
-    g_pCurrentFile = pBuildFileList(szFile);
-    Preview_pLoadImageFromNode(pData, g_pCurrentFile);
+    g_pCurrentFile = pBuildFileList(szFile, TRUE);
+    Preview_LoadImage(pData, g_pCurrentFile);
 
     DragFinish(hDrop);
 }
@@ -1733,9 +1769,10 @@ ImageView_Main(HWND hwnd, LPCWSTR szFileName)
     HRESULT hrCoInit;
     INITCOMMONCONTROLSEX Icc = { .dwSize = sizeof(Icc), .dwICC = ICC_WIN95_CLASSES };
 
+    g_szCurrentFile[0] = UNICODE_NULL;
     InitCommonControlsEx(&Icc);
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL); // Give UI higher priority than background threads
-
+OleInitialize(NULL);// THIS MAKES COPY WORK
     /* Initialize COM */
     hrCoInit = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     if (FAILED(hrCoInit))

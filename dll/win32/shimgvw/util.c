@@ -62,7 +62,7 @@ ModifyShellContextMenu(IContextMenu *pCM, HMENU hMenu, UINT CmdIdFirst, PCWSTR A
             UINT remove = FALSE;
             if (IsSelfShellVerb(Assoc, buf))
                 ++remove;
-            else if (!lstrcmpiW(L"cut", buf) || !lstrcmpiW(L"copy", buf) || !lstrcmpiW(L"link", buf))
+            else if (!lstrcmpiW(L"cut", buf) || !lstrcmpiW(L"delete", buf) || !lstrcmpiW(L"link", buf))
                 ++remove;
 
             if (remove && DeleteMenu(hMenu, i, MF_BYPOSITION))
@@ -88,7 +88,7 @@ ShellContextMenuWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     return lRes;
 }
 
-static void
+static VOID
 DoShellContextMenu(HWND hwnd, IContextMenu *pCM, PCWSTR File, LPARAM lParam)
 {
     enum { first = 1, last = 0x7fff };
@@ -133,10 +133,11 @@ die:
 HRESULT
 GetUIObjectOfPath(HWND hwnd, PCWSTR File, REFIID riid, void **ppv)
 {
-    HRESULT hr;
+    HRESULT hr = HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
     IShellFolder *pSF;
     PCUITEMID_CHILD pidlItem;
     PIDLIST_ABSOLUTE pidl = ILCreateFromPath(File);
+    *ppv = NULL;
     if (pidl && SUCCEEDED(SHBindToParent(pidl, IID_PPV_ARG(IShellFolder, &pSF), &pidlItem)))
     {
         hr = IShellFolder_GetUIObjectOf(pSF, hwnd, 1, &pidlItem, riid, NULL, ppv);
