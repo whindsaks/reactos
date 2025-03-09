@@ -7,6 +7,13 @@
 
 #pragma once
 
+EXTERN_C HWND SHELL32_ValidWindowOwner(HWND hWnd);
+static inline UINT
+SHELL32_ErrorBox(HWND hWnd, UINT Error)
+{
+    return SHELL_ErrorBox(SHELL32_ValidWindowOwner(hWnd), Error);
+}
+
 #ifdef __cplusplus
 static inline LPWSTR
 SHStrDupW(LPCWSTR Src)
@@ -20,7 +27,7 @@ SHELL_ErrorBox(CMINVOKECOMMANDINFO &cmi, UINT Error)
 {
     if (cmi.fMask & CMIC_MASK_FLAG_NO_UI)
         return Error ? Error : ERROR_INTERNAL_ERROR;
-    return SHELL_ErrorBox(cmi.hwnd, Error);
+    return SHELL32_ErrorBox(cmi.hwnd, Error);
 }
 #endif
 

@@ -859,20 +859,40 @@ ScanAdvancedSettings(SHELLSTATE *pSS, DWORD *pdwMask)
     }
 }
 
+#define PROGMANCLASSW L"Progman"
+
+BOOL IsCabinetWindowType(HWND hWnd, UINT Type)
+{
+    WCHAR ClassName[100];
+    if (GetClassNameW(hWnd, ClassName, _countof(ClassName)))
+        return ((Type & ECW_PROGMAN) && !wcscmp(ClassName, PROGMANCLASSW)) ||
+               ((Type & ECW_CABINET) && !wcscmp(ClassName, L"CabinetWClass")) ||
+               ((Type & ECW_EXPLORER) && !wcscmp(ClassName, L"ExploreWClass"));
+    return FALSE;
+}
+
+static BOOL CALLBACK
+EnumCabinetWindowsCallback(HWND hWnd, LPARAM param)
+{
+    if (IsCabinetWindowType(hWnd, (UINT)((LPARAM*)param)[0]))
+    {
+        WNDENUMPROC Func = (WNDENUMPROC)((LPARAM*)param)[1];
+        Func(hWnd, ((LPARAM*)param)[2]);
+    }
+    return TRUE;
+}
+
+void EnumCabinetWindows(UINT Types, WNDENUMPROC Callback, LPARAM CallerData)
+{
+    LPARAM data[3] = { (LPARAM)Types, (LPARAM)Callback, CallerData };
+    EnumWindows(EnumCabinetWindowsCallback, (LPARAM)data);
+}
+
 static BOOL CALLBACK
 PostCabinetMessageCallback(HWND hWnd, LPARAM param)
 {
     MSG &data = *(MSG*)param;
-    WCHAR ClassName[100];
-    if (GetClassNameW(hWnd, ClassName, _countof(ClassName)))
-    {
-        if (!wcscmp(ClassName, L"Progman") ||
-            !wcscmp(ClassName, L"CabinetWClass") ||
-            !wcscmp(ClassName, L"ExploreWClass"))
-        {
-            PostMessage(hWnd, data.message, data.wParam, data.lParam);
-        }
-    }
+    PostMessage(hWnd, data.message, data.wParam, data.lParam);
     return TRUE;
 }
 
@@ -883,7 +903,15 @@ PostCabinetMessage(UINT Msg, WPARAM wParam, LPARAM lParam)
     data.message = Msg;
     data.wParam = wParam;
     data.lParam = lParam;
-    EnumWindows(PostCabinetMessageCallback, (LPARAM)&data);
+    EnumCabinetWindows(ECW_ALL, PostCabinetMessageCallback, (LPARAM)&data);
+}
+
+EXTERN_C HWND SHELL32_ValidWindowOwner(HWND hWnd)
+{
+    // Don't display a modal dialog with the desktop as the parent because it locks the desktop listview
+    if (hWnd && SHIsChildOrSelf(FindWindowW(PROGMANCLASSW, NULL), hWnd))
+        return NULL;
+    return hWnd;
 }
 
 static VOID

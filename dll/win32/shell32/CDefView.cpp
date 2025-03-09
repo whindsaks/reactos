@@ -2771,45 +2771,39 @@ LRESULT CDefView::OnNotify(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandl
             break;
         case LVN_BEGINLABELEDITW:
         {
-            DWORD dwAttr = SFGAO_CANRENAME;
+            TRACE("-- LVN_BEGINLABELEDITW %p %p\n", this);
+
             pidl = _PidlByItem(lpdi->item);
-
-            TRACE("-- LVN_BEGINLABELEDITW %p\n", this);
-
-            m_pSFParent->GetAttributesOf(1, &pidl, &dwAttr);
-            if (SFGAO_CANRENAME & dwAttr)
+            DWORD dwAttr = GetItemAttributes(pidl, SFGAO_CANRENAME | SFGAO_FOLDER | SFGAO_STREAM | SFGAO_FILESYSTEM);
+            if (!(SFGAO_CANRENAME & dwAttr))
             {
-                HWND hEdit = reinterpret_cast<HWND>(m_ListView.SendMessage(LVM_GETEDITCONTROL));
-                SHLimitInputEdit(hEdit, m_pSFParent);
-
-                // smartass-renaming: See CORE-15242
-                if (!(dwAttr & SFGAO_FOLDER) && (dwAttr & SFGAO_FILESYSTEM) &&
-                    (lpdi->item.mask & LVIF_TEXT) && !SelectExtOnRename())
-                {
-                    WCHAR szFullPath[MAX_PATH];
-                    PIDLIST_ABSOLUTE pidlFull = ILCombine(m_pidlParent, pidl);
-                    SHGetPathFromIDListW(pidlFull, szFullPath);
-
-                    INT cchLimit = 0;
-                    _DoFolderViewCB(SFVM_GETNAMELENGTH, (WPARAM)pidlFull, (LPARAM)&cchLimit);
-                    if (cchLimit)
-                        ::SendMessageW(hEdit, EM_SETLIMITTEXT, cchLimit, 0);
-
-                    if (!SHELL_FS_HideExtension(szFullPath))
-                    {
-                        LPWSTR pszText = lpdi->item.pszText;
-                        LPWSTR pchDotExt = PathFindExtensionW(pszText);
-                        ::PostMessageW(hEdit, EM_SETSEL, 0, pchDotExt - pszText);
-                        ::PostMessageW(hEdit, EM_SCROLLCARET, 0, 0);
-                    }
-
-                    ILFree(pidlFull);
-                }
-
-                m_isEditing = TRUE;
-                return FALSE;
+                MessageBeep(0);
+                return TRUE;
             }
-            return TRUE;
+
+            HWND hEdit = reinterpret_cast<HWND>(m_ListView.SendMessage(LVM_GETEDITCONTROL));
+            SHLimitInputEdit(hEdit, m_pSFParent);
+            INT cchLimit = 0;
+            _DoFolderViewCB(SFVM_GETNAMELENGTH, (WPARAM)pidl, (LPARAM)&cchLimit);
+            if (cchLimit)
+                ::SendMessageW(hEdit, EM_SETLIMITTEXT, cchLimit, 0);
+
+            // Smartass-renaming: See CORE-15242
+            if ((!(dwAttr & SFGAO_FOLDER) || (dwAttr & SFGAO_STREAM)) &&
+                (dwAttr & SFGAO_FILESYSTEM) && (lpdi->item.mask & LVIF_TEXT) && !SelectExtOnRename())
+            {
+                WCHAR szName[MAX_PATH];
+                HRESULT hr = DisplayNameOfW(m_pSFParent, pidl, SHGDN_FORPARSING | SHGDN_INFOLDER, szName, _countof(szName));
+                if (SUCCEEDED(hr) && !SHELL_FS_HideExtension(szName))
+                {
+                    LPWSTR pszText = lpdi->item.pszText;
+                    LPWSTR pchDotExt = PathFindExtensionW(pszText);
+                    ::PostMessageW(hEdit, EM_SETSEL, 0, pchDotExt - pszText);
+                    ::PostMessageW(hEdit, EM_SCROLLCARET, 0, 0);
+                }
+            }
+            m_isEditing = TRUE;
+            return FALSE;
         }
         case LVN_ENDLABELEDITW:
         {
@@ -2820,24 +2814,27 @@ LRESULT CDefView::OnNotify(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandl
             {
                 HRESULT hr;
                 LVITEMW lvItem;
+                PITEMID_CHILD pidlNew = NULL;
 
                 pidl = _PidlByItem(lpdi->item);
-                PITEMID_CHILD pidlNew = NULL;
-                hr = m_pSFParent->SetNameOf(0, pidl, lpdi->item.pszText, SHGDN_INFOLDER, &pidlNew);
-
-                if (SUCCEEDED(hr) && pidlNew)
+                hr = m_pSFParent->SetNameOf(m_ListView, pidl, lpdi->item.pszText, SHGDN_INFOLDER, &pidlNew);
+                if (SUCCEEDED(hr))
                 {
-                    lvItem.mask = LVIF_PARAM|LVIF_IMAGE;
-                    lvItem.iItem = lpdi->item.iItem;
-                    lvItem.iSubItem = 0;
-                    lvItem.lParam = reinterpret_cast<LPARAM>(pidlNew);
-                    lvItem.iImage = SHMapPIDLToSystemImageListIndex(m_pSFParent, pidlNew, 0);
-                    m_ListView.SetItem(&lvItem);
-                    m_ListView.Update(lpdi->item.iItem);
-                    return TRUE;
+                    if (pidlNew)
+                    {
+                        lvItem.mask = LVIF_PARAM | LVIF_IMAGE;
+                        lvItem.iItem = lpdi->item.iItem;
+                        lvItem.iSubItem = 0;
+                        lvItem.lParam = reinterpret_cast<LPARAM>(pidlNew);
+                        lvItem.iImage = SHMapPIDLToSystemImageListIndex(m_pSFParent, pidlNew, 0);
+                        m_ListView.SetItem(&lvItem);
+                        m_ListView.Update(lpdi->item.iItem);
+                    }
+                    OnStateChange(CDBOSC_RENAME);
+                    return pidlNew != NULL;
                 }
+                ::PostMessage(m_ListView, LVM_EDITLABEL, lpdi->item.iItem, 0);
             }
-
             return FALSE;
         }
         default:
