@@ -335,7 +335,7 @@ public:
     HRESULT FillArrangeAsMenu(HMENU hmenuArrange);
     HRESULT CheckViewMode(HMENU hmenuView);
     LRESULT DoColumnContextMenu(LRESULT lParam);
-    UINT GetSelections();
+    UINT GetSelections(UINT SVGIO = 0);
     SFGAOF GetSelectionAttributes(SFGAOF Query);
     HRESULT OpenSelectedItems();
     void OnDeactivate();
@@ -2069,13 +2069,13 @@ LRESULT CDefView::DoColumnContextMenu(LPARAM lParam)
 * RETURNS
 *  number of selected items
 */
-UINT CDefView::GetSelections()
+UINT CDefView::GetSelections(UINT SVGIO)
 {
     UINT count = m_ListView.GetSelectedCount();
     if (count > m_cidl || !count || !m_apidl) // !count to free possibly large cache, !m_apidl to make sure m_apidl is a valid pointer
     {
         SHFree(m_apidl);
-        m_apidl = static_cast<PCUITEMID_CHILD*>(SHAlloc(count * sizeof(PCUITEMID_CHILD)));
+        m_apidl = static_cast<PCUITEMID_CHILD*>(SHAlloc((count + 1) * sizeof(PCUITEMID_CHILD)));
         if (!m_apidl)
         {
             m_cidl = 0;
@@ -2083,28 +2083,27 @@ UINT CDefView::GetSelections()
         }
     }
     m_cidl = count;
-
     TRACE("-- Items selected =%u\n", m_cidl);
 
     ASSERT(m_ListView);
-
+    PCUITEMID_CHILD* pInsert = m_apidl;
     UINT i = 0;
-    int lvIndex = -1;
+    int lvIndex = -1, lvFocus = -1, offset = 0;
+    if (!(SVGIO & SVGIO_FLAG_VIEWORDER) && (lvFocus = m_ListView.GetNextItem(-1, LVNI_FOCUSED)) >= 0)
+        pInsert++; // Place non-focused items starting here (we over-reserved by one above)
     while ((lvIndex = m_ListView.GetNextItem(lvIndex, LVNI_SELECTED)) > -1)
     {
-        m_apidl[i] = _PidlByItem(lvIndex);
-        i++;
-        if (i == m_cidl)
+        pInsert[lvFocus == lvIndex ? --offset : (i + offset)] = _PidlByItem(lvIndex);
+        TRACE("-- selected Item found %d\n", lvIndex);
+        if (++i == m_cidl)
              break;
-        TRACE("-- selected Item found\n");
     }
-
     return m_cidl;
 }
 
 SFGAOF CDefView::GetSelectionAttributes(SFGAOF Query)
 {
-    if (!GetSelections())
+    if (!GetSelections(SVGIO_FLAG_VIEWORDER))
         return 0;
     SFGAOF Attr = Query;
     return SUCCEEDED(m_pSFParent->GetAttributesOf(m_cidl, m_apidl, &Attr)) ? (Attr & Query) : 0;
@@ -3502,7 +3501,7 @@ HRESULT WINAPI CDefView::GetItemObject(UINT uItem, REFIID riid, LPVOID *ppvOut)
 
     *ppvOut = NULL;
 
-    switch (uItem)
+    switch (uItem & SVGIO_TYPE_MASK)
     {
         case SVGIO_BACKGROUND:
             if (IsEqualIID(riid, IID_IContextMenu))
@@ -3525,7 +3524,7 @@ HRESULT WINAPI CDefView::GetItemObject(UINT uItem, REFIID riid, LPVOID *ppvOut)
             }
             break;
         case SVGIO_SELECTION:
-            GetSelections();
+            GetSelections(uItem);
             hr = m_pSFParent->GetUIObjectOf(m_hWnd, m_cidl, m_apidl, riid, 0, ppvOut);
             if (FAILED_UNEXPECTEDLY(hr))
                 return hr;
@@ -4002,7 +4001,7 @@ HRESULT STDMETHODCALLTYPE CDefView::GetSelectedObjects(PCUITEMID_CHILD **pidl, U
 {
     TRACE("(%p)->(%p %p)\n", this, pidl, items);
 
-    *items = GetSelections();
+    *items = GetSelections(SVGIO_SELECTION);
 
     if (*items)
     {
