@@ -1958,11 +1958,61 @@ int WINAPI DrawShadowText(HDC hdc, LPCWSTR pszText, UINT cch, RECT *prc, DWORD d
     return iRet;
 }
 
+#ifdef __REACTOS__
+static HICON CreateScaledIcon(HICON hSource, UINT width, UINT height)
+{
+    HICON hNew = NULL;
+    int idx;
+    HIMAGELIST hIL = ImageList_Create(width, height, ILC_COLOR32 | ILC_MASK, 0, 1);
+    if (!hIL)
+        return hNew;
+
+    idx = ImageList_ReplaceIcon(hIL, -1, hSource);
+    if (idx >= 0)
+        hNew = ImageList_GetIcon(hIL, idx, ILD_TRANSPARENT);
+    ImageList_Destroy(hIL);
+    return hNew;
+}
+#endif
+
 /***********************************************************************
  * LoadIconWithScaleDown [COMCTL32.@]
  */
 HRESULT WINAPI LoadIconWithScaleDown(HINSTANCE hinst, const WCHAR *name, int cx, int cy, HICON *icon)
 {
+#ifdef __REACTOS__
+    const WORD sizes[] = { 16, 32, 48, 256 };
+    UINT width = cx, height = cy;
+    UINT flags = 0, i;
+    if (hinst || !IS_INTRESOURCE(name))
+        flags |= LR_LOADFROMFILE;
+
+    *icon = NULL;
+    if (!name)
+        return E_INVALIDARG;
+
+    for (i = 0; i < _countof(sizes); ++i)
+    {
+        if (cx > sizes[i])
+            width = sizes[i];
+        if (cy > sizes[i])
+            height = sizes[i];
+    }
+
+    if (width > cx || height > cy)
+    {
+        HICON hLarger = LoadImageW(hinst, name, IMAGE_ICON, width, height, flags);
+        if (hLarger)
+        {
+            *icon = CreateScaledIcon(hLarger, cx, cy);
+            DestroyIcon(hLarger);
+            if (*icon)
+                return S_OK;
+        }
+    }
+    *icon = LoadImageW(hinst, name, IMAGE_ICON, cx, cy, flags);
+
+#else
     TRACE("(%p, %s, %d, %d, %p)\n", hinst, debugstr_w(name), cx, cy, icon);
 
     *icon = NULL;
@@ -1972,6 +2022,7 @@ HRESULT WINAPI LoadIconWithScaleDown(HINSTANCE hinst, const WCHAR *name, int cx,
 
     *icon = LoadImageW(hinst, name, IMAGE_ICON, cx, cy,
                        (hinst || IS_INTRESOURCE(name)) ? 0 : LR_LOADFROMFILE);
+#endif
     if (!*icon)
         return HRESULT_FROM_WIN32(GetLastError());
 
