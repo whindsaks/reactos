@@ -120,6 +120,39 @@ const struct builtin_class_descr DIALOG_builtin_class =
 
 /* INTERNAL FUNCTIONS ********************************************************/
 
+static void SnapToDefButton(HWND hDlg)
+{
+    LRESULT def;
+    RECT rect;
+    HWND hWnd;
+    INPUT input;
+
+    BOOL snap = FALSE;
+    SystemParametersInfo(SPI_GETSNAPTODEFBUTTON, 0, &snap, 0);
+    if (!snap)
+        return;
+
+    def = SendMessageW(hDlg, DM_GETDEFID, 0, 0);
+    if (HIWORD(def) != DC_HASDEFID || !LOWORD(def))
+        return;
+
+    hWnd = GetDlgItem(hDlg, LOWORD(def));
+    if (!hWnd || !GetWindowRect(hWnd, &rect))
+        return;
+
+    input.type = INPUT_MOUSE;
+    input.mi.dx = 100;//rect.left + (rect.right - rect.left) / 2;
+    input.mi.dy = 200;//rect.top + (rect.bottom - rect.top) / 2;
+    input.mi.mouseData = 0;
+    input.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE;
+    input.mi.time = 0;
+    input.mi.dwExtraInfo = 0;OutputDebugStringA("SnapToDefButton 3\n");
+    SendInput(1, &input, sizeof(input));
+    SetCursorPos(0, 1);
+    Why do none of these work?
+    mouse_event(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE, 333, 222, 0, 0);
+}
+
 /***********************************************************************
 *               DIALOG_get_info
 *
@@ -1039,6 +1072,8 @@ static HWND DIALOG_CreateIndirect( HINSTANCE hInst, LPCVOID dlgTemplate,
                     if (!(template.style & WS_CHILD))
                         SetFocus( hwnd );
                 }
+
+                SnapToDefButton(hwnd);
             }
 //// ReactOS see 43396, Fixes setting focus on Open and Close dialogs to the FileName edit control in OpenOffice.
 //// This now breaks test_SaveRestoreFocus.
