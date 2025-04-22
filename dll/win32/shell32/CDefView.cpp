@@ -357,6 +357,7 @@ public:
     HRESULT LoadViewState();
     HRESULT SaveViewState(IStream *pStream);
     void UpdateFolderViewFlags();
+    UINT GetItemActivateFlags();
 
     DWORD GetCommDlgViewFlags()
     {
@@ -906,9 +907,9 @@ BOOL CDefView::CreateList()
     if (m_FolderSettings.fFlags & FWF_FULLROWSELECT)
         ListExStyle |= LVS_EX_FULLROWSELECT;
 
-    if ((m_FolderSettings.fFlags & FWF_SINGLECLICKACTIVATE) ||
-        (!SHELL_GetSetting(SSF_DOUBLECLICKINWEBVIEW, fDoubleClickInWebView) && !SHELL_GetSetting(SSF_WIN95CLASSIC, fWin95Classic)))
-        ListExStyle |= LVS_EX_TRACKSELECT | LVS_EX_ONECLICKACTIVATE;
+    ListExStyle |= GetItemActivateFlags();
+    if (ListExStyle & LVS_EX_ONECLICKACTIVATE)
+        ListExStyle |= SHELL_GetIconUnderlineFlags();
 
     if (m_FolderSettings.fFlags & FWF_NOCOLUMNHEADER)
         dwStyle |= LVS_NOCOLUMNHEADER;
@@ -2681,11 +2682,9 @@ LRESULT CDefView::OnNotify(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandl
             break;
         case NM_DBLCLK:
             TRACE("-- NM_DBLCLK %p\n", this);
-            OpenSelectedItems();
             break;
         case NM_RETURN:
             TRACE("-- NM_RETURN %p\n", this);
-            OpenSelectedItems();
             break;
         case HDN_ENDTRACKW:
             TRACE("-- HDN_ENDTRACKW %p\n", this);
@@ -2705,7 +2704,7 @@ LRESULT CDefView::OnNotify(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandl
             break;
         case LVN_ITEMACTIVATE:
             TRACE("-- LVN_ITEMACTIVATE %p\n", this);
-            OnStateChange(CDBOSC_SELCHANGE); // browser will get the IDataObject
+            OpenSelectedItems();
             break;
         case LVN_COLUMNCLICK:
         {
@@ -3041,6 +3040,15 @@ LRESULT CDefView::OnSettingChange(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL 
     if (wParam == SPI_SETDESKWALLPAPER || wParam == 0)
         UpdateListColors();
 
+    UINT ListExMask = LVS_EX_TRACKSELECT | LVS_EX_ONECLICKACTIVATE;
+    UINT ListExBits = GetItemActivateFlags();
+    if (wParam == SPI_GETICONTITLELOGFONT ||
+        (lParam && !lstrcmpiW((PWSTR)lParam, REGSTR_PATH_EXPLORER L"\\IconUnderline")))
+    {
+        ListExMask |= LVS_EX_UNDERLINEHOT | LVS_EX_UNDERLINECOLD;
+        ListExBits |= SHELL_GetIconUnderlineFlags();
+    }
+    m_ListView.SetExtendedListViewStyle(ListExBits, ListExMask);
     m_ListView.SendMessage(uMsg, wParam, lParam);
     return S_OK;
 }
@@ -3467,6 +3475,14 @@ void CDefView::UpdateFolderViewFlags()
     UPDATEFOLDERVIEWFLAGS(m_FolderSettings.fFlags, FWF_AUTOARRANGE, GetAutoArrange() == S_OK);
     UPDATEFOLDERVIEWFLAGS(m_FolderSettings.fFlags, FWF_SNAPTOGRID, _GetSnapToGrid() == S_OK);
     UPDATEFOLDERVIEWFLAGS(m_FolderSettings.fFlags, FWF_NOGROUPING, !ListView_IsGroupViewEnabled(m_ListView.m_hWnd));
+}
+
+UINT CDefView::GetItemActivateFlags()
+{
+    SHELLSTATE ss;
+    SHGetSetSettings(&ss, SSF_DOUBLECLICKINWEBVIEW | SSF_WIN95CLASSIC, FALSE);
+    return ((m_FolderSettings.fFlags & FWF_SINGLECLICKACTIVATE) || (!ss.fDoubleClickInWebView && !ss.fWin95Classic))
+            ? (LVS_EX_TRACKSELECT | LVS_EX_ONECLICKACTIVATE) : (0);
 }
 
 HRESULT WINAPI CDefView::SelectItem(PCUITEMID_CHILD pidl, UINT uFlags)
