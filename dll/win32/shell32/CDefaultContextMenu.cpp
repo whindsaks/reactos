@@ -153,7 +153,7 @@ class CDefaultContextMenu :
         UINT m_cidl;
         PCUITEMID_CHILD_ARRAY m_apidl;
         CComPtr<IDataObject> m_pDataObj;
-        HKEY* m_aKeys;
+        HKEY m_aKeys[16]; // This value is documented for both the old API and for DEFCONTEXTMENU
         UINT m_cKeys;
         PIDLIST_ABSOLUTE m_pidlFolder;
         DWORD m_bGroupPolicyActive;
@@ -240,8 +240,7 @@ CDefaultContextMenu::CDefaultContextMenu() :
     m_cidl(0),
     m_apidl(NULL),
     m_pDataObj(NULL),
-    m_aKeys(NULL),
-    m_cKeys(NULL),
+    m_cKeys(0),
     m_pidlFolder(NULL),
     m_bGroupPolicyActive(0),
     m_iIdSHEFirst(0),
@@ -269,7 +268,6 @@ CDefaultContextMenu::~CDefaultContextMenu()
 
     for (UINT i = 0; i < m_cKeys; i++)
         RegCloseKey(m_aKeys[i]);
-    HeapFree(GetProcessHeap(), 0, m_aKeys);
 
     if (m_pidlFolder)
         CoTaskMemFree(m_pidlFolder);
@@ -280,6 +278,7 @@ HRESULT WINAPI CDefaultContextMenu::Initialize(const DEFCONTEXTMENU *pdcm, LPFND
 {
     TRACE("cidl %u\n", pdcm->cidl);
 
+    HRESULT hr = S_OK;
     if (!pdcm->pcmcb && !lpfn)
     {
         ERR("CDefaultContextMenu needs a callback!\n");
@@ -295,13 +294,12 @@ HRESULT WINAPI CDefaultContextMenu::Initialize(const DEFCONTEXTMENU *pdcm, LPFND
     m_pfnmcb = lpfn;
     m_hwnd = pdcm->hwnd;
 
-    m_cKeys = pdcm->cKeys;
-    if (pdcm->cKeys)
+    for (UINT i = 0; i < pdcm->cKeys; ++i)
     {
-        m_aKeys = (HKEY*)HeapAlloc(GetProcessHeap(), 0, sizeof(HKEY) * pdcm->cKeys);
-        if (!m_aKeys)
-            return E_OUTOFMEMORY;
-        memcpy(m_aKeys, pdcm->aKeys, sizeof(HKEY) * pdcm->cKeys);
+        if ((m_aKeys[i] = SHRegDuplicateHKey(pdcm->aKeys[i])) != NULL)
+            m_cKeys++;
+        else
+            hr = E_OUTOFMEMORY;
     }
 
     m_psf->GetUIObjectOf(pdcm->hwnd, m_cidl, m_apidl, IID_NULL_PPV_ARG(IDataObject, &m_pDataObj));
@@ -321,7 +319,7 @@ HRESULT WINAPI CDefaultContextMenu::Initialize(const DEFCONTEXTMENU *pdcm, LPFND
         TRACE("pidlFolder %p\n", m_pidlFolder);
     }
 
-    return S_OK;
+    return hr;
 }
 
 HRESULT CDefaultContextMenu::_DoCallback(UINT uMsg, WPARAM wParam, LPVOID lParam)
