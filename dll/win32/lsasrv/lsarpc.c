@@ -2139,6 +2139,137 @@ done:
     return Status;
 }
 
+static
+NTSTATUS
+LsapEncryptDatabaseSecret(
+    _In_ LPCVOID pIn,
+    _Out_ PVOID pOut,
+    _In_ SIZE_T cb)
+{
+    /* FIXME: https://www.passcape.com/index.php?section=docsys&cmd=details&id=23 */
+    BYTE key = 0x55;
+    for (SIZE_T i = 0; i < cb; ++i)
+        ((BYTE*)pOut)[i] = ((BYTE*)pIn)[i] ^ (key += ~(BYTE)i);
+    return STATUS_SUCCESS;
+}
+
+static
+NTSTATUS
+LsapDecryptDatabaseSecret(
+    _In_ LPCVOID pIn,
+    _Out_ PVOID pOut,
+    _In_ SIZE_T cb)
+{
+    return LsapEncryptDatabaseSecret(pIn, pOut, cb);
+}
+
+static
+NTSTATUS
+LsapSetSecretValue(
+    _In_ PLSA_DB_OBJECT SecretObject,
+    _In_ PCWSTR pszName,
+    _In_ LPCVOID pData,
+    _In_ ULONG cbData,
+    _In_ PCWSTR pszTimeName,
+    _In_ const LARGE_INTEGER *pTime)
+{
+    NTSTATUS Status;
+    PVOID pEnc = midl_user_allocate(cbData);
+    if (!pEnc)
+    {
+        ERR("midl_user_allocate failed\n");
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    Status = LsapEncryptDatabaseSecret(pData, pEnc, cbData);
+    if (!NT_SUCCESS(Status))
+    {
+        ERR("LsapSetSecretValue (Status 0x%08lx)\n", Status);
+        goto done;
+    }
+
+    Status = LsapSetObjectAttribute(SecretObject,
+                                    (PWSTR)pszName,
+                                    (LPVOID)pEnc,
+                                    cbData);
+    if (!NT_SUCCESS(Status))
+    {
+        ERR("LsapSetObjectAttribute failed (Status 0x%08lx)\n", Status);
+        goto done;
+    }
+
+    Status = LsapSetObjectAttribute(SecretObject,
+                                    (PWSTR)pszTimeName,
+                                    (LPVOID)pTime,
+                                    sizeof(*pTime));
+    if (!NT_SUCCESS(Status))
+    {
+        ERR("LsapSetObjectAttribute failed (Status 0x%08lx)\n", Status);
+        goto done;
+    }
+
+done:
+    midl_user_free(pEnc);
+    return Status;
+}
+
+static
+NTSTATUS
+LsapGetSecretValueAlloc(
+    _In_ PLSA_DB_OBJECT SecretObject,
+    _In_ PCWSTR pszName,
+    _Out_ PLSAPR_CR_CIPHER_VALUE *pOutput)
+{
+    ULONG ValueLength = 0;
+    PLSAPR_CR_CIPHER_VALUE pValue = NULL;
+    NTSTATUS Status;
+
+    /* Get the size of the value */
+    Status = LsapGetObjectAttribute(SecretObject,
+                                    (PWSTR)pszName,
+                                    NULL,
+                                    &ValueLength);
+    if (!NT_SUCCESS(Status))
+    {
+        goto done;
+    }
+
+    pValue = midl_user_allocate(sizeof(LSAPR_CR_CIPHER_VALUE) + ValueLength);
+    if (!pValue)
+    {
+        ERR("midl_user_allocate failed\n");
+        Status = STATUS_INSUFFICIENT_RESOURCES;
+        goto done;
+    }
+
+    /* Get the value data */
+    pValue->Buffer = (PBYTE)(pValue + 1);
+    Status = LsapGetObjectAttribute(SecretObject,
+                                    (PWSTR)pszName,
+                                    pValue->Buffer,
+                                    &ValueLength);
+    if (!NT_SUCCESS(Status))
+    {
+        ERR("LsapGetObjectAttribute failed (Status 0x%08lx)\n", Status);
+        goto done;
+    }
+    pValue->Length = (USHORT)(ValueLength - sizeof(WCHAR));
+    pValue->MaximumLength = (USHORT)ValueLength;
+    
+    Status = LsapDecryptDatabaseSecret(pValue->Buffer, pValue->Buffer, pValue->MaximumLength);
+    if (!NT_SUCCESS(Status))
+    {
+        ERR("LsapDecryptDatabaseSecret (Status 0x%08lx)\n", Status);
+        goto done;
+    }
+
+done:
+    if (NT_SUCCESS(Status))
+        *pOutput = pValue;
+    else if (pValue)
+        midl_user_free(pValue);
+    return Status;
+}
 
 /* Function 29 */
 NTSTATUS
@@ -2170,6 +2301,13 @@ LsarSetSecret(
         return Status;
     }
 
+    Status = NtQuerySystemTime(&Time);
+    if (!NT_SUCCESS(Status))
+    {
+        ERR("NtQuerySystemTime failed (Status 0x%08lx)\n", Status);
+        goto done;
+    }
+
     if (EncryptedCurrentValue != NULL)
     {
         /* FIXME: Decrypt the current value */
@@ -2178,32 +2316,11 @@ LsarSetSecret(
     }
 
     /* Set the current value */
-    Status = LsapSetObjectAttribute(SecretObject,
-                                    L"CurrentValue",
-                                    CurrentValue,
-                                    CurrentValueLength);
+    Status = LsapSetSecretValue(SecretObject, L"CurrentValue", CurrentValue,
+                                CurrentValueLength, L"CurrentTime", &Time);
     if (!NT_SUCCESS(Status))
     {
-        ERR("LsapSetObjectAttribute failed (Status 0x%08lx)\n", Status);
-        goto done;
-    }
-
-    /* Get the current time */
-    Status = NtQuerySystemTime(&Time);
-    if (!NT_SUCCESS(Status))
-    {
-        ERR("NtQuerySystemTime failed (Status 0x%08lx)\n", Status);
-        goto done;
-    }
-
-    /* Set the current time */
-    Status = LsapSetObjectAttribute(SecretObject,
-                                    L"CurrentTime",
-                                    &Time,
-                                    sizeof(LARGE_INTEGER));
-    if (!NT_SUCCESS(Status))
-    {
-        ERR("LsapSetObjectAttribute failed (Status 0x%08lx)\n", Status);
+        ERR("LsapSetSecretValue failed (Status 0x%08lx)\n", Status);
         goto done;
     }
 
@@ -2214,25 +2331,13 @@ LsarSetSecret(
         OldValueLength = EncryptedOldValue->MaximumLength;
     }
 
+    /* TODO: Why is the OldTime the same as CurrentTime? */
     /* Set the old value */
-    Status = LsapSetObjectAttribute(SecretObject,
-                                    L"OldValue",
-                                    OldValue,
-                                    OldValueLength);
+    Status = LsapSetSecretValue(SecretObject, L"OldValue", OldValue,
+                                OldValueLength, L"OldTime", &Time);
     if (!NT_SUCCESS(Status))
     {
-        ERR("LsapSetObjectAttribute failed (Status 0x%08lx)\n", Status);
-        goto done;
-    }
-
-    /* Set the old time */
-    Status = LsapSetObjectAttribute(SecretObject,
-                                    L"OldTime",
-                                    &Time,
-                                    sizeof(LARGE_INTEGER));
-    if (!NT_SUCCESS(Status))
-    {
-        ERR("LsapSetObjectAttribute failed (Status 0x%08lx)\n", Status);
+        ERR("LsapSetSecretValue failed (Status 0x%08lx)\n", Status);
     }
 
 done:
@@ -2303,6 +2408,13 @@ LsarQuerySecret(
         if (!NT_SUCCESS(Status))
             goto done;
 
+        Status = LsapDecryptDatabaseSecret(CurrentValue, CurrentValue, CurrentValueLength);
+        if (!NT_SUCCESS(Status))
+        {
+            ERR("LsapDecryptDatabaseSecret (Status 0x%08lx)\n", Status);
+            goto done;
+        }
+
         /* Allocate a buffer for the encrypted current value */
         EncCurrentValue = midl_user_allocate(sizeof(LSAPR_CR_CIPHER_VALUE));
         if (EncCurrentValue == NULL)
@@ -2357,6 +2469,13 @@ LsarQuerySecret(
                                         &OldValueLength);
         if (!NT_SUCCESS(Status))
             goto done;
+
+        Status = LsapDecryptDatabaseSecret(OldValue, OldValue, OldValueLength);
+        if (!NT_SUCCESS(Status))
+        {
+            ERR("LsapDecryptDatabaseSecret (Status 0x%08lx)\n", Status);
+            goto done;
+        }
 
         /* Allocate a buffer for the encrypted old value */
         EncOldValue = midl_user_allocate(sizeof(LSAPR_CR_CIPHER_VALUE) + OldValueLength);
@@ -3537,67 +3656,31 @@ LsarStorePrivateData(
             goto done;
         }
 
+        /* Get the current time */
+        Status = NtQuerySystemTime(&Time);
+        if (!NT_SUCCESS(Status))
+        {
+            ERR("NtQuerySystemTime failed (Status 0x%08lx)\n", Status);
+            goto done;
+        }
+
         /* FIXME: Decrypt data */
         Value = EncryptedData->Buffer;
         ValueLength = EncryptedData->MaximumLength;
 
-        /* Get the current time */
-        Status = NtQuerySystemTime(&Time);
+        Status = LsapSetSecretValue(SecretObject, L"CurrentValue", Value,
+                                    ValueLength, L"CurrentTime", &Time);
         if (!NT_SUCCESS(Status))
         {
-            ERR("NtQuerySystemTime failed (Status 0x%08lx)\n", Status);
+            ERR("LsapSetSecretValue failed (Status 0x%08lx)\n", Status);
             goto done;
         }
 
-        /* Set the current value */
-        Status = LsapSetObjectAttribute(SecretObject,
-                                        L"CurrentValue",
-                                        Value,
-                                        ValueLength);
+        Status = LsapSetSecretValue(SecretObject, L"OldValue", NULL,
+                                    0, L"OldTime", &Time);
         if (!NT_SUCCESS(Status))
         {
-            ERR("LsapSetObjectAttribute failed (Status 0x%08lx)\n", Status);
-            goto done;
-        }
-
-        /* Set the current time */
-        Status = LsapSetObjectAttribute(SecretObject,
-                                        L"CurrentTime",
-                                        &Time,
-                                        sizeof(LARGE_INTEGER));
-        if (!NT_SUCCESS(Status))
-        {
-            ERR("LsapSetObjectAttribute failed (Status 0x%08lx)\n", Status);
-            goto done;
-        }
-
-        /* Get the current time */
-        Status = NtQuerySystemTime(&Time);
-        if (!NT_SUCCESS(Status))
-        {
-            ERR("NtQuerySystemTime failed (Status 0x%08lx)\n", Status);
-            goto done;
-        }
-
-        /* Set the old value */
-        Status = LsapSetObjectAttribute(SecretObject,
-                                        L"OldValue",
-                                        NULL,
-                                        0);
-        if (!NT_SUCCESS(Status))
-        {
-            ERR("LsapSetObjectAttribute failed (Status 0x%08lx)\n", Status);
-            goto done;
-        }
-
-        /* Set the old time */
-        Status = LsapSetObjectAttribute(SecretObject,
-                                        L"OldTime",
-                                        &Time,
-                                        sizeof(LARGE_INTEGER));
-        if (!NT_SUCCESS(Status))
-        {
-            ERR("LsapSetObjectAttribute failed (Status 0x%08lx)\n", Status);
+            ERR("LsapSetSecretValue failed (Status 0x%08lx)\n", Status);
         }
     }
 
@@ -3622,18 +3705,23 @@ LsarRetrievePrivateData(
 {
     PLSA_DB_OBJECT PolicyObject = NULL;
     PLSA_DB_OBJECT SecretObject = NULL;
-    PLSAPR_CR_CIPHER_VALUE EncCurrentValue = NULL;
-    ULONG CurrentValueLength = 0;
-    PBYTE CurrentValue = NULL;
     NTSTATUS Status;
 
     TRACE("LsarRetrievePrivateData(%p %wZ %p)\n",
           PolicyHandle, KeyName, EncryptedData);
 
+    if (!EncryptedData)
+        return STATUS_INVALID_PARAMETER;
+    else
+        *EncryptedData = NULL;
+
+    if (!KeyName)
+        return STATUS_INVALID_PARAMETER;
+
     /* Validate the SecretHandle */
     Status = LsapValidateDbObject(PolicyHandle,
                                   LsaDbPolicyObject,
-                                  POLICY_CREATE_SECRET,
+                                  POLICY_GET_PRIVATE_INFORMATION,
                                   &PolicyObject);
     if (!NT_SUCCESS(Status))
     {
@@ -3655,59 +3743,13 @@ LsarRetrievePrivateData(
         goto done;
     }
 
-    /* Get the size of the current value */
-    Status = LsapGetObjectAttribute(SecretObject,
-                                    L"CurrentValue",
-                                    NULL,
-                                    &CurrentValueLength);
-    if (!NT_SUCCESS(Status))
-        goto done;
-
-    /* Allocate a buffer for the current value */
-    CurrentValue = midl_user_allocate(CurrentValueLength);
-    if (CurrentValue == NULL)
-    {
-        Status = STATUS_INSUFFICIENT_RESOURCES;
-        goto done;
-    }
-
-    /* Get the current value */
-    Status = LsapGetObjectAttribute(SecretObject,
-                                    L"CurrentValue",
-                                    CurrentValue,
-                                    &CurrentValueLength);
-    if (!NT_SUCCESS(Status))
-        goto done;
-
-    /* Allocate a buffer for the encrypted current value */
-    EncCurrentValue = midl_user_allocate(sizeof(LSAPR_CR_CIPHER_VALUE) + CurrentValueLength);
-    if (EncCurrentValue == NULL)
-    {
-        Status = STATUS_INSUFFICIENT_RESOURCES;
-        goto done;
-    }
-
-    /* FIXME: Encrypt the current value */
-    EncCurrentValue->Length = (USHORT)(CurrentValueLength - sizeof(WCHAR));
-    EncCurrentValue->MaximumLength = (USHORT)CurrentValueLength;
-    EncCurrentValue->Buffer = (PBYTE)(EncCurrentValue + 1);
-    RtlCopyMemory(EncCurrentValue->Buffer,
-                  CurrentValue,
-                  CurrentValueLength);
+    Status = LsapGetSecretValueAlloc(SecretObject, L"CurrentValue", EncryptedData);
 
 done:
-    if (NT_SUCCESS(Status))
+    if (!NT_SUCCESS(Status) && *EncryptedData)
     {
-        if (EncryptedData != NULL)
-            *EncryptedData = EncCurrentValue;
-    }
-    else
-    {
-        if (EncryptedData != NULL)
-            *EncryptedData = NULL;
-
-        if (EncCurrentValue != NULL)
-            midl_user_free(EncCurrentValue);
+        midl_user_free(*EncryptedData);
+        *EncryptedData = NULL;
     }
 
     if (SecretObject != NULL)

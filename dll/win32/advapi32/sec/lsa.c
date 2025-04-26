@@ -16,6 +16,25 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(advapi);
 
+static inline
+LPVOID
+LsaAllocMemory(SIZE_T cb)
+{
+    return midl_user_allocate(cb);
+}
+
+/*
+ * @implemented
+ */
+NTSTATUS
+WINAPI
+LsaFreeMemory(IN PVOID Buffer)
+{
+    TRACE("LsaFreeMemory(%p)\n", Buffer);
+    midl_user_free(Buffer);
+    return STATUS_SUCCESS;
+}
+
 static
 BOOL
 LsapIsLocalComputer(PLSA_UNICODE_STRING ServerName)
@@ -690,18 +709,6 @@ LsaEnumerateTrustedDomainsEx(IN LSA_HANDLE PolicyHandle,
     RpcEndExcept;
 
     return Status;
-}
-
-
-/*
- * @implemented
- */
-NTSTATUS
-WINAPI
-LsaFreeMemory(IN PVOID Buffer)
-{
-    TRACE("LsaFreeMemory(%p)\n", Buffer);
-    return RtlFreeHeap(RtlGetProcessHeap(), 0, Buffer);
 }
 
 
@@ -1835,6 +1842,7 @@ LsaRetrievePrivateData(IN LSA_HANDLE PolicyHandle,
     }
     RpcEndExcept;
 
+    // TODO: Should this check the NTSTATUS instead of this pointer?
     if (EncryptedData == NULL)
     {
         *PrivateData = NULL;
@@ -1842,8 +1850,8 @@ LsaRetrievePrivateData(IN LSA_HANDLE PolicyHandle,
     else
     {
         BufferSize = sizeof(LSA_UNICODE_STRING) + EncryptedData->MaximumLength;
-        DecryptedData = midl_user_allocate(BufferSize);
-        if (DecryptedData == NULL)
+        DecryptedData = LsaAllocMemory(BufferSize);
+        if (!DecryptedData)
         {
             Status = STATUS_INSUFFICIENT_RESOURCES;
             goto done;
@@ -1862,9 +1870,6 @@ LsaRetrievePrivateData(IN LSA_HANDLE PolicyHandle,
 done:
     if (!NT_SUCCESS(Status))
     {
-        if (DecryptedData != NULL)
-            midl_user_free(DecryptedData);
-
         *PrivateData = NULL;
     }
 
