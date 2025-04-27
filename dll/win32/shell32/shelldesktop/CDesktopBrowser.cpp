@@ -30,6 +30,9 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(desktop);
 
+extern HRESULT
+SH32_OpenWindow(PCIDLIST_ABSOLUTE pidlFolder, UINT SbspFlags);
+
 static const WCHAR szProgmanClassName[]  = L"Progman";
 static const WCHAR szProgmanWindowName[] = L"Program Manager";
 
@@ -312,9 +315,7 @@ HRESULT STDMETHODCALLTYPE CDesktopBrowser::BrowseObject(LPCITEMIDLIST pidl, UINT
      * We should use IShellWindows interface here in order to attempt to
      * find an open shell window that shows the requested pidl and activate it
      */
-
-    DWORD dwFlags = ((wFlags & SBSP_EXPLOREMODE) != 0) ? SH_EXPLORER_CMDLINE_FLAG_E : 0;
-    return SHOpenNewFrame(ILClone(pidl), NULL, 0, dwFlags);
+    return SH32_OpenWindow(pidl, SBSP_NEWBROWSER | wFlags);
 }
 
 HRESULT STDMETHODCALLTYPE CDesktopBrowser::GetViewStateStream(DWORD grfMode, IStream **ppStrm)

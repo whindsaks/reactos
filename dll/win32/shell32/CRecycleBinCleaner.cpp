@@ -88,20 +88,7 @@ public:
     STDMETHODIMP ShowProperties(
         _In_ HWND hwnd)
     {
-        CComHeapPtr<ITEMIDLIST> pidl;
-        HRESULT hr;
-        if (FAILED_UNEXPECTEDLY(hr = SHGetSpecialFolderLocation(hwnd, CSIDL_BITBUCKET, &pidl)))
-            return hr;
-
-        SHELLEXECUTEINFOW seei = {sizeof(seei)};
-        seei.hwnd = hwnd;
-        seei.lpVerb = L"open";
-        seei.nShow = SW_SHOWNORMAL;
-        seei.fMask = SEE_MASK_IDLIST;
-        seei.lpIDList = pidl;
-        ShellExecuteExW(&seei);
-
-        return S_OK;
+        return SH32_OpenWindow((LPITEMIDLIST)CSIDL_BITBUCKET, 0);
     }
 
     STDMETHODIMP Deactivate(

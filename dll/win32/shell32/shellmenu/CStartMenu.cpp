@@ -23,6 +23,9 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(CStartMenu);
 
+extern HRESULT
+SH32_OpenWindow(PCIDLIST_ABSOLUTE pidlFolder, UINT SbspFlags);
+
 //#define TEST_TRACKPOPUPMENU_SUBMENUS
 
 
@@ -231,7 +234,7 @@ private:
         AddOrSetMenuItem(hMenu, IDM_CONTROLPANEL, CSIDL_CONTROLS, bExpand, FALSE, FALSE);
 
         bExpand = GetAdvancedValue(L"CascadeNetworkConnections");
-        AddOrSetMenuItem(hMenu, IDM_NETWORKCONNECTIONS, CSIDL_NETWORK, bExpand, FALSE, FALSE);
+        AddOrSetMenuItem(hMenu, IDM_NETWORKCONNECTIONS, CSIDL_CONNECTIONS, bExpand, FALSE, FALSE);
 
         bExpand = GetAdvancedValue(L"CascadePrinters");
         AddOrSetMenuItem(hMenu, IDM_PRINTERSANDFAXES, CSIDL_PRINTERS, bExpand, FALSE, FALSE);
@@ -354,7 +357,7 @@ private:
             case IDM_PROGRAMS: return CSIDL_PROGRAMS;
             case IDM_FAVORITES: return CSIDL_FAVORITES;
             case IDM_DOCUMENTS: return CSIDL_RECENT;
-            case IDM_MYDOCUMENTS: return CSIDL_MYDOCUMENTS;
+            case IDM_MYDOCUMENTS: return CSIDL_PERSONAL;
             case IDM_MYPICTURES: return CSIDL_MYPICTURES;
             case IDM_CONTROLPANEL: return CSIDL_CONTROLS;
             case IDM_NETWORKCONNECTIONS: return CSIDL_CONNECTIONS;
@@ -395,31 +398,9 @@ private:
 
     HRESULT OnExec(LPSMDATA psmd)
     {
-        WCHAR szPath[MAX_PATH];
-
-        // HACK: Because our ShellExecute can't handle CLSID components in paths, we can't launch the paths using the "open" verb.
-        // FIXME: Change this back to using the path as the filename and the "open" verb, once ShellExecute can handle CLSID path components.
-
-        if (psmd->uId == IDM_CONTROLPANEL)
-            ShellExecuteW(NULL, NULL, L"explorer.exe", L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}\\::{21EC2020-3AEA-1069-A2DD-08002B30309D}", NULL, SW_SHOWNORMAL);
-        else if (psmd->uId == IDM_NETWORKCONNECTIONS)
-            ShellExecuteW(NULL, NULL, L"explorer.exe", L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}\\::{21EC2020-3AEA-1069-A2DD-08002B30309D}\\::{7007ACC7-3202-11D1-AAD2-00805FC1270E}", NULL, SW_SHOWNORMAL);
-        else if (psmd->uId == IDM_PRINTERSANDFAXES)
-            ShellExecuteW(NULL, NULL, L"explorer.exe", L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}\\::{21EC2020-3AEA-1069-A2DD-08002B30309D}\\::{2227A280-3AEA-1069-A2DE-08002B30309D}", NULL, SW_SHOWNORMAL);
-        else if (psmd->uId == IDM_MYDOCUMENTS)
-        {
-            if (SHGetSpecialFolderPathW(NULL, szPath, CSIDL_PERSONAL, FALSE))
-                ShellExecuteW(NULL, NULL, szPath, NULL, NULL, SW_SHOWNORMAL);
-            else
-                ERR("SHGetSpecialFolderPathW failed\n");
-        }
-        else if (psmd->uId == IDM_MYPICTURES)
-        {
-            if (SHGetSpecialFolderPathW(NULL, szPath, CSIDL_MYPICTURES, FALSE))
-                ShellExecuteW(NULL, NULL, szPath, NULL, NULL, SW_SHOWNORMAL);
-            else
-                ERR("SHGetSpecialFolderPathW failed\n");
-        }
+        INT csidl = CSIDLFromID(psmd->uId);
+        if (csidl > 0)
+            SH32_OpenWindow((LPITEMIDLIST)csidl, 0);
         else
             PostMessageW(m_hwndTray, WM_COMMAND, psmd->uId, 0);
 

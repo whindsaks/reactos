@@ -132,27 +132,12 @@ HRESULT STDMETHODCALLTYPE CShellDispatch::Windows(IDispatch **ppid)
     return CoCreateInstance(CLSID_ShellWindows, NULL, CLSCTX_LOCAL_SERVER, IID_PPV_ARG(IDispatch, ppid));
 }
 
-static HRESULT SHELL_OpenFolder(LPCITEMIDLIST pidl, LPCWSTR verb = NULL)
-{
-    SHELLEXECUTEINFOW sei;
-    sei.cbSize = sizeof(sei);
-    sei.fMask = SEE_MASK_IDLIST | SEE_MASK_FLAG_DDEWAIT;
-    sei.hwnd = NULL;
-    sei.lpVerb = verb;
-    sei.lpFile = sei.lpParameters = sei.lpDirectory = NULL;
-    sei.nShow = SW_SHOW;
-    sei.lpIDList = const_cast<LPITEMIDLIST>(pidl);
-    if (ShellExecuteExW(&sei))
-        return S_OK;
-    DWORD error = GetLastError();
-    return HRESULT_FROM_WIN32(error);
-}
-
-static HRESULT OpenFolder(VARIANT vDir, LPCWSTR verb = NULL)
+static HRESULT OpenFolder(VARIANT vDir, BOOL Explore = FALSE)
 {
     CComHeapPtr<ITEMIDLIST> idlist;
     HRESULT hr = VariantToIdlist(&vDir, &idlist);
-    if (hr == S_OK && SHELL_OpenFolder(idlist, verb) == S_OK)
+    UINT Flags = Explore ? SBSP_EXPLOREMODE : SBSP_OPENMODE;
+    if (hr == S_OK && SH32_OpenWindow(idlist, Flags) == S_OK)
     {
         return S_OK;
     }
@@ -168,7 +153,7 @@ HRESULT STDMETHODCALLTYPE CShellDispatch::Open(VARIANT vDir)
 HRESULT STDMETHODCALLTYPE CShellDispatch::Explore(VARIANT vDir)
 {
     TRACE("(%p, %s)\n", this, debugstr_variant(&vDir));
-    return OpenFolder(vDir, L"explore");
+    return OpenFolder(vDir, TRUE);
 }
 
 HRESULT STDMETHODCALLTYPE CShellDispatch::MinimizeAll()

@@ -178,6 +178,8 @@ HRESULT
 SHELL32_ShowShellExtensionProperties(const CLSID *pClsid, IDataObject *pDO);
 HRESULT
 SHELL_ShowItemIDListProperties(LPCITEMIDLIST pidl);
+HRESULT
+SH32_OpenWindow(PCIDLIST_ABSOLUTE pidlFolder, UINT SbspFlags);
 
 HRESULT
 SHELL32_DefaultContextMenuCallBack(IShellFolder *psf, IDataObject *pdo, UINT msg);

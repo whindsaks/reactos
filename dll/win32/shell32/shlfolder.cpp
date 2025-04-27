@@ -530,6 +530,48 @@ HRESULT WINAPI SHCreateLinks( HWND hWnd, LPCSTR lpszDir, IDataObject * lpDataObj
     return E_NOTIMPL;
 }
 
+HRESULT
+SH32_OpenWindow(PCIDLIST_ABSOLUTE pidlFolder, UINT SbspFlags)
+{
+    CComHeapPtr<ITEMIDLIST> freePidl;
+    if (IS_INTRESOURCE(pidlFolder))
+    {
+        HRESULT hr = SHGetSpecialFolderLocation(NULL, LOWORD(pidlFolder), &freePidl);
+        if (FAILED_UNEXPECTEDLY(hr))
+            return hr;
+        pidlFolder = freePidl;
+    }
+
+#if 1
+    // FIXME: Our ShellExecuteEx SEE_MASK_IDLIST handler does not understand
+    // lpVerb nor the MyDocuments pidl (as non-FS) so try the shell browser first
+    if (SbspFlags & (SBSP_OPENMODE | SBSP_EXPLOREMODE))
+    {
+        LPITEMIDLIST pidlClone;
+        HRESULT hr = SHILClone(pidlFolder, &pidlClone);
+        if (SUCCEEDED(hr))
+        {
+            DWORD dwFlags = (SbspFlags & SBSP_EXPLOREMODE) ? SH_EXPLORER_CMDLINE_FLAG_E : 0;
+            if (SbspFlags & SBSP_NEWBROWSER)
+                dwFlags |= SH_EXPLORER_CMDLINE_FLAG_NEWWND | SH_EXPLORER_CMDLINE_FLAG_NOREUSE;
+            hr = SHOpenNewFrame(pidlClone, NULL, 0, dwFlags);
+            if (SUCCEEDED(hr))
+                return hr;
+        }
+    }
+#endif
+
+    SHELLEXECUTEINFOW sei = { sizeof(sei), SEE_MASK_IDLIST | SEE_MASK_FLAG_DDEWAIT };
+    sei.lpIDList = const_cast<LPITEMIDLIST>(pidlFolder);
+    sei.nShow = SW_SHOW;
+    if (SbspFlags & SBSP_EXPLOREMODE)
+        sei.lpVerb = L"explore";
+    else if (SbspFlags & SBSP_OPENMODE)
+        sei.lpVerb = L"open";
+    return ShellExecuteExW(&sei) ? S_OK : HResultFromWin32(GetLastError());
+}
+
+
 /***********************************************************************
  *  SHOpenFolderAndSelectItems
  *
