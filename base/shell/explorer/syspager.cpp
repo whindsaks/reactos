@@ -157,6 +157,8 @@ public:
     virtual ~CNotifyToolbar();
 
     int GetVisibleButtonCount();
+    BOOL IsVisible(int index);
+    int GetFirstVisibleIndex();
     int FindItem(IN HWND hWnd, IN UINT uID, InternalIconData ** pdata);
     int FindExistingSharedIcon(HICON handle);
     BOOL AddButton(IN CONST NOTIFYICONDATA *iconData);
@@ -243,6 +245,14 @@ public:
 
     BOOL NotifyIcon(DWORD dwMessage, _In_ CONST NOTIFYICONDATA *iconData);
     void GetSize(IN BOOL IsHorizontal, IN PSIZE size);
+    BOOL HasOverflowIcons() const { return FALSE; }
+
+    HWND GetTaskbarWindow() const { return ::GetAncestor(m_hWnd, GA_ROOT); }
+    HWND GetTrayNotifyWnd() const { return GetParent(); }
+    HWND GetClockWindow() const 
+    {
+        return FindWindowExW(GetTrayNotifyWnd(), NULL, L"TrayClockWClass", NULL);
+    }
 
     DECLARE_WND_CLASS_EX(szSysPagerWndClass, CS_DBLCLKS, COLOR_3DFACE)
 
@@ -680,6 +690,22 @@ int CNotifyToolbar::GetVisibleButtonCount()
     return m_VisibleButtonCount;
 }
 
+BOOL CNotifyToolbar::IsVisible(int index)
+{
+    TBBUTTON tbb;
+    return GetButton(index, &tbb) && !(tbb.fsState & TBSTATE_HIDDEN);
+}
+
+int CNotifyToolbar::GetFirstVisibleIndex()
+{
+    for (int i = 0; i < GetVisibleButtonCount(); ++i)
+    {
+        if (IsVisible(i))
+            return i;
+    }
+    return -1;
+}
+
 int CNotifyToolbar::FindItem(IN HWND hWnd, IN UINT uID, InternalIconData ** pdata)
 {
     int count = GetButtonCount();
@@ -1049,6 +1075,8 @@ LRESULT CNotifyToolbar::OnCtxMenu(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL&
 
     if (!::IsWindow(notifyItem->hWnd))
         return 0;
+    else
+        SHELL_AllowSetForegroundWindow(notifyItem->hWnd);
 
     if (notifyItem->uVersionCopy >= NOTIFYICON_VERSION)
     {
@@ -1119,7 +1147,7 @@ bool CNotifyToolbar::SendNotifyCallback(InternalIconData* notifyItem, UINT uMsg)
 
 VOID CNotifyToolbar::SendMouseEvent(IN WORD wIndex, IN UINT uMsg, IN WPARAM wParam)
 {
-    static LPCWSTR eventNames [] = {
+    static const LPCWSTR eventNames [] = {
         L"WM_MOUSEMOVE",
         L"WM_LBUTTONDOWN",
         L"WM_LBUTTONUP",
@@ -1136,6 +1164,20 @@ VOID CNotifyToolbar::SendMouseEvent(IN WORD wIndex, IN UINT uMsg, IN WPARAM wPar
         L"WM_XBUTTONDBLCLK"
     };
 
+    enum { MMF_DOWN = 0x01, MMF_DOUBLE = 0x02 };
+    static const BYTE MouseMsgFlags[] = {
+        0,        // WM_MOUSEMOVE
+        MMF_DOWN, // WM_LBUTTONDOWN
+        0,
+        MMF_DOUBLE,
+        MMF_DOWN, // WM_RBUTTONDOWN
+        0,
+        MMF_DOUBLE,
+        MMF_DOWN, // WM_MBUTTONDOWN
+        0,
+        MMF_DOUBLE,
+    };
+
     InternalIconData * notifyItem = GetItemData(wIndex);
 
     if (uMsg >= WM_MOUSEFIRST && uMsg <= WM_MOUSELAST)
@@ -1143,6 +1185,13 @@ VOID CNotifyToolbar::SendMouseEvent(IN WORD wIndex, IN UINT uMsg, IN WPARAM wPar
         TRACE("Sending message %S from button %d to %p (msg=%x, w=%x, l=%x)...\n",
             eventNames[uMsg - WM_MOUSEFIRST], wIndex,
             notifyItem->hWnd, notifyItem->uCallbackMessage, notifyItem->uID, uMsg);
+
+        if (uMsg <= WM_MBUTTONDBLCLK)
+        {
+            BYTE Flags = MouseMsgFlags[uMsg - WM_MOUSEFIRST];
+            if (Flags & (MMF_DOWN | MMF_DOUBLE))
+                SHELL_AllowSetForegroundWindow(notifyItem->hWnd);
+        }
     }
 
     SendNotifyCallback(notifyItem, uMsg);
@@ -1377,9 +1426,35 @@ BOOL CSysPagerWnd::NotifyIcon(DWORD dwMessage, _In_ CONST NOTIFYICONDATA *iconDa
         break;
 
     case NIM_SETFOCUS:
-        Toolbar.SetFocus();
-        ret = TRUE;
-        break;
+        {
+            InternalIconData * notifyItem;
+            int index = Toolbar.FindItem(iconData->hWnd, iconData->uID, &notifyItem);
+            if (index >= 0)
+                SetForegroundWindow(GetTaskbarWindow());
+
+            Toolbar.SetFocus();
+            if (Toolbar.IsVisible(index))
+            {
+                Toolbar.SetHotItem(index);
+            }
+            else
+            {
+                if (HasOverflowIcons())
+                {
+                    // TODO: If we have overflow icons, focus the chevron button
+                }
+                else if (Toolbar.GetVisibleButtonCount())
+                {
+                    Toolbar.SetHotItem(Toolbar.GetFirstVisibleIndex());
+                }
+                else
+                {
+                    ::SetFocus(GetClockWindow());
+                }
+            }
+            ret = TRUE;
+            break;
+        }
 
     case NIM_SETVERSION:
         ret = Toolbar.SwitchVersion(iconData);
@@ -1480,6 +1555,8 @@ LRESULT CSysPagerWnd::OnCommand(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& b
 
     if (!::IsWindow(notifyItem->hWnd))
         return 0;
+    else
+        SHELL_AllowSetForegroundWindow(notifyItem->hWnd);
 
     // TODO: Improve keyboard handling by looking whether one presses
     // on ENTER, etc..., which roughly translates into "double-clicking".

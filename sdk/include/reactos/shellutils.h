@@ -902,6 +902,13 @@ struct SHELL_GetSettingImpl
 #define SHELL_GetSetting(pss, ssf, field) ( SHGetSetSettings((pss), (ssf), FALSE), (pss)->field )
 #endif
 
+static inline void SHELL_AllowSetForegroundWindow(HWND hWnd)
+{
+    DWORD pid = 0;
+    GetWindowThreadProcessId(hWnd, &pid);
+    AllowSetForegroundWindow(pid);
+}
+
 static inline void DumpIdListOneLine(LPCITEMIDLIST pidl)
 {
     char buf[1024], *data, drive = 0;

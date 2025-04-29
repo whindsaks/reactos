@@ -25,8 +25,8 @@
 WINE_DEFAULT_DEBUG_CHANNEL(shell_notify);
 
 /*************************************************************************
- * Shell_NotifyIcon             [SHELL32.296]
- * Shell_NotifyIconA            [SHELL32.297]
+ * Shell_NotifyIcon             [SHELL32.@]
+ * Shell_NotifyIconA            [SHELL32.@]
  */
 BOOL WINAPI Shell_NotifyIconA(DWORD dwMessage, PNOTIFYICONDATAA pnid)
 {
@@ -123,7 +123,7 @@ BOOL WINAPI Shell_NotifyIconA(DWORD dwMessage, PNOTIFYICONDATAA pnid)
 }
 
 /*************************************************************************
- * Shell_NotifyIconW            [SHELL32.298]
+ * Shell_NotifyIconW            [SHELL32.@]
  */
 BOOL WINAPI Shell_NotifyIconW(DWORD dwMessage, PNOTIFYICONDATAW pnid)
 {
@@ -195,6 +195,9 @@ BOOL WINAPI Shell_NotifyIconW(DWORD dwMessage, PNOTIFYICONDATAW pnid)
         tnid.nid.szInfo[_countof(tnid.nid.szInfo) - 1] = 0;
         tnid.nid.szInfoTitle[_countof(tnid.nid.szInfoTitle) - 1] = 0;
     }
+
+    if (dwMessage == NIM_SETFOCUS)
+        SHELL_AllowSetForegroundWindow(hShellTrayWnd);
 
     /* Send the data */
     data.dwData = TABDMC_NOTIFY;
