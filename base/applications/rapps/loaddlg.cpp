@@ -146,7 +146,10 @@ struct DownloadInfo
 
         CConfigParser *cfg = static_cast<const CAvailableApplicationInfo&>(AppInfo).GetConfigParser();
         if (cfg)
+        {
             cfg->GetString(DB_SAVEAS, szFileName);
+            cfg->GetString(DB_INSTCOMPAT, szInstCompat);
+        }
     }
 
     bool Equal(const DownloadInfo &other) const
@@ -161,6 +164,7 @@ struct DownloadInfo
     CStringW szSHA1;
     CStringW szPackageName;
     CStringW szFileName;
+    CStringW szInstCompat;
     ULONG SizeInBytes;
 };
 
@@ -1089,7 +1093,10 @@ run:
         /* FIXME: Do we want to log installer status? */
         WriteLogMessage(EVENTLOG_SUCCESS, MSG_SUCCESS_INSTALL, Info.szName);
 
-        if (ShellExecuteExW(&shExInfo))
+        SetEnvironmentVariableW(L"__COMPAT_LAYER", Info.szInstCompat);
+        BOOL Success = ShellExecuteExW(&shExInfo);
+        SetEnvironmentVariableW(L"__COMPAT_LAYER", NULL);
+        if (Success)
         {
             // reflect installation progress in the titlebar
             // TODO: make a separate string with a placeholder to include app name?
