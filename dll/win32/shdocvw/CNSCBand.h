@@ -46,6 +46,13 @@ public:
     SFGAOF _GetAttributesOfItem(_In_ CItemData *pData, _In_ SFGAOF Query);
     HRESULT _GetNameOfItem(IShellFolder *pSF, PCUITEMID_CHILD pidl, UINT Flags, PWSTR Name);
     HRESULT _GetNameOfItem(IShellFolder *pSF, PCUITEMID_CHILD pidl, PWSTR Name);
+    typedef HRESULT (CALLBACK *ENUMTREEITEMSCALLBACK)(_In_ HTREEITEM hItem, _In_ LPVOID CallerData);
+    HRESULT _EnumTreeItems(_In_ ENUMTREEITEMSCALLBACK Callback, _In_ LPVOID CallerData, _In_opt_ HTREEITEM hRoot = NULL);
+    static HRESULT CALLBACK _FindTreeItemOfAbsoluteItemCallback(_In_ HTREEITEM hItem, _In_ LPVOID CallerData);
+    HTREEITEM _FindTreeItemOfAbsoluteItem(_In_ PCIDLIST_ABSOLUTE pidl);
+    HRESULT _GetItemInfo(_Inout_ TVITEMW &Item, _In_ IShellFolder *pSF, _In_ PCUITEMID_CHILD pidl);
+    HRESULT _UpdateItem(_In_ HTREEITEM hItem, _In_ UINT TVIFlags);
+    HRESULT _UpdateItem(_In_ PCIDLIST_ABSOLUTE pidl, _In_ UINT TVIFlags);
 
     // *** IOleWindow methods ***
     STDMETHODIMP GetWindow(HWND *lphwnd) override;
@@ -200,7 +207,7 @@ protected:
     void _Refresh();
     void _RefreshRecurse(_In_ HTREEITEM hItem);
     BOOL _IsTreeItemInEnum(_In_ HTREEITEM hItem, _In_ IEnumIDList *pEnum);
-    BOOL _TreeItemHasThisChild(_In_ HTREEITEM hItem, _In_ PCITEMID_CHILD pidlChild);
+    CItemData* _TreeItemHasThisChild(_In_ HTREEITEM hItem, _In_ PCITEMID_CHILD pidlChild);
     HRESULT _GetItemEnum(
         _Out_ CComPtr<IEnumIDList>& pEnum,
         _In_ HTREEITEM hItem,

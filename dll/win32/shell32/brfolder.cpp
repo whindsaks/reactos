@@ -325,7 +325,7 @@ static BOOL
 BrFolder_UpdateItemEx(
     _In_ BrFolder &info,
     _In_ HTREEITEM hItem,
-    _In_opt_ PCIDLIST_ABSOLUTE pidlFull,
+    _In_opt_ PCIDLIST_ABSOLUTE pidlFull = NULL,
     _In_ UINT Flags = TVIF_TEXT | TVIF_IMAGE | TVIF_CHILDREN)
 {
     ASSERT(hItem);
@@ -1262,28 +1262,33 @@ BrFolder_OnChangeEx(
 {
     TRACE("(%p)->(%p, %p, 0x%lX)\n", info, pidl1, pidl2, event);
 
+    UINT UpdateFlags = TVIF_TEXT | TVIF_IMAGE | TVIF_CHILDREN;
+    BOOL SortChildren = TRUE;
     switch (event)
     {
         case SHCNE_RENAMEFOLDER:
         case SHCNE_RENAMEITEM:
         case SHCNE_UPDATEITEM:
-        {
-            UINT UpdateFlags = (event == SHCNE_UPDATEITEM) ? (TVIF_IMAGE | TVIF_CHILDREN) : (TVIF_TEXT);
+        case SHCNE_MEDIAREMOVED:
+            SortChildren = FALSE;
+            // FALL THROUGH
+        case SHCNE_MEDIAINSERTED:
+        case SHCNE_UPDATEDIR:
             if (HTREEITEM hTI = BrFolder_FindTreeItemOfAbsoluteItem(*info, pidl1))
             {
                 if (BrFolder_UpdateItemEx(*info, hTI, pidl2, UpdateFlags))
                 {
-                    if ((hTI = TreeView_GetParent(info->hwndTreeView, hTI)) != NULL)
+                    if (SortChildren && (hTI = TreeView_GetParent(info->hwndTreeView, hTI)) != NULL)
                         TreeView_SortChildren(info->hwndTreeView, hTI, FALSE);
                     return;
                 }
             }
             break;
-        }
     }
-
     switch (event)
     {
+        case SHCNE_MEDIAINSERTED:
+        case SHCNE_MEDIAREMOVED:
         case SHCNE_DRIVEADD:
         case SHCNE_MKDIR:
         case SHCNE_CREATE:
@@ -1295,7 +1300,7 @@ BrFolder_OnChangeEx(
         case SHCNE_UPDATEDIR:
         case SHCNE_UPDATEITEM:
         {
-            // FIXME: Avoid full refresh and optimize for speed. Use pidl0 and pidl1
+            // FIXME: Avoid full refresh and optimize for speed. Use pidl1 and pidl2
             BrFolder_Refresh(info);
             break;
         }
