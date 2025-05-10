@@ -195,9 +195,10 @@ HRESULT CNSCBand::_ExecuteCommand(_In_ CComPtr<IContextMenu>& menu, _In_ UINT nC
 void CNSCBand::_RegisterChangeNotify()
 {
 #define TARGET_EVENTS ( \
-    SHCNE_DRIVEADD | SHCNE_MKDIR | SHCNE_CREATE | SHCNE_DRIVEREMOVED | SHCNE_RMDIR | \
-    SHCNE_DELETE | SHCNE_RENAMEFOLDER | SHCNE_RENAMEITEM | SHCNE_UPDATEDIR | \
-    SHCNE_UPDATEITEM | SHCNE_ASSOCCHANGED \
+    SHCNE_DRIVEADD | SHCNE_DRIVEREMOVED | SHCNE_MEDIAINSERTED | SHCNE_MEDIAREMOVED | \
+    SHCNE_MKDIR | SHCNE_RMDIR | SHCNE_CREATE |SHCNE_DELETE  | \
+    SHCNE_RENAMEFOLDER | SHCNE_RENAMEITEM | SHCNE_UPDATEDIR | \
+    SHCNE_UPDATEITEM | SHCNE_ASSOCCHANGED /* TODO: SHCNE_UPDATEIMAGE? */ \
 )
     // Register shell notification
     SHChangeNotifyEntry shcne = { m_pidlRoot, TRUE };
@@ -267,6 +268,54 @@ HRESULT CNSCBand::_CreateTreeView(HWND hwndParent)
     return S_OK;
 }
 
+HRESULT
+CNSCBand::_EnumTreeItems(
+    _In_ ENUMTREEITEMSCALLBACK Callback,
+    _In_ LPVOID CallerData,
+    _In_opt_ HTREEITEM hRoot)
+{
+    HRESULT hr = S_OK;
+    HTREEITEM hItem = hRoot ? hRoot : TreeView_GetRoot(m_hwndTreeView);
+    for (; hItem; hItem = TreeView_GetNextSibling(m_hwndTreeView, hItem))
+    {
+        hr = Callback(hItem, CallerData);
+        if (FAILED(hr))
+            break;
+        if (hr != S_OK)
+            continue;
+        if (HTREEITEM hChild = TreeView_GetChild(m_hwndTreeView, hItem))
+        {
+            hr = _EnumTreeItems(Callback, CallerData, hChild);
+            if (FAILED(hr))
+                break;
+        }
+    }
+    return hr;
+}
+
+HRESULT CALLBACK CNSCBand::_FindTreeItemOfAbsoluteItemCallback(
+    _In_ HTREEITEM hItem,
+    _In_ LPVOID CallerData)
+{
+    CNSCBand *pThis = (CNSCBand*)((SIZE_T*)CallerData)[0];
+    PCIDLIST_ABSOLUTE pidl = (PCIDLIST_ABSOLUTE)((SIZE_T*)CallerData)[1];
+    CItemData *pItem = pThis->_GetItemData(hItem);
+    if (!pItem)
+        return E_FAIL;
+    if (!ILIsEqual(pidl, pItem->absolutePidl))
+        return S_OK;
+    ((SIZE_T*)CallerData)[2] = (SIZE_T)hItem;
+    return E_ABORT;
+}
+
+HTREEITEM
+CNSCBand::_FindTreeItemOfAbsoluteItem(_In_ PCIDLIST_ABSOLUTE pidl)
+{
+    SIZE_T Data[3] = { (SIZE_T)this, (SIZE_T)pidl, NULL };
+    _EnumTreeItems(_FindTreeItemOfAbsoluteItemCallback, (LPVOID)Data);
+    return (HTREEITEM)Data[2];
+}
+
 BOOL
 CNSCBand::_IsTreeItemInEnum(
     _In_ HTREEITEM hItem,
@@ -290,7 +339,7 @@ CNSCBand::_IsTreeItemInEnum(
     return FALSE;
 }
 
-BOOL
+CNSCBand::CItemData*
 CNSCBand::_TreeItemHasThisChild(
     _In_ HTREEITEM hItem,
     _In_ PCITEMID_CHILD pidlChild)
@@ -300,10 +349,9 @@ CNSCBand::_TreeItemHasThisChild(
     {
         CItemData* pItemData = _GetItemData(hItem);
         if (ILIsEqual(pItemData->relativePidl, pidlChild))
-            return TRUE;
+            return pItemData;
     }
-
-    return FALSE;
+    return NULL;
 }
 
 HRESULT
@@ -433,8 +481,21 @@ CNSCBand::OnChangeNotify(
     _In_opt_ LPCITEMIDLIST pidl1,
     _In_ LONG lEvent)
 {
+    UINT fFlags = TVIF_TEXT | TVIF_IMAGE | TVIF_CHILDREN;
     switch (lEvent)
     {
+        case SHCNE_MEDIAINSERTED:
+        case SHCNE_MEDIAREMOVED:
+        case SHCNE_UPDATEITEM:
+        case SHCNE_UPDATEDIR:
+        lUpdateItem:
+            if (!pidl0)
+                goto lRefresh;
+            _UpdateItem(pidl0, fFlags);
+            break;
+        case SHCNE_ATTRIBUTES:
+            fFlags = TVIF_IMAGE;
+            goto lUpdateItem;
         case SHCNE_DRIVEADD:
         case SHCNE_MKDIR:
         case SHCNE_CREATE:
@@ -443,20 +504,61 @@ CNSCBand::OnChangeNotify(
         case SHCNE_DELETE:
         case SHCNE_RENAMEFOLDER:
         case SHCNE_RENAMEITEM:
-        case SHCNE_UPDATEDIR:
-        case SHCNE_UPDATEITEM:
         case SHCNE_ASSOCCHANGED:
-        {
+        lRefresh:
             KillTimer(TIMER_ID_REFRESH);
             SetTimer(TIMER_ID_REFRESH, 500, NULL);
             break;
-        }
         default:
-        {
-            TRACE("lEvent: 0x%08lX\n", lEvent);
+            TRACE("Unhandled lEvent: 0x%08lX\n", lEvent);
             break;
-        }
     }
+}
+
+HRESULT
+CNSCBand::_GetItemInfo(_Inout_ TVITEMW &Item, _In_ IShellFolder *pSF, _In_ PCUITEMID_CHILD pidl)
+{
+    if (Item.mask & TVIF_IMAGE)
+    {
+        INT iSelIcon = -1;
+        Item.iImage = SHMapPIDLToSystemImageListIndex(pSF, pidl, &iSelIcon);
+        Item.iSelectedImage = iSelIcon >= 0 ? iSelIcon : Item.iImage;
+    }
+    if (Item.mask & TVIF_CHILDREN)
+    {
+        SFGAOF attrs = SFGAO_STREAM | SFGAO_HASSUBFOLDER;
+        Item.cChildren = SUCCEEDED(pSF->GetAttributesOf(1, &pidl, &attrs)) &&
+                         (attrs & SFGAO_HASSUBFOLDER) && !(attrs & SFGAO_STREAM);
+    }
+    return (Item.mask & TVIF_TEXT) ? _GetNameOfItem(pSF, pidl, Item.pszText) : S_OK;
+}
+
+HRESULT
+CNSCBand::_UpdateItem(_In_ HTREEITEM hItem, _In_ UINT TVIFlags)
+{
+    CItemData *pItem = _GetItemData(hItem);
+    if (!pItem)
+        return E_FAIL;
+    CComPtr<IShellFolder> pSF;
+    PCUITEMID_CHILD pLeaf;
+    HRESULT hr = SHBindToParent(pItem->absolutePidl, IID_PPV_ARG(IShellFolder, &pSF), &pLeaf);
+    if (FAILED(hr))
+        return hr;
+    WCHAR wszName[MAX_PATH];
+    TVITEMW tvi;
+    tvi.mask = TVIFlags;
+    tvi.hItem = hItem;
+    tvi.cchTextMax = _countof(wszName);
+    tvi.pszText = wszName;
+    if (FAILED(hr = _GetItemInfo(tvi, pSF, pLeaf)))
+        return hr;
+    return TreeView_SetItem(m_hwndTreeView, &tvi) ? S_OK : E_FAIL;
+}
+
+HRESULT
+CNSCBand::_UpdateItem(_In_ PCIDLIST_ABSOLUTE pidl, _In_ UINT TVIFlags)
+{
+    return _UpdateItem(_FindTreeItemOfAbsoluteItem(pidl), TVIFlags);
 }
 
 HTREEITEM
@@ -467,6 +569,31 @@ CNSCBand::_InsertItem(
     _In_ LPCITEMIDLIST pEltRelative,
     _In_ BOOL bSort)
 {
+    WCHAR wszName[MAX_PATH];
+    TV_INSERTSTRUCT tvInsert = { hParent, TVI_LAST };
+    TVITEMW &tvi = tvInsert.item;
+    tvi.mask = TVIF_PARAM | TVIF_TEXT | TVIF_IMAGE | TVIF_SELECTEDIMAGE | TVIF_CHILDREN;
+    tvi.cchTextMax = _countof(wszName);
+    tvi.pszText = wszName;
+    if (FAILED(_GetItemInfo(tvi, psfParent, pEltRelative)))
+        return NULL;
+
+    CItemData* pChildInfo = new CItemData;
+    if (!pChildInfo)
+    {
+        ERR("Failed to allocate CItemData\n");
+        return NULL;
+    }
+    tvi.lParam = (LPARAM)pChildInfo;
+    pChildInfo->absolutePidl.Attach(ILClone(pElt));
+    pChildInfo->relativePidl.Attach(ILClone(pEltRelative));
+
+    HTREEITEM htiCreated = TreeView_InsertItem(m_hwndTreeView, &tvInsert);
+    if (bSort)
+        _SortItems(hParent);
+    return htiCreated;
+
+#if 0
     /* Get the attributes of the node */
     SFGAOF attrs = SFGAO_STREAM | SFGAO_HASSUBFOLDER;
     HRESULT hr = psfParent->GetAttributesOf(1, &pEltRelative, &attrs);
@@ -507,6 +634,7 @@ CNSCBand::_InsertItem(
         _SortItems(hParent);
 
     return htiCreated;
+#endif
 }
 
 /* This is the slow version of the above method */

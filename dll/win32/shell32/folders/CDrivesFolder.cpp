@@ -96,6 +96,11 @@ static INT8 GetDriveNumber(PCUITEMID_CHILD pidl)
     return number < 26 ? number : -1;
 }
 
+static INT8 GetDriveNumberOfAbsolute(PCIDLIST_ABSOLUTE pidl)
+{
+    return GetDriveNumber(_ILIsMyComputer(pidl) ? ILGetNext(pidl) : NULL);
+}
+
 template<class T> static T* GetDrivePath(PCUITEMID_CHILD pidl, T *Path)
 {
     int number = GetDriveNumber(pidl);
@@ -1327,9 +1332,15 @@ STDMETHODIMP CDrivesFolder::MessageSFVCB(UINT uMsg, WPARAM wParam, LPARAM lParam
     switch (uMsg)
     {
         case SFVM_FSNOTIFY:
+            /*if (lParam == SHCNE_MEDIAREMOVED && wParam)
+            {
+                LPITEMIDLIST *pidls = (LPITEMIDLIST*)wParam;
+                if (GetDriveNumberOfAbsolute(pidls[0]) >= 0)
+                    SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_IDLIST, pidls[0], NULL);
+            }*/
             if (lParam == SHCNE_DRIVEADD && wParam)
             {
-                INT8 drive = GetDriveNumber(((PIDLIST_ABSOLUTE*)wParam)[0]);
+                INT8 drive = GetDriveNumberOfAbsolute(((PIDLIST_ABSOLUTE*)wParam)[0]);
                 if (drive >= 0 && ((1UL << drive) & SHRestricted(REST_NODRIVES)))
                     return S_FALSE;
             }

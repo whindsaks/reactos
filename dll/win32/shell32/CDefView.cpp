@@ -2996,13 +2996,13 @@ LRESULT CDefView::OnChangeNotify(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &
             else if (child1)
                 LV_AddItem(child1);
             break;
+        case SHCNE_MEDIAINSERTED:
+        case SHCNE_MEDIAREMOVED:
         case SHCNE_UPDATEITEM:
             if (child0)
                 LV_UpdateItem(child0);
             break;
         case SHCNE_UPDATEIMAGE:
-        case SHCNE_MEDIAINSERTED:
-        case SHCNE_MEDIAREMOVED:
         case SHCNE_ASSOCCHANGED:
             LV_RefreshIcons();
             break;
