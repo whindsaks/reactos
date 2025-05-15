@@ -201,7 +201,7 @@ HRESULT STDMETHODCALLTYPE CMenuSite::QueryService(REFGUID guidService, REFIID ri
 HRESULT STDMETHODCALLTYPE CMenuSite::Exec(const GUID * pguidCmdGroup, DWORD nCmdID, DWORD nCmdexecopt, VARIANT *pvaIn, VARIANT *pvaOut)
 {
     // Forward Exec calls directly to the parent deskbar
-    return IUnknown_Exec(m_DeskBarSite, *pguidCmdGroup, nCmdID, nCmdexecopt, pvaIn, pvaOut);
+    return IUnknown_Exec(m_DeskBarSite, pguidCmdGroup, nCmdID, nCmdexecopt, pvaIn, pvaOut);
 }
 
 HRESULT STDMETHODCALLTYPE CMenuSite::QueryStatus(const GUID * pguidCmdGroup, ULONG cCmds, OLECMD prgCmds [], OLECMDTEXT *pCmdText)

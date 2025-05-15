@@ -252,11 +252,14 @@ HRESULT STDMETHODCALLTYPE CBaseBar::QueryStatus(const GUID *pguidCmdGroup, ULONG
 HRESULT STDMETHODCALLTYPE CBaseBar::Exec(const GUID *pguidCmdGroup, DWORD nCmdID,
     DWORD nCmdexecopt, VARIANT *pvaIn, VARIANT *pvaOut)
 {
-    if (IsEqualIID(*pguidCmdGroup, CGID_Explorer))
+    if (!pguidCmdGroup) // TODO: return MayExecForward(fClient, ...)
+        return IUnknown_Exec(fClient, pguidCmdGroup, nCmdID, nCmdexecopt, pvaIn, pvaOut);
+
+    /*if (IsEqualIID(*pguidCmdGroup, CGID_Explorer))
     {
         // pass through to the explorer ?
     }
-    else if (IsEqualIID(*pguidCmdGroup, IID_IDeskBarClient))
+    else*/ if (IsEqualIID(*pguidCmdGroup, IID_IDeskBarClient))
     {
         switch (nCmdID)
         {
@@ -269,7 +272,7 @@ HRESULT STDMETHODCALLTYPE CBaseBar::Exec(const GUID *pguidCmdGroup, DWORD nCmdID
                 VARIANT var;
                 V_VT(&var) = VT_UNKNOWN;
                 V_UNKNOWN(&var) = static_cast<IDeskBar *>(this);
-                IUnknown_Exec(fSite, CGID_Explorer, 0x22, 0, &var, NULL);
+                IUnknown_Exec(fSite, &CGID_Explorer, 0x22, 0, &var, NULL);
                 break;
             }
             case 2:
@@ -279,7 +282,7 @@ HRESULT STDMETHODCALLTYPE CBaseBar::Exec(const GUID *pguidCmdGroup, DWORD nCmdID
                 break;
         }
     }
-    return E_NOTIMPL;
+    return OLECMDERR_E_UNKNOWNGROUP; // TODO: return MayExecForward(fClient, ...)
 }
 
 HRESULT STDMETHODCALLTYPE CBaseBar::QueryService(REFGUID guidService, REFIID riid, void **ppvObject)

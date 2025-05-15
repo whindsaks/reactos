@@ -128,7 +128,7 @@ static HRESULT ResetGlobalFolderSettings()
 
 static inline HRESULT ExecResetDefViewFolderSettings(IUnknown *pUnk)
 {
-    return IUnknown_Exec(pUnk, CGID_DefView, DVCMDID_RESET_DEFAULTFOLDER_SETTINGS,
+    return IUnknown_Exec(pUnk, &CGID_DefView, DVCMDID_RESET_DEFAULTFOLDER_SETTINGS,
                          OLECMDEXECOPT_DODEFAULT, NULL, NULL);
 }
 

@@ -40,6 +40,11 @@ TODO:
 // Unique GUID of the DLL where this CAddressBand is implemented so we can tell if it's really us
 static const GUID THISMODULE_GUID = { 0x60ebab6e, 0x2e4b, 0x42f6, { 0x8a,0xbc,0x80,0x73,0x1c,0xa6,0x42,0x02} };
 
+static const ACCELTABLE g_Accel[] = 
+{
+    { VK_F4, 0 }, // Toggle drop-down
+};
+
 CAddressBand::CAddressBand()
 {
     fEditControl = NULL;
@@ -335,6 +340,20 @@ HRESULT STDMETHODCALLTYPE CAddressBand::TranslateAcceleratorIO(LPMSG lpMsg)
             break;
         }
     }
+
+    if ((lpMsg->message & ~4) == WM_KEYDOWN) { char b[99]; wsprintfA(b, "CAddressBand:TAIO vk=%#x %#x\n", lpMsg->wParam, IsAccelerator(lpMsg, g_Accel, _countof(g_Accel))), OutputDebugStringA(b); }
+    int id = IsAccelerator(lpMsg, g_Accel, _countof(g_Accel));
+    switch (HIWORD(id))
+    {
+        case VK_F4:
+            if (HasFocusIO() != S_OK)
+                ::SetFocus(m_hWnd);
+            SendMessage(CB_SHOWDROPDOWN, !SendMessage(CB_GETDROPPEDSTATE, 0, 0), 0);
+            //::SetFocus(fEditControl); FIXME: Windows sets focus to the edit box while keeping it dropped down
+            break;
+    }
+    if (id >= 0)
+        return S_OK;
 
     if (lpMsg->hwnd == fEditControl)
     {

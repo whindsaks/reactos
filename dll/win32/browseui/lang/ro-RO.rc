@@ -97,8 +97,11 @@ END
 
 IDM_BAND_MENU MENUEX
 BEGIN
-    MENUITEM "Afișea&ză titlu", IDM_BAND_TITLE
-    MENUITEM "As&cunde bara de instrumente", IDM_BAND_CLOSE
+    POPUP ""
+    BEGIN
+        MENUITEM "Afișea&ză titlu", IDM_BAND_TITLE
+        MENUITEM "As&cunde bara de instrumente", IDM_BAND_CLOSE
+    END
 END
 
 IDM_POPUPMENU MENUEX

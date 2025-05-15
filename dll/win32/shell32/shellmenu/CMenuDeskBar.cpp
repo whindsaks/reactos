@@ -113,6 +113,9 @@ HRESULT STDMETHODCALLTYPE CMenuDeskBar::QueryStatus(const GUID *pguidCmdGroup, U
 HRESULT STDMETHODCALLTYPE CMenuDeskBar::Exec(const GUID *pguidCmdGroup, DWORD nCmdID,
     DWORD nCmdexecopt, VARIANT *pvaIn, VARIANT *pvaOut)
 {
+    if (!pguidCmdGroup)
+        return OLECMDERR_E_NOTSUPPORTED;
+
     if (IsEqualIID(*pguidCmdGroup, CGID_MenuDeskBar))
     {
         switch (nCmdID)
@@ -125,10 +128,10 @@ HRESULT STDMETHODCALLTYPE CMenuDeskBar::Exec(const GUID *pguidCmdGroup, DWORD nC
             return _AdjustForTheme(nCmdexecopt);
         }
     }
-    if (IsEqualIID(*pguidCmdGroup, CGID_Explorer))
+    /*if (IsEqualIID(*pguidCmdGroup, CGID_Explorer))
     {
     }
-    else if (IsEqualIID(*pguidCmdGroup, IID_IDeskBarClient))
+    else*/ if (IsEqualIID(*pguidCmdGroup, IID_IDeskBarClient))
     {
         switch (nCmdID)
         {

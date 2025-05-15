@@ -355,7 +355,7 @@ public:
     {
         /* Send the DBID_DELAYINIT command to initialize the band to be added */
         /* FIXME: Should be delayed */
-        IUnknown_Exec(punk, IID_IDeskBand, DBID_DELAYINIT, 0, NULL, NULL);
+        IUnknown_Exec(punk, &IID_IDeskBand, DBID_DELAYINIT, 0, NULL, NULL);
 
         HRESULT hr = m_BandSite->AddBand(punk);
         if (FAILED_UNEXPECTEDLY(hr))
@@ -365,7 +365,7 @@ public:
         V_VT(&vThemeName) = VT_BSTR;
         V_BSTR(&vThemeName) = SysAllocString(L"TaskBar");
         IUnknown_Exec(punk,
-                      IID_IDeskBand,
+                      &IID_IDeskBand,
                       DBID_SETWINDOWTHEME,
                       0,
                       &vThemeName,
@@ -491,7 +491,7 @@ public:
     virtual HRESULT Update()
     {
         return IUnknown_Exec(m_Inner,
-                IID_IDeskBand,
+                &IID_IDeskBand,
                 DBID_BANDINFOCHANGED,
                 0,
                 NULL,

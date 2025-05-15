@@ -88,7 +88,7 @@ BOOL WINAPI SHAboutInfoW(LPWSTR lpszDest, DWORD dwDestLen);
 
 HMODULE WINAPI SHPinDllOfCLSID(REFIID refiid);
 HRESULT WINAPI IUnknown_QueryStatus(IUnknown *lpUnknown, REFGUID pguidCmdGroup, ULONG cCmds, OLECMD *prgCmds, OLECMDTEXT* pCmdText);
-HRESULT WINAPI IUnknown_Exec(IUnknown* lpUnknown, REFGUID pguidCmdGroup, DWORD nCmdID, DWORD nCmdexecopt, VARIANT* pvaIn, VARIANT* pvaOut);
+HRESULT WINAPI IUnknown_Exec(IUnknown* lpUnknown, const GUID *pguidCmdGroup, DWORD nCmdID, DWORD nCmdexecopt, VARIANT* pvaIn, VARIANT* pvaOut);
 LONG WINAPI SHSetWindowBits(HWND hwnd, INT offset, UINT wMask, UINT wFlags);
 HWND WINAPI SHSetParentHwnd(HWND hWnd, HWND hWndParent);
 HRESULT WINAPI ConnectToConnectionPoint(IUnknown *lpUnkSink, REFIID riid, BOOL bAdviseOnly, IUnknown *lpUnknown, LPDWORD lpCookie, IConnectionPoint **lppCP);

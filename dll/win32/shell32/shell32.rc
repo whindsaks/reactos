@@ -48,12 +48,7 @@ BEGIN
      * table is used by the shell view control. F5 should be handled by the
      * a different accelerator table thats translated in IShellBrowser::TranslateAcceleratorSB
      * but will put it here until the shell work fine */
-    VK_F5, FCIDM_SHVIEW_REFRESH, VIRTKEY
-END
-
-shv_accel ACCELERATORS
-BEGIN
-    VK_F5, FCIDM_SHVIEW_REFRESH, VIRTKEY
+    //VK_F5, FCIDM_SHVIEW_REFRESH, VIRTKEY
 END
 
 IDA_DESKBROWSER  ACCELERATORS

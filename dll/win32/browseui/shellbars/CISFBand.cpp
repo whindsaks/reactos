@@ -7,6 +7,7 @@
  */
 
 #include "shellbars.h"
+#include "../browseui.h"
 
 #include <commoncontrols.h>
 #include <shellapi.h>
@@ -576,7 +577,7 @@ HRESULT CISFBand::CreateSimpleToolbar(HWND hWndParent)
                     HRESULT hr = SHGetImageList(SHIL_LARGE, IID_IImageList, (void**)&piml);
                     if (FAILED_UNEXPECTEDLY(hr)) return hr;
                     SendMessage(m_hWnd, TB_SETIMAGELIST, 0, (LPARAM)piml);
-                    hr = IUnknown_Exec(m_Site, IID_IDeskBand, DBID_BANDINFOCHANGED, 0, NULL, NULL);
+                    hr = IUnknown_Exec(m_Site, &IID_IDeskBand, DBID_BANDINFOCHANGED, 0, NULL, NULL);
                     if (FAILED_UNEXPECTEDLY(hr)) return hr;
                     break;
                 }
@@ -588,18 +589,13 @@ HRESULT CISFBand::CreateSimpleToolbar(HWND hWndParent)
                     HRESULT hr = SHGetImageList(SHIL_SMALL, IID_IImageList, (void**)&piml);
                     if (FAILED_UNEXPECTEDLY(hr)) return hr;
                     SendMessage(m_hWnd, TB_SETIMAGELIST, 0, (LPARAM)piml);
-                    hr = IUnknown_Exec(m_Site, IID_IDeskBand, DBID_BANDINFOCHANGED, 0, NULL, NULL);
+                    hr = IUnknown_Exec(m_Site, &IID_IDeskBand, DBID_BANDINFOCHANGED, 0, NULL, NULL);
                     if (FAILED_UNEXPECTEDLY(hr)) return hr;
                     break;
                 }
                 case IDM_OPEN_FOLDER:
                 {
-                    SHELLEXECUTEINFO shexinfo;
-
-                    memset(&shexinfo, 0x0, sizeof(shexinfo));
-
-                    shexinfo.cbSize = sizeof(shexinfo);
-                    shexinfo.fMask = SEE_MASK_IDLIST;
+                    SHELLEXECUTEINFO shexinfo = { sizeof shexinfo, SEE_MASK_IDLIST };
                     shexinfo.lpVerb = _T("open");
                     shexinfo.lpIDList = m_pidl;
                     shexinfo.nShow = SW_SHOW;
@@ -615,14 +611,14 @@ HRESULT CISFBand::CreateSimpleToolbar(HWND hWndParent)
                     {
                         m_textFlag = false;
                         SendMessage(m_hWnd, TB_SETEXTENDEDSTYLE, 0, TBSTYLE_EX_MIXEDBUTTONS);
-                        HRESULT hr = IUnknown_Exec(m_Site, IID_IDeskBand, DBID_BANDINFOCHANGED, 0, NULL, NULL);
+                        HRESULT hr = IUnknown_Exec(m_Site, &IID_IDeskBand, DBID_BANDINFOCHANGED, 0, NULL, NULL);
                         if (FAILED_UNEXPECTEDLY(hr)) return hr;
                     }
                     else
                     {
                         m_textFlag = true;
                         SendMessage(m_hWnd, TB_SETEXTENDEDSTYLE, 0, 0);
-                        HRESULT hr = IUnknown_Exec(m_Site, IID_IDeskBand, DBID_BANDINFOCHANGED, 0, NULL, NULL);
+                        HRESULT hr = IUnknown_Exec(m_Site, &IID_IDeskBand, DBID_BANDINFOCHANGED, 0, NULL, NULL);
                         if (FAILED_UNEXPECTEDLY(hr)) return hr;
                     }
                     break;
@@ -637,7 +633,7 @@ HRESULT CISFBand::CreateSimpleToolbar(HWND hWndParent)
 
     STDMETHODIMP CISFBand::QueryContextMenu(HMENU hmenu, UINT indexMenu, UINT idCmdFirst, UINT idCmdLast, UINT uFlags)
     {
-        HMENU qMenu = LoadMenu(GetModuleHandleW(L"browseui.dll"), MAKEINTRESOURCE(IDM_POPUPMENU));
+        HMENU qMenu = LoadMenu(THISMODULE_RESINSTANCE, MAKEINTRESOURCE(IDM_POPUPMENU));
 
         if(m_textFlag)
             CheckMenuItem(qMenu, IDM_SHOW_TEXT, MF_CHECKED);

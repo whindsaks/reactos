@@ -107,8 +107,11 @@ END
 
 IDM_BAND_MENU MENUEX
 BEGIN
-    MENUITEM "タイトルを表示(&W)", IDM_BAND_TITLE
-    MENUITEM "ツールバーを閉じる(&C)", IDM_BAND_CLOSE
+    POPUP ""
+    BEGIN
+        MENUITEM "タイトルを表示(&W)", IDM_BAND_TITLE
+        MENUITEM "ツールバーを閉じる(&C)", IDM_BAND_CLOSE
+    END
 END
 
 IDM_POPUPMENU MENUEX

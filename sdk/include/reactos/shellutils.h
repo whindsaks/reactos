@@ -635,6 +635,16 @@ typedef CCoInitBase<OleInitialize, OleUninitialize> COleInit;
 #define SEE_CMIC_COMMON_FLAGS      (SEE_CMIC_COMMON_BASICFLAGS | SEE_MASK_HOTKEY | SEE_MASK_ICON | \
                                     SEE_MASK_HASLINKNAME | SEE_MASK_HASTITLE)
 
+static inline int SHELL_IsTabAccelerator(const MSG *pMsg)
+{
+    HWND hDlg;
+    if (!pMsg || pMsg->message != WM_KEYDOWN || !(pMsg->wParam == VK_TAB || pMsg->wParam == VK_F6))
+        return 0;
+    if ((hDlg = GetParent(pMsg->hwnd)) != NULL)
+        SendMessage(hDlg, WM_CHANGEUISTATE, MAKEWPARAM(UIS_CLEAR, UISF_HIDEFOCUS), 0);
+    return (GetKeyState(VK_SHIFT) < 0) ? -1 : 1;
+}
+
 static inline BOOL ILIsSingle(LPCITEMIDLIST pidl)
 {
     return pidl == ILFindLastID(pidl);

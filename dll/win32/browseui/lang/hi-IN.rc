@@ -89,8 +89,11 @@ END
 
 IDM_BAND_MENU MENUEX
 BEGIN
-    MENUITEM "टाइटल &दिखाओ", IDM_BAND_TITLE
-    MENUITEM "टूलबार &बंद करें", IDM_BAND_CLOSE
+    POPUP ""
+    BEGIN
+        MENUITEM "टाइटल &दिखाओ", IDM_BAND_TITLE
+        MENUITEM "टूलबार &बंद करें", IDM_BAND_CLOSE
+    END
 END
 
 IDM_POPUPMENU MENUEX

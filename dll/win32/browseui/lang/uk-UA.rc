@@ -97,8 +97,11 @@ END
 
 IDM_BAND_MENU MENUEX
 BEGIN
-    MENUITEM "Пок&азувати заголовок", IDM_BAND_TITLE
-    MENUITEM "&Закрити панель", IDM_BAND_CLOSE
+    POPUP ""
+    BEGIN
+        MENUITEM "Пок&азувати заголовок", IDM_BAND_TITLE
+        MENUITEM "&Закрити панель", IDM_BAND_CLOSE
+    END
 END
 
 IDM_POPUPMENU MENUEX

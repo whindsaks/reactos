@@ -98,8 +98,11 @@ END
 
 IDM_BAND_MENU MENUEX
 BEGIN
-    MENUITEM "Показать за&головок", IDM_BAND_TITLE
-    MENUITEM "&Закрыть панель инструментов", IDM_BAND_CLOSE
+    POPUP ""
+    BEGIN
+        MENUITEM "Показать за&головок", IDM_BAND_TITLE
+        MENUITEM "&Закрыть панель инструментов", IDM_BAND_CLOSE
+    END
 END
 
 IDM_POPUPMENU MENUEX
