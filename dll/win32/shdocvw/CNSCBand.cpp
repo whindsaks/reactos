@@ -1236,8 +1236,16 @@ STDMETHODIMP CNSCBand::QueryStatus(const GUID *pguidCmdGroup, ULONG cCmds, OLECM
 
 STDMETHODIMP CNSCBand::Exec(const GUID *pguidCmdGroup, DWORD nCmdID, DWORD nCmdexecopt, VARIANT *pvaIn, VARIANT *pvaOut)
 {
-    UNIMPLEMENTED;
-    return E_NOTIMPL;
+    if (!pguidCmdGroup)
+    {
+        if (nCmdID == OLECMDID_REFRESH)
+        {
+            _Refresh();
+            return S_OK;
+        }
+        return OLECMDERR_E_NOTSUPPORTED;
+    }
+    return OLECMDERR_E_UNKNOWNGROUP;
 }
 
 // *** IServiceProvider ***
@@ -1302,7 +1310,7 @@ STDMETHODIMP CNSCBand::HasFocusIO()
 }
 
 STDMETHODIMP CNSCBand::TranslateAcceleratorIO(LPMSG lpMsg)
-{
+{if (lpMsg->message == WM_KEYDOWN)OutputDebugStringA("CNSCBand::TranslateAcceleratorIO\n");
     BOOL SkipAccelerators = m_isEditing || (!IsChild(lpMsg->hwnd) && lpMsg->hwnd != m_hWnd);
     if (lpMsg->message == WM_KEYDOWN && lpMsg->wParam == VK_F2 && !SkipAccelerators)
     {
@@ -1335,10 +1343,8 @@ STDMETHODIMP CNSCBand::TranslateAcceleratorIO(LPMSG lpMsg)
         }
     }
 
-    if (lpMsg->hwnd == m_hWnd ||
-        (m_isEditing && IsChild(lpMsg->hwnd)))
-    {
-        // TODO: Why is it doing this for m_hWnd for all messages?!
+    if (m_isEditing && IsChild(lpMsg->hwnd))
+    {if (lpMsg->message == WM_KEYDOWN)OutputDebugStringA("CNSCBand::TranslateAcceleratorIO m_isEditing\n");
         TranslateMessage(lpMsg);
         DispatchMessage(lpMsg);
         return S_OK;

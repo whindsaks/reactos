@@ -98,8 +98,11 @@ END
 
 IDM_BAND_MENU MENUEX
 BEGIN
-    MENUITEM "Mostrar &título", IDM_BAND_TITLE
-    MENUITEM "&Cerrar barra de herramientas", IDM_BAND_CLOSE
+    POPUP ""
+    BEGIN
+        MENUITEM "Mostrar &título", IDM_BAND_TITLE
+        MENUITEM "&Cerrar barra de herramientas", IDM_BAND_CLOSE
+    END
 END
 
 IDM_POPUPMENU MENUEX

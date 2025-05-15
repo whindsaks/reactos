@@ -108,8 +108,11 @@ END
 
 IDM_BAND_MENU MENUEX
 BEGIN
-    MENUITEM "Ta&mpilkan Judul", IDM_BAND_TITLE
-    MENUITEM "&Tutup Bilah Alat", IDM_BAND_CLOSE
+    POPUP ""
+    BEGIN
+        MENUITEM "Ta&mpilkan Judul", IDM_BAND_TITLE
+        MENUITEM "&Tutup Bilah Alat", IDM_BAND_CLOSE
+    END
 END
 
 IDM_POPUPMENU MENUEX

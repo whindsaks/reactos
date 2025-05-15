@@ -294,6 +294,7 @@ private:
     void _ForceStatusBarResize();
     void _DoCopyToMoveToFolder(BOOL bCopy);
     BOOL IsDesktop() const { return m_FolderSettings.fFlags & FWF_DESKTOP; }
+    LRESULT OnSetFocus() { BOOL bDontCare; return OnSetFocus(0, 0, 0, bDontCare); }
 
     inline BOOL IsSpecialFolder(int &csidl) const
     {
@@ -2485,13 +2486,13 @@ void CDefView::_DoCopyToMoveToFolder(BOOL bCopy)
 }
 
 LRESULT CDefView::OnActivate(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled)
-{
+{DbgPrint("OnActivate %#x\n", uMsg);
     DoActivate(SVUIA_ACTIVATE_FOCUS);
     return 0;
 }
 
 LRESULT CDefView::OnSetFocus(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled)
-{
+{DbgPrint("OnSetFocus %#x\n", uMsg);
     TRACE("%p\n", this);
 
     /* Tell the browser one of our windows has received the focus. This
@@ -2500,6 +2501,8 @@ LRESULT CDefView::OnSetFocus(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHan
 
     m_pShellBrowser->OnViewWindowActive(this);
     DoActivate(SVUIA_ACTIVATE_FOCUS);
+
+    _DoFolderViewCB(SFVM_WINDOWFOCUSED, 0, 0);
 
     /* Set the focus to the listview */
     m_ListView.SetFocus();
@@ -2646,7 +2649,6 @@ LRESULT CDefView::OnNotify(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandl
     LPNMLISTVIEW     lpnmlv;
     NMLVDISPINFOW    *lpdi;
     PCUITEMID_CHILD  pidl;
-    BOOL             unused;
 
     CtlID = wParam;
     lpnmh = (LPNMHDR)lParam;
@@ -2659,7 +2661,7 @@ LRESULT CDefView::OnNotify(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandl
     {
         case NM_SETFOCUS:
             TRACE("-- NM_SETFOCUS %p\n", this);
-            OnSetFocus(0, 0, 0, unused);
+            OnSetFocus();
             break;
         case NM_KILLFOCUS:
             TRACE("-- NM_KILLFOCUS %p\n", this);
@@ -3136,19 +3138,31 @@ HRESULT WINAPI CDefView::ContextSensitiveHelp(BOOL fEnterMode)
     return E_NOTIMPL;
 }
 
-// FIXME: use the accel functions
 HRESULT WINAPI CDefView::TranslateAccelerator(LPMSG lpmsg)
-{
+{if (lpmsg->message==WM_KEYDOWN)DbgPrint("CDefView::TA 1\n");
     if (m_isEditing)
-        return S_FALSE;
+    {
+        if (!(lpmsg->message >= WM_KEYDOWN && lpmsg->message < WM_SYSKEYDOWN))
+            return S_FALSE;
+        TranslateMessage(lpmsg);
+        DispatchMessage(lpmsg);
+        return S_OK;
+    }
 
     if (lpmsg->message >= WM_KEYFIRST && lpmsg->message <= WM_KEYLAST)
-    {
+    {if (lpmsg->message==WM_KEYDOWN)DbgPrint("CDefView::TA 2 tab=%d hasF=%d\n",SHELL_IsTabAccelerator(lpmsg),GetFocus() == m_ListView);
+        // If we don't have focus already, we assume this Tab is for us
+        if (SHELL_IsTabAccelerator(lpmsg) && GetFocus() != m_ListView)
+        {
+            OnSetFocus();
+            return S_OK;
+        }
+
         if (::TranslateAcceleratorW(m_hWnd, m_hAccel, lpmsg) != 0)
             return S_OK;
 
         TRACE("-- key=0x%04lx\n", lpmsg->wParam);
-    }
+    }if (lpmsg->message==WM_KEYDOWN)DbgPrint("CDefView::TA passing to SB\n");
 
     return m_pShellBrowser ? m_pShellBrowser->TranslateAcceleratorSB(lpmsg, 0) : S_FALSE;
 }
@@ -4179,7 +4193,7 @@ HRESULT WINAPI CDefView::Exec(const GUID *pguidCmdGroup, DWORD nCmdID, DWORD nCm
           this, debugstr_guid(pguidCmdGroup), nCmdID, nCmdexecopt, pvaIn, pvaOut);
 
     if (!pguidCmdGroup)
-        return OLECMDERR_E_UNKNOWNGROUP;
+        return (nCmdID == OLECMDID_REFRESH) ? Refresh() : OLECMDERR_E_NOTSUPPORTED;
 
     if (IsEqualCLSID(*pguidCmdGroup, m_Category))
     {

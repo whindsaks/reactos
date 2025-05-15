@@ -715,7 +715,7 @@ HRESULT CInternetToolbar::CreateMenuBar(IShellMenu **pMenuBar)
 
     // Set Menu
     {
-        hResult = IUnknown_Exec(fSite, CGID_Explorer, 0x35, 0, NULL, &menuOut);
+        hResult = IUnknown_Exec(fSite, &CGID_Explorer, 0x35, 0, NULL, &menuOut);
         if (FAILED_UNEXPECTEDLY(hResult))
             return hResult;
 
@@ -740,7 +740,7 @@ HRESULT CInternetToolbar::CreateMenuBar(IShellMenu **pMenuBar)
             return hResult;
     }
 
-    hResult = IUnknown_Exec(menubar, CGID_MenuBand, 3, 1, NULL, NULL);
+    hResult = IUnknown_Exec(menubar, &CGID_MenuBand, 3, 1, NULL, NULL);
     if (FAILED_UNEXPECTEDLY(hResult))
         return hResult;
 
@@ -1031,7 +1031,7 @@ HRESULT CInternetToolbar::SetDirty()
 {
     if (fIgnoreChanges)
         return S_OK;
-    IUnknown_Exec(fSite, CGID_ShellBrowser, IDM_NOTIFYITBARDIRTY, 0, NULL, NULL);
+    IUnknown_Exec(fSite, &CGID_ShellBrowser, IDM_NOTIFYITBARDIRTY, 0, NULL, NULL);
     return S_OK;
 }
 
@@ -1602,19 +1602,19 @@ LRESULT CInternetToolbar::OnTravelForward(WORD wNotifyCode, WORD wID, HWND hWndC
 
 LRESULT CInternetToolbar::OnUpLevel(WORD wNotifyCode, WORD wID, HWND hWndCtl, BOOL &bHandled)
 {
-    IUnknown_Exec(fSite, CGID_ShellBrowser, IDM_GOTO_UPONELEVEL, 0, NULL, NULL);
+    IUnknown_Exec(fSite, &CGID_ShellBrowser, IDM_GOTO_UPONELEVEL, 0, NULL, NULL);
     return 1;
 }
 
 LRESULT CInternetToolbar::OnSearch(WORD wNotifyCode, WORD wID, HWND hWndCtl, BOOL &bHandled)
 {
-    IUnknown_Exec(fSite, CGID_Explorer, 0x1c, 1, NULL, NULL);
+    IUnknown_Exec(fSite, &CGID_Explorer, 0x1c, 1, NULL, NULL);
     return 1;
 }
 
 LRESULT CInternetToolbar::OnFolders(WORD wNotifyCode, WORD wID, HWND hWndCtl, BOOL &bHandled)
 {
-    IUnknown_Exec(fSite, CGID_Explorer, 0x23, 0, NULL, NULL);
+    IUnknown_Exec(fSite, &CGID_Explorer, 0x23, 0, NULL, NULL);
     return 1;
 }
 
@@ -1751,8 +1751,6 @@ LRESULT CInternetToolbar::OnQueryDelete(UINT idControl, NMHDR *pNMHDR, BOOL &bHa
 
 LRESULT CInternetToolbar::OnContextMenu(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled)
 {
-    HMENU                                   contextMenuBar;
-    HMENU                                   contextMenu;
     POINT                                   clickLocation;
     int                                     command;
     RBHITTESTINFO                           hitTestInfo;
@@ -1768,12 +1766,11 @@ LRESULT CInternetToolbar::OnContextMenu(UINT uMsg, WPARAM wParam, LPARAM lParam,
     if (hitTestInfo.iBand == -1)
         return 0;
 
+    HMENU contextMenu = LoadSubMenu(IDM_CABINET_CONTEXTMENU, 0);
     rebarBandInfo.cbSize = sizeof(rebarBandInfo);
     rebarBandInfo.fMask = RBBIM_ID;
     SendMessage(fMainReBar, RB_GETBANDINFOW, hitTestInfo.iBand, (LPARAM)&rebarBandInfo);
     bandID = rebarBandInfo.wID;
-    contextMenuBar = LoadMenu(_AtlBaseModule.GetResourceInstance(), MAKEINTRESOURCE(IDM_CABINET_CONTEXTMENU));
-    contextMenu = GetSubMenu(contextMenuBar, 0);
     switch (bandID)
     {
         case ITBBID_MENUBAND:   // menu band
@@ -1810,8 +1807,8 @@ LRESULT CInternetToolbar::OnContextMenu(UINT uMsg, WPARAM wParam, LPARAM lParam,
     SHCheckMenuItem(contextMenu, IDM_TOOLBARS_GOBUTTON, pSettings->fShowGoButton);
 
     // TODO: use GetSystemMetrics(SM_MENUDROPALIGNMENT) to determine menu alignment
-    command = TrackPopupMenu(contextMenu, TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RIGHTBUTTON | TPM_RETURNCMD,
-                clickLocation.x, clickLocation.y, 0, m_hWnd, NULL);
+    command = TrackPopupMenuEx(contextMenu, TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RIGHTBUTTON | TPM_RETURNCMD,
+                clickLocation.x, clickLocation.y, m_hWnd, NULL);
     switch (command)
     {
         case IDM_TOOLBARS_STANDARDBUTTONS:  // standard buttons
@@ -1833,7 +1830,7 @@ LRESULT CInternetToolbar::OnContextMenu(UINT uMsg, WPARAM wParam, LPARAM lParam,
             break;
     }
 
-    DestroyMenu(contextMenuBar);
+    DestroyMenu(contextMenu);
     return 1;
 }
 

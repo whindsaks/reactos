@@ -71,6 +71,7 @@ public:
     CBaseBarSite();
     ~CBaseBarSite();
     HRESULT Initialize(BOOL vert) { fVertical = vert; return S_OK; };
+    inline UINT GetBandCount() { return EnumBands(UINT_MAX, NULL); }
 private:
     HRESULT InsertBar(IUnknown *newBar);
 
@@ -129,10 +130,14 @@ private:
     // message handlers
     LRESULT OnNotify(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled);
     LRESULT OnCommand(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled);
+    LRESULT OnContextMenu(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled);
     LRESULT OnCustomDraw(LPNMCUSTOMDRAW pnmcd);
 
     // Helper functions
     HFONT GetTitleFont();
+    HRESULT GetBandIndex(CBarInfo* pBI);
+    HRESULT FocusNext(LPMSG lpMsg, int iDir);
+    CBarInfo* FindBandByUnk(IUnknown *pUnk);
     HRESULT FindBandByGUID(REFIID pGuid, DWORD *pdwBandID);
     HRESULT ShowBand(DWORD dwBandID);
     HRESULT GetInternalBandInfo(UINT uBand, REBARBANDINFO *pBandInfo);
@@ -142,6 +147,7 @@ private:
 BEGIN_MSG_MAP(CBaseBarSite)
     MESSAGE_HANDLER(WM_NOTIFY, OnNotify)
     MESSAGE_HANDLER(WM_COMMAND, OnCommand)
+    MESSAGE_HANDLER(WM_CONTEXTMENU, OnContextMenu)
 END_MSG_MAP()
 
 BEGIN_COM_MAP(CBaseBarSite)
@@ -252,7 +258,67 @@ HRESULT CBaseBarSite::InsertBar(IUnknown *newBar)
     hResult = ShowBand(newInfo->fBandID);
     //fCurrentActiveBar = newInfo;
     return hResult;
- }
+}
+
+CBaseBarSite::CBarInfo* CBaseBarSite::FindBandByUnk(IUnknown *pUnk)
+{
+    for (UINT i = 0, nCount = GetBandCount(); i < nCount; ++i)
+    {
+        REBARBANDINFO rbi;
+        if (FAILED(GetInternalBandInfo(i, &rbi)))
+            continue;
+        CBarInfo *pBI = reinterpret_cast<CBarInfo*>(rbi.lParam);
+        if (SHIsSameObject(pBI->fTheBar, pUnk))
+            return pBI;
+    }
+    return NULL;
+}
+
+HRESULT CBaseBarSite::GetBandIndex(CBarInfo* pBI)
+{
+    for (UINT i = 0, nCount = GetBandCount(); pBI && i < nCount; ++i)
+    {
+        REBARBANDINFO rbi;
+        HRESULT hr = GetInternalBandInfo(i, &rbi);
+        if (SUCCEEDED(hr) && (CBarInfo*)rbi.lParam == pBI)
+            return i;
+    }
+    return E_FAIL;
+}
+
+HRESULT CBaseBarSite::FocusNext(LPMSG lpMsg, int iDir)
+{
+    int cBands = GetBandCount();
+    int iFirst = 0, iStop = cBands, iIncrement = iDir;
+    CBarInfo *pPrevActive = fCurrentActiveBar;
+    if (pPrevActive)
+    {
+        HRESULT hr = GetBandIndex(pPrevActive);
+        if (SUCCEEDED(hr))
+            iFirst = hr;
+        IUnknown_UIActivateIO(pPrevActive->fTheBar, FALSE, NULL);
+        fCurrentActiveBar = NULL;
+    }
+    if (iDir < 0)
+    {
+        iFirst = cBands ? cBands - 1 : 0;
+        iStop = -1;
+    }
+    for (int i = iFirst; iDir && i != iStop; i += iIncrement)
+    {
+        REBARBANDINFO rbi;
+        HRESULT hr = GetInternalBandInfo(i, &rbi, RBBIM_LPARAM | RBBIM_ID |
+                                         RBBIM_CHILD | RBBIM_STYLE);
+        if (hr != S_OK || (rbi.fStyle & RBBS_HIDDEN))
+            continue;
+        CBarInfo *pBI = reinterpret_cast<CBarInfo*>(rbi.lParam);
+        if (!pBI || pBI == pPrevActive || !(::GetWindowLongPtr(rbi.hwndChild, GWL_STYLE) & WS_TABSTOP))
+            continue;
+        if ((hr = IUnknown_UIActivateIO(pBI->fTheBar, TRUE, lpMsg)) == S_OK)
+            return hr;
+    }
+    return S_FALSE;
+}
 
 HRESULT STDMETHODCALLTYPE CBaseBarSite::GetWindow(HWND *lphwnd)
 {
@@ -269,10 +335,22 @@ HRESULT STDMETHODCALLTYPE CBaseBarSite::ContextSensitiveHelp(BOOL fEnterMode)
 
 HRESULT STDMETHODCALLTYPE CBaseBarSite::UIActivateIO(BOOL fActivate, LPMSG lpMsg)
 {
-    if (!fCurrentActiveBar)
-        return S_OK;
+    HRESULT hr;
+    if (fCurrentActiveBar)
+        hr = IUnknown_UIActivateIO(fCurrentActiveBar->fTheBar, fActivate, lpMsg);
+    else
+        hr = OnFocusChangeIS(NULL, fActivate);
 
-    return IUnknown_UIActivateIO(fCurrentActiveBar->fTheBar, fActivate, lpMsg);
+    if (fActivate)
+    {
+        int iTabDir = SHELL_IsTabAccelerator(lpMsg);
+        hr = iTabDir ? FocusNext(lpMsg, iTabDir) : S_OK;
+    }
+    else
+    {
+        fCurrentActiveBar = NULL;
+    }
+    return hr;
 }
 
 HRESULT STDMETHODCALLTYPE CBaseBarSite::HasFocusIO()
@@ -285,9 +363,9 @@ HRESULT STDMETHODCALLTYPE CBaseBarSite::HasFocusIO()
 
 HRESULT STDMETHODCALLTYPE CBaseBarSite::TranslateAcceleratorIO(LPMSG lpMsg)
 {
-    if (!fCurrentActiveBar)
+    /*if (!fCurrentActiveBar)
     {
-        if (lpMsg)
+        if (lpMsg) // FIXME: Why are we calling DispatchMessage for all messages?
         {
             TranslateMessage(lpMsg);
             DispatchMessage(lpMsg);
@@ -295,7 +373,15 @@ HRESULT STDMETHODCALLTYPE CBaseBarSite::TranslateAcceleratorIO(LPMSG lpMsg)
         return S_OK;
     }
 
-    return IUnknown_TranslateAcceleratorIO(fCurrentActiveBar->fTheBar, lpMsg);
+    return IUnknown_TranslateAcceleratorIO(fCurrentActiveBar->fTheBar, lpMsg);*/
+
+
+    if (fCurrentActiveBar && IUnknown_TranslateAcceleratorIO(fCurrentActiveBar->fTheBar, lpMsg) == S_OK)
+        return S_OK;
+    else if (int iTabDir = SHELL_IsTabAccelerator(lpMsg))
+        return FocusNext(lpMsg, iTabDir);
+    return S_FALSE;
+
 }
 
 HRESULT STDMETHODCALLTYPE CBaseBarSite::QueryService(REFGUID guidService, REFIID riid, void **ppvObject)
@@ -362,13 +448,23 @@ HRESULT STDMETHODCALLTYPE CBaseBarSite::OnWinEvent(
 
 HRESULT STDMETHODCALLTYPE CBaseBarSite::IsWindowOwner(HWND hWnd)
 {
+    // TODO: Ask all the bands
     return E_NOTIMPL;
 }
 
-HRESULT STDMETHODCALLTYPE CBaseBarSite::OnFocusChangeIS (IUnknown *punkObj, BOOL fSetFocus)
+HRESULT STDMETHODCALLTYPE CBaseBarSite::OnFocusChangeIS(IUnknown *punkObj, BOOL fSetFocus)
 {
+
+    if (fCurrentActiveBar && !SHIsSameObject(fCurrentActiveBar->fTheBar, punkObj))
+        UIActivateIO(FALSE, NULL);
+
+    if (fSetFocus)
+        fCurrentActiveBar = FindBandByUnk(punkObj);
+
+    return IUnknown_OnFocusChangeIS(fDeskBarSite, static_cast<IInputObject*>(this), fSetFocus);
+
     // FIXME: should we directly pass-through, or advertise ourselves as focus owner ?
-    return IUnknown_OnFocusChangeIS(fDeskBarSite, punkObj, fSetFocus);
+    //return IUnknown_OnFocusChangeIS(fDeskBarSite, punkObj, fSetFocus);
 }
 
 HRESULT STDMETHODCALLTYPE CBaseBarSite::SetDeskBarSite(IUnknown *punkSite)
@@ -379,7 +475,7 @@ HRESULT STDMETHODCALLTYPE CBaseBarSite::SetDeskBarSite(IUnknown *punkSite)
     DWORD                                   dwBandID;
 
     if (punkSite == NULL)
-    {
+    {OutputDebugStringA("SetDeskBarSite NULL bye\n");
         TRACE("Destroying site\n");
         /* Cleanup our bands */
         for (UINT i = EnumBands(-1, NULL); i;)
@@ -462,6 +558,7 @@ HRESULT STDMETHODCALLTYPE CBaseBarSite::SetModeDBC(DWORD dwMode)
 
 HRESULT STDMETHODCALLTYPE CBaseBarSite::UIActivateDBC(DWORD dwState)
 {
+    // TODO
     return E_NOTIMPL;
 }
 
@@ -479,7 +576,10 @@ HRESULT STDMETHODCALLTYPE CBaseBarSite::QueryStatus(const GUID *pguidCmdGroup,
 HRESULT STDMETHODCALLTYPE CBaseBarSite::Exec(const GUID *pguidCmdGroup, DWORD nCmdID,
     DWORD nCmdexecopt, VARIANT *pvaIn, VARIANT *pvaOut)
 {
-    if (IsEqualIID(*pguidCmdGroup, IID_IDeskBand))
+    if (!pguidCmdGroup)
+    {
+    }
+    else if (IsEqualIID(*pguidCmdGroup, IID_IDeskBand))
     {
         switch (nCmdID)
         {
@@ -494,7 +594,15 @@ HRESULT STDMETHODCALLTYPE CBaseBarSite::Exec(const GUID *pguidCmdGroup, DWORD nC
                 break;
         }
     }
-    return E_FAIL;
+
+    // TODO: Check with IsQSForward
+    if (fCurrentActiveBar)
+    {
+        return IUnknown_Exec(fCurrentActiveBar->fTheBar, pguidCmdGroup, nCmdID,
+                             nCmdexecopt, pvaIn, pvaOut);
+    }
+
+    return OLECMDERR_E_UNKNOWNGROUP;
 }
 
 HRESULT CBaseBarSite::GetInternalBandInfo(UINT uBand, REBARBANDINFO *pBandInfo)
@@ -686,9 +794,27 @@ LRESULT CBaseBarSite::OnCommand(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &b
     if (HIWORD(wParam) == BN_CLICKED && LOWORD(wParam) == IDM_BASEBAR_CLOSE)
     {
         /* Tell the base bar to hide */
-        IUnknown_Exec(fDeskBarSite, IID_IDeskBarClient, 0, 0, NULL, NULL);
+        IUnknown_Exec(fDeskBarSite, &IID_IDeskBarClient, 0, 0, NULL, NULL);
         bHandled = TRUE;
     }
+    return 0;
+}
+
+LRESULT CBaseBarSite::OnContextMenu(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled)
+{
+    int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
+    HWND hWnd = (HWND)wParam;
+    if (hWnd != m_hWnd && hWnd != toolbarWnd)
+        return 0;
+
+    if (HMENU hMenu = LoadSubMenu(IDM_BAND_MENU, 0))
+    {
+        DeleteMenu(hMenu, IDM_BAND_TITLE, MF_BYCOMMAND);
+        if (TrackPopupMenuEx(hMenu, TPM_RETURNCMD, x, y, hWnd, NULL) == IDM_BAND_CLOSE)
+            OnCommand(WM_COMMAND, IDM_BASEBAR_CLOSE, (LPARAM)hWnd, bHandled);
+        DestroyMenu(hMenu);
+    }
+    bHandled = TRUE;
     return 0;
 }
 
@@ -704,12 +830,10 @@ LRESULT CBaseBarSite::OnCustomDraw(LPNMCUSTOMDRAW pnmcd)
             {
                 REBARBANDINFO info;
                 WCHAR wszTitle[MAX_PATH];
-                DWORD index;
                 UINT pad = GetSystemMetrics(SM_CXEDGE), leftpad = max(pad * 2, 4);
                 UINT btnw = 20, btnh = 18, btnarea = 1 + btnw + 1;
                 HFONT newFont, oldFont;
 
-                index = SendMessage(RB_IDTOINDEX, fCurrentActiveBar->fBandID , 0);
                 ZeroMemory(&info, sizeof(info));
                 ZeroMemory(wszTitle, sizeof(wszTitle));
                 DrawEdge(pnmcd->hdc, &pnmcd->rc, EDGE_ETCHED, BF_BOTTOM);
@@ -722,7 +846,13 @@ LRESULT CBaseBarSite::OnCustomDraw(LPNMCUSTOMDRAW pnmcd)
                 rt.right -= btnarea;
                 rt.left += leftpad;
                 rt.bottom -= 1;
-                if (FAILED_UNEXPECTEDLY(GetInternalBandInfo(index, &info, RBBIM_TEXT)))
+
+                UINT rbbi = ~0UL;
+                if (fCurrentActiveBar) // This is a problem, we end up FIXME not painting the text because we don't have a bar
+                // this is perhaps because this logic belongs in the internettoolbar reband thing and not here where there is only ever one band?
+                //we must undo the current code because it breaks when we have multiple bands tried (they are not closed ?!?) | check stock if it happens TODO FIXME
+                    rbbi = SendMessage(RB_IDTOINDEX, fCurrentActiveBar->fBandID , 0);
+                if (FAILED_UNEXPECTEDLY(GetInternalBandInfo(rbbi, &info, RBBIM_TEXT)))
                     return CDRF_SKIPDEFAULT;
                 newFont = GetTitleFont();
                 if (newFont)

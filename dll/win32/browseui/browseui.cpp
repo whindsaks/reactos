@@ -20,6 +20,53 @@
 
 #include "precomp.h"
 
+HMENU LoadSubMenu(UINT ResId, UINT nPos)
+{
+    HMENU hMenu = LoadMenu(THISMODULE_RESINSTANCE, MAKEINTRESOURCE(ResId));
+    HMENU hSubMenu = GetSubMenu(hMenu, nPos);
+    RemoveMenu(hMenu, nPos, MF_BYPOSITION);
+    DestroyMenu(hMenu);
+    return hSubMenu;
+}
+
+int IsAccelerator(LPMSG pMsg, const ACCELTABLE *pAT, UINT cAT)
+{
+    UINT wm = pMsg->message, mods = 0, up = wm & 1;
+    if (wm == WM_SYSKEYDOWN || wm == WM_SYSKEYUP)
+    {
+        wm -= WM_SYSKEYDOWN - WM_KEYDOWN;
+        mods |= MOD_ALT;
+    }
+
+    if (wm != WM_KEYDOWN && wm != WM_KEYUP)
+        return -1;
+
+    mods |= (GetKeyState(VK_CONTROL) < 0) ? MOD_CONTROL : 0;
+    mods |= (GetKeyState(VK_SHIFT) < 0) ? MOD_SHIFT : 0;
+    for (UINT i = 0; i < cAT; ++i)
+    {
+        if (pMsg->wParam == pAT[i].Vk && mods == pAT[i].Mods)
+            return up ? 0 : MAKELONG(pAT[i].Id, MAKEWORD(pAT[i].Vk, pAT[i].Mods));
+    }
+    return -1;
+}
+
+HRESULT IOleWindow_UIActivateIO(_In_ IOleWindow *pOW, _Out_opt_ HWND *phWnd, _In_opt_ LPMSG pMsg)
+{
+    HRESULT hr = E_FAIL;
+    HWND hWnd = NULL;
+    if (pOW)
+    {
+        hr = pOW->GetWindow(&hWnd);
+        if (hWnd && IsWindowVisible(hWnd))
+        {OutputDebugStringA("DBG calling UIActivateIO\n");
+            hr = IUnknown_UIActivateIO(pOW, TRUE, pMsg);
+        }
+    }
+    if (phWnd)
+        *phWnd = hWnd;
+    return hr;
+}
 
 HRESULT CAddressBand_CreateInstance(REFIID riid, void **ppv)
 {

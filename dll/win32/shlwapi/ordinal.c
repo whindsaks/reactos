@@ -1084,7 +1084,7 @@ HRESULT WINAPI IUnknown_QueryStatus(IUnknown* lpUnknown, REFGUID pguidCmdGroup,
  *           E_NOINTERFACE, if lpUnknown does not support IOleCommandTarget.
  *           Otherwise, an error code from IOleCommandTarget_Exec().
  */
-HRESULT WINAPI IUnknown_Exec(IUnknown* lpUnknown, REFGUID pguidCmdGroup,
+HRESULT WINAPI IUnknown_Exec(IUnknown* lpUnknown, const GUID *pguidCmdGroup,
                            DWORD nCmdID, DWORD nCmdexecopt, VARIANT* pvaIn,
                            VARIANT* pvaOut)
 {

@@ -154,7 +154,7 @@ HRESULT CISFBand::BandInfoChanged()
 {
     if (!m_Site)
         return S_OK;
-    HRESULT hr = IUnknown_Exec(m_Site, &IID_IDeskBand, DBID_BANDINFOCHANGED, 0, NULL, NULL);
+    HRESULT hr = IUnknown_Exec(m_Site, IID_IDeskBand, DBID_BANDINFOCHANGED, 0, NULL, NULL);
     if (FAILED_UNEXPECTEDLY(hr))
         return hr;
     return S_OK;
@@ -474,9 +474,228 @@ STDMETHODIMP CISFBand::OnWinEvent(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lP
                     }
                     DestroyMenu(fmenu);
 
+<<<<<<< HEAD
                     if (theResult)
                         *theResult = TRUE;
+=======
+                break;
+            }
+            default:
+                if (theResult)
+                    *theResult = FALSE;
+        }
 
+        return S_OK;
+    }
+
+    STDMETHODIMP CISFBand::IsWindowOwner(HWND hWnd)
+    {
+        return (hWnd == m_hWnd) ? S_OK : S_FALSE;
+    }
+
+/*****************************************************************************/
+// *** IOleCommandTarget methods ***
+    STDMETHODIMP CISFBand::QueryStatus(const GUID *pguidCmdGroup, ULONG cCmds, OLECMD prgCmds [], OLECMDTEXT *pCmdText)
+    {
+        UNIMPLEMENTED;
+
+        return E_NOTIMPL;
+    }
+
+    STDMETHODIMP CISFBand::Exec(const GUID *pguidCmdGroup, DWORD nCmdID, DWORD nCmdexecopt, VARIANT *pvaIn, VARIANT *pvaOut)
+    {
+        if (IsEqualIID(*pguidCmdGroup, IID_IBandSite))
+        {
+            return S_OK;
+        }
+
+        if (IsEqualIID(*pguidCmdGroup, IID_IDeskBand))
+        {
+            if (nCmdID == DBID_SETWINDOWTHEME)
+            {
+                if (pvaIn && V_VT(pvaIn) == VT_BSTR && V_BSTR(pvaIn))
+                {
+                    SetWindowTheme(m_hWnd, V_BSTR(pvaIn), NULL);
+                }
+            }
+            return S_OK;
+        }
+
+        UNIMPLEMENTED;
+
+        return E_NOTIMPL;
+    }
+
+/*****************************************************************************/
+// *** IShellFolderBand ***
+    STDMETHODIMP CISFBand::GetBandInfoSFB(PBANDINFOSFB pbi)
+    {
+        if (pbi->dwMask == ISFB_MASK_IDLIST)
+        {
+            pbi->pidl = ILClone(m_pidl);
+            if (!pbi->pidl)
+                return E_OUTOFMEMORY;
+            return S_OK;
+        }
+
+        return E_NOTIMPL;
+    }
+
+    STDMETHODIMP CISFBand::InitializeSFB(IShellFolder *psf, PCIDLIST_ABSOLUTE pidl)
+    {
+        HRESULT hr;
+
+        if (!psf && !pidl)
+            return E_INVALIDARG;
+
+        if (psf && pidl)
+            return E_INVALIDARG;
+
+        if (pidl != NULL)
+        {
+            CComPtr<IShellFolder> psfDesktop;
+            hr = SHGetDesktopFolder(&psfDesktop);
+            if (FAILED_UNEXPECTEDLY(hr))
+                return hr;
+
+            if (_ILIsDesktop(pidl))
+            {
+                m_pISF = psfDesktop;
+            }
+            else
+            {
+                hr = psfDesktop->BindToObject(pidl, NULL, IID_PPV_ARG(IShellFolder, &m_pISF));
+                if (FAILED_UNEXPECTEDLY(hr))
+                    return hr;
+            }
+
+            m_pidl = ILClone(pidl);
+        }
+
+        if (psf != NULL)
+        {
+            CComPtr<IPersistFolder2> ppf2;
+            hr = psf->QueryInterface(IID_PPV_ARG(IPersistFolder2, &ppf2));
+            if (FAILED_UNEXPECTEDLY(hr))
+                return hr;
+
+            hr = ppf2->GetCurFolder(&m_pidl);
+            if (FAILED_UNEXPECTEDLY(hr))
+                return hr;
+
+            m_pISF = psf;
+        }
+
+        return S_OK;
+    }
+
+    STDMETHODIMP CISFBand::SetBandInfoSFB( PBANDINFOSFB pbi)
+    {
+        if ((pbi->dwMask & ISFB_MASK_STATE) &&
+            (pbi->dwState & ISFB_STATE_QLINKSMODE) &&
+            (pbi->dwStateMask & ISFB_STATE_QLINKSMODE))
+        {
+            m_QLaunch = true;
+            m_textFlag = false;
+            if (m_hWnd)
+                SendMessage(m_hWnd, TB_SETEXTENDEDSTYLE, 0, TBSTYLE_EX_MIXEDBUTTONS);
+        }
+
+        return E_NOTIMPL;
+    }
+
+/*****************************************************************************/
+// *** IContextMenu ***
+    STDMETHODIMP CISFBand::GetCommandString(UINT_PTR idCmd, UINT uFlags, UINT *pwReserved, LPSTR pszName, UINT cchMax)
+    {
+        /*HRESULT hr = E_INVALIDARG;
+
+        if (idCmd == IDM_DISPLAY)
+        {
+            switch (uFlags)
+            {
+            case GCS_HELPTEXTW:
+                // Only useful for pre-Vista versions of Windows that
+                // have a Status bar.
+                hr = StringCchCopyW(reinterpret_cast<PWSTR>(pszName),
+                    cchMax,
+                    L"Display File Name");
+                break;
+
+            case GCS_VERBW:
+                // GCS_VERBW is an optional feature that enables a caller
+                // to discover the canonical name for the verb that is passed in
+                // through idCommand.
+                hr = StringCchCopyW(reinterpret_cast<PWSTR>(pszName),
+                    cchMax,
+                    L"DisplayFileName");
+                break;
+            }
+        }
+        return hr;  */
+
+        return S_OK;
+    }
+
+    STDMETHODIMP CISFBand::InvokeCommand(LPCMINVOKECOMMANDINFO pici)
+    {
+        if (!HIWORD(pici->lpVerb))
+        {
+            switch (LOWORD(pici->lpVerb))
+            {
+                case IDM_LARGE_ICONS:
+                {
+                    m_iconFlag = false;
+
+                    HIMAGELIST* piml = (HIMAGELIST*) SendMessage(m_hWnd, TB_GETIMAGELIST, 0, 0);
+                    HRESULT hr = SHGetImageList(SHIL_LARGE, IID_IImageList, (void**)&piml);
+                    if (FAILED_UNEXPECTEDLY(hr)) return hr;
+                    SendMessage(m_hWnd, TB_SETIMAGELIST, 0, (LPARAM)piml);
+                    hr = IUnknown_Exec(m_Site, &IID_IDeskBand, DBID_BANDINFOCHANGED, 0, NULL, NULL);
+                    if (FAILED_UNEXPECTEDLY(hr)) return hr;
+                    break;
+                }
+                case IDM_SMALL_ICONS:
+                {
+                    m_iconFlag = true;
+
+                    HIMAGELIST* piml = (HIMAGELIST*)SendMessage(m_hWnd, TB_GETIMAGELIST, 0, 0);
+                    HRESULT hr = SHGetImageList(SHIL_SMALL, IID_IImageList, (void**)&piml);
+                    if (FAILED_UNEXPECTEDLY(hr)) return hr;
+                    SendMessage(m_hWnd, TB_SETIMAGELIST, 0, (LPARAM)piml);
+                    hr = IUnknown_Exec(m_Site, &IID_IDeskBand, DBID_BANDINFOCHANGED, 0, NULL, NULL);
+                    if (FAILED_UNEXPECTEDLY(hr)) return hr;
+                    break;
+                }
+                case IDM_OPEN_FOLDER:
+                {
+                    SHELLEXECUTEINFO shexinfo = { sizeof shexinfo, SEE_MASK_IDLIST };
+                    shexinfo.lpVerb = _T("open");
+                    shexinfo.lpIDList = m_pidl;
+                    shexinfo.nShow = SW_SHOW;
+
+                    if (!ShellExecuteEx(&shexinfo))
+                        return E_FAIL;
+
+                    break;
+                }
+                case IDM_SHOW_TEXT:
+                {
+                    if (m_textFlag)
+                    {
+                        m_textFlag = false;
+                        SendMessage(m_hWnd, TB_SETEXTENDEDSTYLE, 0, TBSTYLE_EX_MIXEDBUTTONS);
+                        HRESULT hr = IUnknown_Exec(m_Site, &IID_IDeskBand, DBID_BANDINFOCHANGED, 0, NULL, NULL);
+                        if (FAILED_UNEXPECTEDLY(hr)) return hr;
+                    }
+                    else
+                    {
+                        m_textFlag = true;
+                        SendMessage(m_hWnd, TB_SETEXTENDEDSTYLE, 0, 0);
+                        HRESULT hr = IUnknown_Exec(m_Site, &IID_IDeskBand, DBID_BANDINFOCHANGED, 0, NULL, NULL);
+                        if (FAILED_UNEXPECTEDLY(hr)) return hr;
+                    }
+>>>>>>> c9c8e85b4e6 ([BROWSEUI][SHDOCVW][SHELL32] Improve accelerator and tab handling in file browser)
                     break;
                 }
                 default:
@@ -536,10 +755,37 @@ STDMETHODIMP CISFBand::GetBandInfoSFB(PBANDINFOSFB pbi)
 {
     if (pbi->dwMask == ISFB_MASK_IDLIST)
     {
+<<<<<<< HEAD
         pbi->pidl = ILClone(m_pidl);
         if (!pbi->pidl)
             return E_OUTOFMEMORY;
         return S_OK;
+=======
+        HMENU qMenu = LoadMenu(THISMODULE_RESINSTANCE, MAKEINTRESOURCE(IDM_POPUPMENU));
+
+        if(m_textFlag)
+            CheckMenuItem(qMenu, IDM_SHOW_TEXT, MF_CHECKED);
+        else
+            CheckMenuItem(qMenu, IDM_SHOW_TEXT, MF_UNCHECKED);
+
+        if (m_iconFlag)
+        {
+            CheckMenuItem(qMenu, IDM_SMALL_ICONS, MF_CHECKED);
+            CheckMenuItem(qMenu, IDM_LARGE_ICONS, MF_UNCHECKED);
+        }
+        else
+        {
+            CheckMenuItem(qMenu, IDM_LARGE_ICONS, MF_CHECKED);
+            CheckMenuItem(qMenu, IDM_SMALL_ICONS, MF_UNCHECKED);
+        }
+
+        if (_ILIsDesktop(m_pidl))
+            DeleteMenu(qMenu, IDM_OPEN_FOLDER, MF_BYCOMMAND);
+
+        UINT idMax = Shell_MergeMenus(hmenu, GetSubMenu(qMenu, 0), indexMenu, idCmdFirst, idCmdLast, MM_SUBMENUSHAVEIDS);
+        DestroyMenu(qMenu);
+        return MAKE_HRESULT(SEVERITY_SUCCESS, 0, USHORT(idMax - idCmdFirst +1));
+>>>>>>> c9c8e85b4e6 ([BROWSEUI][SHDOCVW][SHELL32] Improve accelerator and tab handling in file browser)
     }
 
     return E_NOTIMPL;

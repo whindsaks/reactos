@@ -1577,7 +1577,7 @@ ChangePos:
     {
         /* Force the rebar bands to resize */
         IUnknown_Exec(m_TrayBandSite,
-                      IID_IDeskBand,
+                      &IID_IDeskBand,
                       DBID_BANDINFOCHANGED,
                       0,
                       NULL,

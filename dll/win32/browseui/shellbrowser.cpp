@@ -288,8 +288,8 @@ private:
             hwnd = NULL;
         }
 
-        RECT                                borderSpace;
-        CComPtr<IUnknown>                   clientBar;
+        RECT                                borderSpace; // TODO: Replace these two
+        CComPtr<IUnknown>                   clientBar;   //       members with TOOLBARITEM
         HWND                                hwnd;
     };
     static const int                        BIInternetToolbar = 0;
@@ -316,6 +316,7 @@ private:
     ShellSettings m_settings;
     SBFOLDERSETTINGS m_deffoldersettings;
     DWORD m_BrowserSvcFlags;
+    UINT m_LastFocusITB = ITB_INVALID;
     bool m_Destroyed;
     BYTE m_NonFullscreenState;
 
@@ -375,6 +376,8 @@ public:
     void RefreshCabinetState();
     void UpdateWindowTitle();
     void SaveITBarLayout();
+    IDockingWindow* GetToolbarIDockingWindow(int itb);
+    HRESULT FocusNext(LPMSG lpMsg, int iDir);
 
     inline HWND GetTopLevelBrowserWindow() { return m_hWnd; }
 
@@ -804,7 +807,7 @@ HRESULT CShellBrowser::Initialize()
     if (FAILED_UNEXPECTEDLY(hResult))
         return hResult;
 
-    hResult = IUnknown_Exec(clientBar, CGID_PrivCITCommands, 1, 1 /* or 0 */, NULL, NULL);
+    hResult = IUnknown_Exec(clientBar, &CGID_PrivCITCommands, 1, 1 /* or 0 */, NULL, NULL);
     if (FAILED_UNEXPECTEDLY(hResult))
         return hResult;
 
@@ -1388,7 +1391,7 @@ HRESULT CShellBrowser::ShowBand(const CLSID &classID, bool vertical)
     }
     V_VT(&vaIn) = VT_UNKNOWN;
     V_UNKNOWN(&vaIn) = newBand.p;
-    hResult = IUnknown_Exec(baseBarSite, CGID_IDeskBand, 1, 1, &vaIn, NULL);
+    hResult = IUnknown_Exec(baseBarSite, &CGID_IDeskBand, 1, 1, &vaIn, NULL);
     if (FAILED_UNEXPECTEDLY(hResult))
     {
         return hResult;
@@ -1805,8 +1808,6 @@ void CShellBrowser::UpdateViewMenu(HMENU theMenu)
     CComPtr<ITravelLog>                     travelLog;
     HMENU                                   gotoMenu;
     OLECMD                                  commandList[5];
-    HMENU                                   toolbarMenuBar;
-    HMENU                                   toolbarMenu;
     MENUITEMINFO                            menuItemInfo;
     HRESULT                                 hResult;
 
@@ -1831,10 +1832,7 @@ void CShellBrowser::UpdateViewMenu(HMENU theMenu)
         GetMenuItemInfo(theMenu, IDM_VIEW_TOOLBARS, FALSE, &menuItemInfo);
         DestroyMenu(menuItemInfo.hSubMenu);
 
-        toolbarMenuBar = LoadMenu(_AtlBaseModule.GetResourceInstance(), MAKEINTRESOURCE(IDM_CABINET_CONTEXTMENU));
-        toolbarMenu = GetSubMenu(toolbarMenuBar, 0);
-        RemoveMenu(toolbarMenuBar, 0, MF_BYPOSITION);
-        DestroyMenu(toolbarMenuBar);
+        HMENU toolbarMenu = LoadSubMenu(IDM_CABINET_CONTEXTMENU, 0);
 
         // TODO: Implement
         SHEnableMenuItem(toolbarMenu, IDM_TOOLBARS_STANDARDBUTTONS, commandList[0].cmdf & OLECMDF_ENABLED);
@@ -2266,7 +2264,7 @@ HRESULT STDMETHODCALLTYPE CShellBrowser::Exec(const GUID *pguidCmdGroup, DWORD n
         {
             case DVCMDID_RESET_DEFAULTFOLDER_SETTINGS:
                 ApplyBrowserDefaultFolderSettings(NULL);
-                IUnknown_Exec(fCurrentShellView, CGID_DefView, nCmdID, OLECMDEXECOPT_DODEFAULT, NULL, NULL);
+                IUnknown_Exec(fCurrentShellView, &CGID_DefView, nCmdID, OLECMDEXECOPT_DODEFAULT, NULL, NULL);
                 break;
         }
     }
@@ -2367,7 +2365,7 @@ HRESULT STDMETHODCALLTYPE CShellBrowser::EnableModelessSB(BOOL fEnable)
 }
 
 HRESULT STDMETHODCALLTYPE CShellBrowser::TranslateAcceleratorSB(MSG *pmsg, WORD wID)
-{
+{if (pmsg->message == WM_KEYDOWN)OutputDebugStringA("CShellBrowser::TranslateAcceleratorSB\n");
     if (!::TranslateAcceleratorW(m_hWnd, m_hAccel, pmsg))
         return S_FALSE;
     return S_OK;
@@ -2480,7 +2478,7 @@ HRESULT STDMETHODCALLTYPE CShellBrowser::QueryActiveShellView(IShellView **ppshv
 }
 
 HRESULT STDMETHODCALLTYPE CShellBrowser::OnViewWindowActive(IShellView *ppshv)
-{
+{OutputDebugStringA("CShellBrowser::OnViewWindowActive\n");
     return E_NOTIMPL;
 }
 
@@ -2639,10 +2637,10 @@ HRESULT STDMETHODCALLTYPE CShellBrowser::ShowControlWindow(UINT id, BOOL fShow)
             return Exec(&CGID_Explorer, SBCMDID_EXPLORERBARFOLDERS, 0, NULL, NULL);
         case FCW_MENU:
             return IUnknown_Exec(fClientBars[BIInternetToolbar].clientBar,
-                                 CGID_PrivCITCommands, ITID_MENUBANDSHOWN, 0, NULL, NULL);
+                                 &CGID_PrivCITCommands, ITID_MENUBANDSHOWN, 0, NULL, NULL);
         case FCW_ADDRESSBAR:
             return IUnknown_Exec(fClientBars[BIInternetToolbar].clientBar,
-                                 CGID_PrivCITCommands, ITID_ADDRESSBANDSHOWN, 0, NULL, NULL);
+                                 &CGID_PrivCITCommands, ITID_ADDRESSBANDSHOWN, 0, NULL, NULL);
     }
     return E_NOTIMPL;
 }
@@ -2834,7 +2832,7 @@ HRESULT STDMETHODCALLTYPE CShellBrowser::SetAsDefFolderSettings()
     if (fCurrentShellView)
     {
         hr = ApplyBrowserDefaultFolderSettings(fCurrentShellView);
-        IUnknown_Exec(fCurrentShellView, CGID_DefView, DVCMDID_SET_DEFAULTFOLDER_SETTINGS, OLECMDEXECOPT_DODEFAULT, NULL, NULL);
+        IUnknown_Exec(fCurrentShellView, &CGID_DefView, DVCMDID_SET_DEFAULTFOLDER_SETTINGS, OLECMDEXECOPT_DODEFAULT, NULL, NULL);
     }
     return hr;
 }
@@ -3030,8 +3028,17 @@ HRESULT STDMETHODCALLTYPE CShellBrowser::GetFolderSetData(struct tagFolderSetDat
 }
 
 HRESULT STDMETHODCALLTYPE CShellBrowser::_OnFocusChange(UINT itb)
-{
-    return E_NOTIMPL;
+{OutputDebugStringA("_OnFocusChange\n");
+    if (itb == m_LastFocusITB)
+        return S_FALSE;else OutputDebugStringA("_OnFocusChange change\n");
+    
+    const UINT itbPrev = _get_itbLastFocus();
+    _put_itbLastFocus(itb);
+    if (itbPrev == ITB_VIEW || itbPrev == ITB_INVALID)
+        _UIActivateView(SVUIA_ACTIVATE_NOFOCUS);
+    else
+        IUnknown_UIActivateIO(GetToolbarIDockingWindow(itb), FALSE, NULL);
+    return S_OK;
 }
 
 HRESULT STDMETHODCALLTYPE CShellBrowser::v_ShowHideChildWindows(BOOL fChildOnly)
@@ -3041,17 +3048,31 @@ HRESULT STDMETHODCALLTYPE CShellBrowser::v_ShowHideChildWindows(BOOL fChildOnly)
 
 UINT STDMETHODCALLTYPE CShellBrowser::_get_itbLastFocus()
 {
-    return 0;
+    return m_LastFocusITB == ITB_INVALID ? ITB_VIEW : m_LastFocusITB;
 }
 
 HRESULT STDMETHODCALLTYPE CShellBrowser::_put_itbLastFocus(UINT itbLastFocus)
 {
-    return E_NOTIMPL;
+    m_LastFocusITB = itbLastFocus;
+    return S_OK;
 }
 
 HRESULT STDMETHODCALLTYPE CShellBrowser::_UIActivateView(UINT uState)
 {
-    return E_NOTIMPL;
+    if (!fCurrentShellView)
+        return S_FALSE;
+
+    CComPtr<IShellView2> pSV2; // MSDN says only IShellView2 knows about INPLACEACTIVATE
+    fCurrentShellView->QueryInterface(IID_PPV_ARG(IShellView2, &pSV2));
+    if (uState == SVUIA_INPLACEACTIVATE && !pSV2)
+        uState = SVUIA_ACTIVATE_NOFOCUS;
+
+OutputDebugStringA("_UIActivateView calling SV\n");
+    fCurrentShellView->UIActivate(uState);
+
+    if (uState == SVUIA_ACTIVATE_FOCUS && !pSV2 && fCurrentShellViewWindow)
+        ::SetFocus(fCurrentShellViewWindow);
+    return S_OK;
 }
 
 HRESULT STDMETHODCALLTYPE CShellBrowser::_GetViewBorderRect(RECT *prc)
@@ -3096,7 +3117,10 @@ HRESULT STDMETHODCALLTYPE CShellBrowser::SetAcceleratorMenu(HACCEL hacc)
 
 int STDMETHODCALLTYPE CShellBrowser::_GetToolbarCount()
 {
-    return 0;
+    UINT nCount = 0;
+    for (UINT i = 0; i < _countof(fClientBars); ++i)
+        nCount += fClientBars[i].clientBar != NULL;
+    return nCount;
 }
 
 LPTOOLBARITEM STDMETHODCALLTYPE CShellBrowser::_GetToolbarItem(int itb)
@@ -3132,26 +3156,156 @@ HRESULT STDMETHODCALLTYPE CShellBrowser::_ResizeNextBorderHelper(UINT itb, BOOL 
 
 UINT STDMETHODCALLTYPE CShellBrowser::_FindTBar(IUnknown *punkSrc)
 {
-    return 0;
+    for (UINT i = 0; i < _countof(fClientBars); ++i)
+    {
+        if (SHIsSameObject(fClientBars[i].clientBar.p, punkSrc))
+            return i;
+    }
+    return -1;
+}
+
+IDockingWindow* CShellBrowser::GetToolbarIDockingWindow(int itb)
+{
+    if (itb >= (int)_countof(fClientBars) || !fClientBars[itb].clientBar)
+        return NULL;
+    IDockingWindow *pDW; // FIXME: When we start storing these as TOOLBARITEM, we can return the pointer directly
+    if (SUCCEEDED(fClientBars[itb].clientBar->QueryInterface(IID_PPV_ARG(IDockingWindow, &pDW))))
+        pDW->Release(); // The returned pointer is not ref-counted
+    return pDW;
+}
+
+/*HRESULT CShellBrowser::FocusNext(LPMSG lpMsg, int iDir)
+{
+    HWND hFocus = GetFocus(), hWnd;
+    TOOLBARITEM *ptbi = NULL, tbi;
+    enum { BIView = _countof(fClientBars), cPlaces, BIUnknown };
+    int BICurrent = BIUnknown, BINext;
+    // TODO: Call v_MayGetNextToolbarFocus instead
+    for (UINT i = 0; i < _countof(fClientBars); ++i)
+    {
+if (SUCCEEDED(IUnknown_GetWindow(fClientBars[i].clientBar, &hWnd))) OutputDebugStringA("FocusNext: got H\n");
+        if (SUCCEEDED(IUnknown_GetWindow(fClientBars[i].clientBar, &hWnd)) &&
+            SHIsChildOrSelf(hWnd, hFocus) == S_OK)
+        {
+            BICurrent = i;OutputDebugStringA("FocusNext: BAR loop found\n");
+            break;
+        }
+    }
+    if (BICurrent == BIUnknown && (hWnd = fCurrentShellViewWindow) != NULL)
+    {
+        BINext = BICurrent = BIView;
+        if (SHIsChildOrSelf(hWnd, hFocus) != S_OK)
+            goto apply; // We did not find the current focus, default to the view
+OutputDebugStringA("FocusNext: was on SV\n");
+    }
+    BINext = BICurrent + iDir;
+    if (BINext >= cPlaces)
+        BINext = 0;
+    if (BINext < 0)
+        BINext = cPlaces - 1;
+apply:
+    if (BINext != BIView && fClientBars[BINext].clientBar &&
+        SUCCEEDED(fClientBars[BINext].clientBar->QueryInterface(IID_PPV_ARG(IDockingWindow, &tbi.ptbar))))
+    {OutputDebugStringA("FocusNext: IDockingWindow\n");
+        ptbi = &tbi;
+        hWnd = NULL; // Must not be BIView, _SetFocus can handle this being NULL
+    }
+
+char b[99];wsprintfA(b, "FocusNext: bin=%d(%d) h=%p hsv=%p ptbi=%p\n", BINext, BICurrent, hWnd, fCurrentShellViewWindow, ptbi),OutputDebugStringA(b);;
+
+    if (hWnd || ptbi)
+        _SetFocus(ptbi, hWnd, lpMsg);
+    if (ptbi)
+        IUnknown_Set((IUnknown**)&ptbi->ptbar, NULL);
+    return S_OK;
+}*/
+
+HRESULT CShellBrowser::FocusNext(LPMSG lpMsg, int iDir)
+{OutputDebugStringA("FocusNext ---\n");int dbg=0;
+    // TODO: Implement and call v_MayGetNextToolbarFocus
+    HWND hFocus = GetFocus(), hWnd;
+    enum { BIView = _countof(fClientBars), cPlaces, BIUnknown };
+    int BICurrent = BIUnknown, BINext;
+
+    // First we must figure out where the focus currently is
+    for (UINT i = 0; i < _countof(fClientBars); ++i)
+    {
+        if (SUCCEEDED(IUnknown_GetWindow(fClientBars[i].clientBar, &hWnd)) &&
+            SHIsChildOrSelf(hWnd, hFocus) == S_OK)
+        {
+            BICurrent = i;OutputDebugStringA("FocusNext: BAR loop found\n");
+            break;
+        }
+    }
+    if (BICurrent == BIUnknown && (hWnd = fCurrentShellViewWindow) != NULL)
+    {
+        BINext = BICurrent = BIView;
+        if (SHIsChildOrSelf(hWnd, hFocus) != S_OK)
+            goto apply; // We could not find the current focus, default to the view
+    }
+    BINext = BICurrent;
+next:
+{char b[99]; wsprintfA(b,"lnext: bin=%d\n", BINext),OutputDebugStringA(b);}
+    BINext += iDir;
+    if (BINext >= cPlaces)
+    {
+{char b[99]; wsprintfA(b,"bin=%d to large, setting 0\n", BINext),OutputDebugStringA(b);}
+        BINext = 0;
+    }
+    if (BINext < 0)
+        BINext = cPlaces - 1;
+apply:
+    
+if (++dbg > 11)return E_FAIL;
+{char b[99]; wsprintfA(b,"bin=%d dir=%d curr=%d\n", BINext, iDir, BICurrent),OutputDebugStringA(b);}
+    if (BINext == BIView)
+    {
+        _SetFocus(NULL, hWnd, lpMsg);
+        return S_OK;
+    }
+    else if (IDockingWindow *pDW = GetToolbarIDockingWindow(BINext))
+    {
+        if (IOleWindow_UIActivateIO(pDW, NULL, lpMsg) == S_OK)
+            return S_OK;
+    }OutputDebugStringA("jmp\n");
+    goto next;
 }
 
 HRESULT STDMETHODCALLTYPE CShellBrowser::_SetFocus(LPTOOLBARITEM ptbi, HWND hwnd, LPMSG lpMsg)
 {
-    return E_NOTIMPL;
+    if (hwnd == fCurrentShellViewWindow)
+    {OutputDebugStringA("_SetFocus SV\n");
+        _UIActivateView(SVUIA_ACTIVATE_FOCUS);
+        _OnFocusChange(ITB_VIEW);
+    }
+    /*else if (ptbi)
+    {OutputDebugStringA("_SetFocus tbi\n");
+        // TODO: Remove this when v_MayGetNextToolbarFocus is implemented
+        IOleWindow_UIActivateIO(ptbi->ptbar, NULL, lpMsg);
+    }else OutputDebugStringA("_SetFocus BUG\n");*/
+    return S_OK;
 }
 
 HRESULT STDMETHODCALLTYPE CShellBrowser::v_MayTranslateAccelerator(MSG *pmsg)
-{
+{if (pmsg->message == WM_KEYDOWN)OutputDebugStringA("CShellBrowser::v_MayTranslateAccelerator ---\n");
+
+    // TODO: Handle menu ALT keys
+
     for (int i = 0; i < 3; i++)
     {
         if (IUnknown_TranslateAcceleratorIO(fClientBars[i].clientBar, pmsg) == S_OK)
             return S_OK;
     }
+if (pmsg->message == WM_KEYDOWN)OutputDebugStringA("CShellBrowser::MTA try SV\n");
+    if (fCurrentShellView && fCurrentShellView->TranslateAccelerator(pmsg) == S_OK)
+        return S_OK;
 
-    if (!fCurrentShellView)
-        return S_FALSE;
+    if (int iTabDir = SHELL_IsTabAccelerator(pmsg))
+        return FocusNext(pmsg, iTabDir);
 
-    return fCurrentShellView->TranslateAcceleratorW(pmsg);
+    // TODO: SHELL_IsTabMsg
+if (pmsg->message == WM_KEYDOWN)OutputDebugStringA("CShellBrowser::MTA ending with TASB\n");
+    return TranslateAcceleratorSB(pmsg, 0);
 }
 
 HRESULT STDMETHODCALLTYPE CShellBrowser::_GetBorderDWHelper(IUnknown *punkSrc, LPRECT lprectBorder, BOOL bUseHmonitor)
@@ -3232,22 +3386,24 @@ HRESULT STDMETHODCALLTYPE CShellBrowser::Navigate(BSTR URL, VARIANT *Flags,
 
 HRESULT STDMETHODCALLTYPE CShellBrowser::Refresh()
 {
-    VARIANT                                 level;
-
+    // learn.microsoft.com/en-us/previous-versions/windows/internet-explorer/ie-developer/platform-apis/cc288101(v=vs.85)
+    enum { olecmdidf_refresh_no_cache = 4 };
+    VARIANT level;
     V_VT(&level) = VT_I4;
-    V_I4(&level) = 4;
+    V_I4(&level) = olecmdidf_refresh_no_cache;
     return Refresh2(&level);
 }
 
 HRESULT STDMETHODCALLTYPE CShellBrowser::Refresh2(VARIANT *Level)
-{
-    CComPtr<IOleCommandTarget>              oleCommandTarget;
-    HRESULT                                 hResult;
-
-    hResult = fCurrentShellView->QueryInterface(IID_PPV_ARG(IOleCommandTarget, &oleCommandTarget));
-    if (FAILED_UNEXPECTEDLY(hResult))
-        return hResult;
-    return oleCommandTarget->Exec(NULL, 22, 1, Level, NULL);
+{OutputDebugStringA("CShellBrowser::Refresh2\n");
+    HRESULT hr = IUnknown_Exec(fCurrentShellView, NULL, OLECMDID_REFRESH,
+                               OLECMDEXECOPT_PROMPTUSER, Level, NULL);
+    if (SUCCEEDED(hr))
+    {OutputDebugStringA("CShellBrowser::Refresh2 Tree\n");
+        // Refresh the tree
+        IUnknown_Exec(fClientBars[BIVerticalBaseBar].clientBar, NULL, OLECMDID_REFRESH, 0, NULL, NULL);
+    }
+    return hr;
 }
 
 HRESULT STDMETHODCALLTYPE CShellBrowser::Stop()
@@ -4056,7 +4212,7 @@ LRESULT CShellBrowser::OnToggleToolbarLock(WORD wNotifyCode, WORD wID, HWND hWnd
 {
     HRESULT hResult;
     hResult = IUnknown_Exec(fClientBars[BIInternetToolbar].clientBar,
-                            CGID_PrivCITCommands, ITID_TOOLBARLOCKED, 0, NULL, NULL);
+                            &CGID_PrivCITCommands, ITID_TOOLBARLOCKED, 0, NULL, NULL);
     return 0;
 }
 
@@ -4064,7 +4220,7 @@ LRESULT CShellBrowser::OnToggleToolbarBandVisible(WORD wNotifyCode, WORD wID, HW
 {
     HRESULT hResult;
     hResult = IUnknown_Exec(fClientBars[BIInternetToolbar].clientBar,
-                            CGID_PrivCITCommands, ITID_TOOLBARBANDSHOWN, 0, NULL, NULL);
+                            &CGID_PrivCITCommands, ITID_TOOLBARBANDSHOWN, 0, NULL, NULL);
     return 0;
 }
 
@@ -4072,7 +4228,7 @@ LRESULT CShellBrowser::OnToggleAddressBandVisible(WORD wNotifyCode, WORD wID, HW
 {
     HRESULT hResult;
     hResult = IUnknown_Exec(fClientBars[BIInternetToolbar].clientBar,
-                            CGID_PrivCITCommands, ITID_ADDRESSBANDSHOWN, 0, NULL, NULL);
+                            &CGID_PrivCITCommands, ITID_ADDRESSBANDSHOWN, 0, NULL, NULL);
     return 0;
 }
 
@@ -4080,7 +4236,7 @@ LRESULT CShellBrowser::OnToggleLinksBandVisible(WORD wNotifyCode, WORD wID, HWND
 {
     HRESULT hResult;
     hResult = IUnknown_Exec(fClientBars[BIInternetToolbar].clientBar,
-                            CGID_PrivCITCommands, ITID_LINKSBANDSHOWN, 0, NULL, NULL);
+                            &CGID_PrivCITCommands, ITID_LINKSBANDSHOWN, 0, NULL, NULL);
     return 0;
 }
 
@@ -4088,7 +4244,7 @@ LRESULT CShellBrowser::OnToggleTextLabels(WORD wNotifyCode, WORD wID, HWND hWndC
 {
     HRESULT hResult;
     hResult = IUnknown_Exec(fClientBars[BIInternetToolbar].clientBar,
-                            CGID_PrivCITCommands, ITID_TEXTLABELS, 0, NULL, NULL);
+                            &CGID_PrivCITCommands, ITID_TEXTLABELS, 0, NULL, NULL);
     return 0;
 }
 
@@ -4096,14 +4252,13 @@ LRESULT CShellBrowser::OnToolbarCustomize(WORD wNotifyCode, WORD wID, HWND hWndC
 {
     HRESULT hResult;
     hResult = IUnknown_Exec(fClientBars[BIInternetToolbar].clientBar,
-                            CGID_PrivCITCommands, ITID_CUSTOMIZEENABLED, 0, NULL, NULL);
+                            &CGID_PrivCITCommands, ITID_CUSTOMIZEENABLED, 0, NULL, NULL);
     return 0;
 }
 
 LRESULT CShellBrowser::OnRefresh(WORD wNotifyCode, WORD wID, HWND hWndCtl, BOOL &bHandled)
 {
-    if (fCurrentShellView)
-        fCurrentShellView->Refresh();
+    Refresh();
     return 0;
 }
 
