@@ -783,6 +783,13 @@ HRESULT WINAPI SHCreateDefClassObject(
 
 void WINAPI SHFreeUnusedLibraries(void);
 
+HRESULT WINAPI SHExtCoCreateInstance(
+    _In_opt_ LPCWSTR aclsid,
+    _In_opt_ const CLSID *clsid,
+    _In_opt_ LPUNKNOWN pUnkOuter,
+    _In_ REFIID refiid,
+    _Out_ LPVOID *ppv);
+
 /* SHCreateLinks flags */
 #define SHCLF_PREFIXNAME       0x01
 #define SHCLF_CREATEONDESKTOP  0x02

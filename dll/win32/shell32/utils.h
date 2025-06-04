@@ -93,6 +93,8 @@ HRESULT
 SHELL_MapContextMenuVerbToCmdId(LPCMINVOKECOMMANDINFO pICI, const CMVERBMAP *pMap);
 HRESULT
 SHELL_GetCommandStringImpl(SIZE_T CmdId, UINT uFlags, LPSTR Buf, UINT cchBuf, const CMVERBMAP *pMap);
+CMINVOKECOMMANDINFO*
+SEIToICI(LPSHELLEXECUTEINFOW pSEI);
 
 // SHExtractIconsW is a forward, use this function instead inside shell32
 inline HICON

@@ -571,9 +571,10 @@ public:
 };
 
 EXTERN_C HRESULT
-BindCtx_RegisterObjectParam(
+BindCtx_RegisterObjectParams(
     _In_ IBindCtx *pBindCtx,
-    _In_ LPOLESTR pszKey,
+    _In_ const WCHAR **ppszKeys,
+    _In_ UINT nKeys,
     _In_opt_ IUnknown *punk,
     _Out_ LPBC *ppbc)
 {
@@ -583,20 +584,15 @@ BindCtx_RegisterObjectParam(
     *ppbc = pBindCtx;
 
     if (pBindCtx)
-    {
         pBindCtx->AddRef();
-    }
-    else
-    {
-        hr = CreateBindCtx(0, ppbc);
-        if (FAILED(hr))
-            return hr;
-    }
+    else if (FAILED(hr = CreateBindCtx(0, ppbc)))
+        return hr;
 
     if (!punk)
         punk = pUnknown = new CDummyOleWindow();
 
-    hr = (*ppbc)->RegisterObjectParam(pszKey, punk);
+    for (UINT i = 0; i < nKeys && SUCCEEDED(hr); ++i)
+        hr = (*ppbc)->RegisterObjectParam(const_cast<LPOLESTR>(ppszKeys[i]), punk);
 
     if (pUnknown)
         pUnknown->Release();
@@ -606,8 +602,17 @@ BindCtx_RegisterObjectParam(
         (*ppbc)->Release();
         *ppbc = NULL;
     }
-
     return hr;
+}
+
+EXTERN_C HRESULT
+BindCtx_RegisterObjectParam(
+    _In_ IBindCtx *pBindCtx,
+    _In_ LPOLESTR pszKey,
+    _In_opt_ IUnknown *punk,
+    _Out_ LPBC *ppbc)
+{
+    return BindCtx_RegisterObjectParams(pBindCtx, const_cast<PCWSTR*>(&pszKey), 1, punk, ppbc);
 }
 
 /*************************************************************************
@@ -1748,17 +1753,16 @@ GetDfmCmd(_In_ IContextMenu *pCM, _In_ LPCSTR verba)
 HRESULT
 SHELL_MapContextMenuVerbToCmdId(LPCMINVOKECOMMANDINFO pICI, const CMVERBMAP *pMap)
 {
-    LPCSTR pVerbA = pICI->lpVerb;
     CHAR buf[MAX_PATH];
+    LPCSTR pVerbA = pICI->lpVerb;
+    if (IS_INTRESOURCE(pVerbA))
+        return LOWORD(pVerbA);
     LPCMINVOKECOMMANDINFOEX pICIX = (LPCMINVOKECOMMANDINFOEX)pICI;
     if (IsUnicode(*pICIX) && !IS_INTRESOURCE(pICIX->lpVerbW))
     {
         if (SHUnicodeToAnsi(pICIX->lpVerbW, buf, _countof(buf)))
             pVerbA = buf;
     }
-
-    if (IS_INTRESOURCE(pVerbA))
-        return LOWORD(pVerbA);
     for (SIZE_T i = 0; pMap[i].Verb; ++i)
     {
         assert(SUCCEEDED((int)(pMap[i].CmdId))); // The id must be >= 0 and ideally in the 0..0x7fff range
@@ -1800,6 +1804,63 @@ SHELL_GetCommandStringImpl(SIZE_T CmdId, UINT uFlags, LPSTR Buf, UINT cchBuf, co
             return pEntry ? S_OK : S_FALSE; // GCS_VALIDATE
     }
     return E_NOTIMPL;
+}
+
+static inline SIZE_T
+WcToAcpMbLen(PCWSTR psz)
+{
+    return WideCharToMultiByte(CP_ACP, 0, psz, -1, NULL, 0, NULL, NULL);
+}
+
+CMINVOKECOMMANDINFO*
+SEIToICI(LPSHELLEXECUTEINFOW pSEI)
+{
+    PCWSTR pszTitle = (pSEI->fMask & (SEE_MASK_HASLINKNAME | SEE_MASK_HASTITLE))
+                      ? pSEI->lpClass : NULL;
+    SIZE_T cbTitleA = StrIsNullOrEmpty(pszTitle) ? 0 : WcToAcpMbLen(pszTitle);
+    SIZE_T cbVerbA = StrIsNullOrEmpty(pSEI->lpVerb) ? 0 : WcToAcpMbLen(pSEI->lpVerb);
+    SIZE_T cbParamA = StrIsNullOrEmpty(pSEI->lpParameters) ? 0 : WcToAcpMbLen(pSEI->lpParameters);
+    SIZE_T cbDirA = StrIsNullOrEmpty(pSEI->lpDirectory) ? 0 : WcToAcpMbLen(pSEI->lpDirectory);
+    SIZE_T cb = sizeof(CMINVOKECOMMANDINFOEX) + cbTitleA + cbVerbA + cbParamA + cbDirA;
+    CMINVOKECOMMANDINFOEX *p = (CMINVOKECOMMANDINFOEX*)SHAlloc(cb);
+    if (!p)
+        return NULL;
+    ZeroMemory(p, sizeof(*p));
+    PSTR pszA = (PSTR)p + sizeof(*p);
+    p->cbSize = sizeof(*p);
+    p->fMask = SeeFlagsToCmicFlags(pSEI->fMask) | CMIC_MASK_UNICODE;
+    p->hwnd = pSEI->hwnd;
+    p->nShow = pSEI->nShow;
+    p->dwHotKey = pSEI->dwHotKey;
+    p->lpTitleW = pszTitle;
+    if (cbTitleA)
+        SHUnicodeToAnsi(p->lpTitleW, const_cast<PSTR>(p->lpTitle = pszA), cbTitleA);
+    pszA += cbTitleA;
+    p->lpVerbW = pSEI->lpVerb;
+    if (cbVerbA)
+        SHUnicodeToAnsi(p->lpVerbW, const_cast<PSTR>(p->lpVerb = pszA), cbVerbA);
+    pszA += cbVerbA;
+    p->lpParametersW = pSEI->lpParameters;
+    if (cbParamA)
+        SHUnicodeToAnsi(p->lpParametersW, const_cast<PSTR>(p->lpParameters = pszA), cbParamA);
+    pszA += cbParamA;
+    p->lpDirectoryW = pSEI->lpDirectory;
+    if (cbDirA)
+        SHUnicodeToAnsi(p->lpDirectoryW, const_cast<PSTR>(p->lpDirectory = pszA), cbDirA);
+
+    MONITORINFO mi;
+    mi.cbSize = sizeof(mi);
+    if ((pSEI->fMask & SEE_MASK_HMONITOR) && pSEI->hIcon && GetMonitorInfo((HMONITOR)pSEI->hIcon, &mi))
+    {
+        p->ptInvoke.x = mi.rcMonitor.left;
+        p->ptInvoke.y = mi.rcMonitor.top;
+        p->fMask |= CMIC_MASK_PTINVOKE;
+    }
+    else
+    {
+        p->hIcon = pSEI->hIcon;
+    }
+    return reinterpret_cast<CMINVOKECOMMANDINFO*>(p);
 }
 
 HRESULT

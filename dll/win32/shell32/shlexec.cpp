@@ -33,6 +33,218 @@ EXTERN_C BOOL PathIsExeW(LPCWSTR lpszPath);
 typedef UINT_PTR (*SHELL_ExecuteW32)(const WCHAR *lpCmd, WCHAR *env, BOOL shWait,
                 const SHELLEXECUTEINFOW *sei, LPSHELLEXECUTEINFOW sei_out);
 
+static inline UINT Win32ErrFromHrWithFallback(HRESULT hr, UINT nFallback)
+{
+    if (HRESULT_FACILITY(hr) == FACILITY_WIN32)
+        return HRESULT_CODE(hr);
+    return SUCCEEDED(hr) ? ERROR_SUCCESS : nFallback;
+}
+
+static int Win32ErrFromHInst(HINSTANCE hInst)
+{
+    if ((SIZE_T)hInst > 32)
+        return ERROR_SUCCESS;
+    switch ((SIZE_T)hInst)
+    {
+    case SE_ERR_FNF:
+    case SE_ERR_PNF:
+    case SE_ERR_ACCESSDENIED:
+    case SE_ERR_OOM:
+        return (UINT)(SIZE_T)hInst;
+    case SE_ERR_SHARE:
+        return ERROR_SHARING_VIOLATION;
+    case SE_ERR_DDETIMEOUT:
+    case SE_ERR_DDEFAIL:
+    case SE_ERR_DDEBUSY:
+        return ERROR_DDE_FAIL;
+    case SE_ERR_DLLNOTFOUND:
+        return ERROR_DLL_NOT_FOUND;
+    case SE_ERR_ASSOCINCOMPLETE:
+    case SE_ERR_NOASSOC:
+        return ERROR_NO_ASSOCIATION;
+    }
+    return -1;
+}
+
+//SELF todo: Does Envsubst affect executehook file and dir?
+#define SEE_MASK_FILEANDURL 0 // FIXME textplain website knows this value
+#define SEE_MASK_NO_HOOKS 0 //www.yisu.com/ask/30968554.html
+#define VALIDATEUNC_CONNECT 0 //FIXME sdk?
+#define VALIDATEUNC_NOUI 0 // FIXME sdk?
+/*static DWORD EnvSubst(PCWSTR Src, CStringW &Dst)
+{
+    DWORD cch = ExpandEnvironmentStringsW(Src, NULL, 0);
+    PWSTR psz = cch ? AllocLen(Dst, cch - 1) : NULL;
+    if (!psz)
+        return 0;
+    cch = ExpandEnvironmentStringsW(Src, psz, cch);
+    if (cch)
+        Dst.ReleaseBuffer(cch - 1);
+    return cch;
+}*/
+
+template<UINT StackCCH> class CGrowBufStr
+{
+    WCHAR m_Stack[min(StackCCH, sizeof(SIZE_T))];
+    PWSTR m_Alloc = NULL;
+
+public:
+    ~CGrowBufStr() { LocalFree(m_Alloc); }
+    inline PWSTR Data() { return m_Alloc ? m_Alloc : m_Stack; }
+    inline SIZE_T Capacity() { return m_Alloc ? (SIZE_T&)m_Stack : StackCCH - 1; }
+    inline SIZE_T Length() { return lstrlenW(Data()); }
+    inline PWSTR AllocLen(SIZE_T Len) { return AllocCch(++Len); }
+
+    PWSTR AllocCch(SIZE_T Cch)
+    {
+        if (Cch > Capacity() + 1)
+        {
+            PWSTR pszNew = (PWSTR) LocalAlloc(LMEM_FIXED, Cch * sizeof(*m_Stack));
+            if (!pszNew)
+                return pszNew;
+            LocalFree(m_Alloc);
+            (SIZE_T&)m_Stack = Cch - 1;
+            return m_Alloc = pszNew;
+        }
+        return Data();
+    }
+
+    PWSTR Set(PCWSTR pszSrc) { return Set(pszSrc, lstrlenW(pszSrc)); }
+    PWSTR Set(PCWSTR pszSrc, SIZE_T Len)
+    {
+        PWSTR pszDst = AllocLen(Len);
+        return pszDst ? lstrcpynW(pszDst, pszSrc, ++Len) : pszDst;
+    }
+    PWSTR SetEmpty()
+    {
+        LocalFree(m_Alloc);
+        m_Alloc = NULL;
+        m_Stack[0] = UNICODE_NULL;
+        return m_Stack;
+    }
+
+    BOOL ExpandEnvironmentStrings(PCWSTR pszSrc)
+    {
+        DWORD cch = ::ExpandEnvironmentStringsW(pszSrc, NULL, 0);
+        if (!cch)
+            return !*pszSrc && SetEmpty();
+        return cch && AllocCch(cch) && ::ExpandEnvironmentStringsW(pszSrc, Data(), cch);
+    }
+
+    operator WCHAR*() { return Data(); }
+    operator const WCHAR*() { return Data(); }
+    WCHAR& operator [](SIZE_T Idx) { return Data()[Idx]; }
+    WCHAR& operator *() { return Data()[0]; }
+};
+
+template<UINT StackCCH = MAX_PATH> struct CGrowBufPath : public CGrowBufStr<StackCCH>
+{
+    BOOL GetCurrentDirectory()
+    {
+        DWORD cch = ::GetCurrentDirectoryW(0, NULL);
+        return cch && this->AllocCch(cch) && ::GetCurrentDirectoryW(cch, this->Data());
+    }
+
+    BOOL GetWindowsDirectory()
+    {
+        DWORD cch = ::GetWindowsDirectoryW(NULL, 0);
+        return cch && this->AllocCch(cch) && ::GetWindowsDirectoryW(this->Data(), cch);
+    }
+};
+
+static HRESULT InvokeShellExecuteHook(PCWSTR pszClsid, CLSID *pClsid, LPSHELLEXECUTEINFOW pSEI, HRESULT *pHR)
+{
+    CComPtr<IUnknown> pUnk;
+    HRESULT hr = SHExtCoCreateInstance(pszClsid, pClsid, NULL, IID_PPV_ARG(IUnknown, &pUnk));
+    if (FAILED(hr))
+        return hr;
+    CComPtr<IShellExecuteHookW> pWide;
+    if (SUCCEEDED(hr = pUnk->QueryInterface(IID_PPV_ARG(IShellExecuteHookW, &pWide))))
+    {
+        *pHR = pWide->Execute(pSEI);
+        return S_OK;
+    }
+#if 0 // TODO
+    CComPtr<IShellExecuteHookA> pAnsi;
+    if (SUCCEEDED(hr = pUnk->QueryInterface(IID_PPV_ARG(IShellExecuteHookA, &pAnsi))))
+    {
+        SHELLEXECUTEINFOA sei = *(SHELLEXECUTEINFOA*)pSEI;
+        // TODO: Convert the strings
+        *pHR = pAnsi->Execute(sei);
+        pSEI->hProcess = sei.hProcess;
+        pSEI->hInstApp = sei.hInstApp;
+        return S_OK;
+    }
+#endif
+    return hr;
+}
+
+static HRESULT TryShellExecuteHooks(LPSHELLEXECUTEINFOW pSEI)
+{
+    // https://devblogs.microsoft.com/oldnewthing/20080910-00/?p=20933 claims hooks
+    // were removed in Vista but this is incorrect, they are disabled by default.
+    // https://groups.google.com/g/microsoft.public.platformsdk.shell/c/ixdOX1--IKk
+    // says they are now controlled by the EnableShellExecuteHooks policy.
+    if ((pSEI->fMask & SEE_MASK_NO_HOOKS))
+        return S_FALSE;
+    if (LOBYTE(GetVersion()) >= 6 && !SH32_InternalRestricted(REST_SH32_ENABLESHELLEXECUTEHOOKS))
+        return S_FALSE;
+
+    HRESULT hr = S_FALSE;
+    HKEY hKey;
+    LRESULT res = RegOpenKeyExW(HKEY_LOCAL_MACHINE, REGSTR_PATH_EXPLORER L"\\ShellExecuteHooks", 0, KEY_READ, &hKey);
+    if (res != ERROR_SUCCESS)
+        return S_FALSE;
+    for (UINT i = 0; hr == S_FALSE; ++i)
+    {
+        WCHAR szClsid[42];
+        DWORD cch = _countof(szClsid);
+        if (RegEnumValueW(hKey, i, szClsid, &cch, NULL, NULL, NULL, NULL) != ERROR_SUCCESS)
+            break;
+        InvokeShellExecuteHook(szClsid, NULL, pSEI, &hr);
+    }
+    RegCloseKey(hKey);
+    return hr;
+}
+
+static HRESULT SHELL_InvokePidl(LPCITEMIDLIST pidl, CMINVOKECOMMANDINFO &ici)
+{
+    UINT cmf = StrIsNullOrEmpty(ici.lpVerb) ? CMF_DEFAULTONLY : 0;
+    CComPtr<IContextMenu> pCM;
+    HRESULT hr = SHELL_GetUIObjectOfAbsoluteItem(ici.hwnd, pidl, IID_PPV_ARG(IContextMenu, &pCM));
+    if (FAILED(hr))
+        return hr;
+    HMENU hMenu = CreatePopupMenu();
+    if (!hMenu)
+        return E_OUTOFMEMORY;
+    enum { idFirst = 1, idLast = 0x7fff };
+    if (SUCCEEDED(hr = pCM->QueryContextMenu(hMenu, 0, idFirst, idLast, cmf)))
+    {
+        if (StrIsNullOrEmpty(ici.lpVerb))
+        {
+            UINT cmd = GetMenuDefaultItem(hMenu, MF_BYCOMMAND, 0);
+            cmd -= (cmd != UINT_MAX) ? idFirst : UINT_MAX;
+            ici.lpVerb = MAKEINTRESOURCEA(cmd);
+            if (IsUnicode(ici))
+                ((CMINVOKECOMMANDINFOEX&)ici).lpVerbW = (PWSTR)ici.lpVerb;
+        }
+        hr = pCM->InvokeCommand(&ici);
+    }
+    DestroyMenu(hMenu);
+    return hr;
+}
+
+static HRESULT SHELL_InvokePidl(LPCITEMIDLIST pidl, LPSHELLEXECUTEINFOW pSEI)
+{
+    // Note: Windows does not pass CMF_EXTENDEDVERBS so "hidden" verbs cannot be executed
+    CMINVOKECOMMANDINFO *pICI = SEIToICI(pSEI);
+    if (!pICI)
+        return E_OUTOFMEMORY;
+    HRESULT hr = SHELL_InvokePidl(pidl, *pICI);
+    SHFree(pICI);
+    return hr;
+}
+
 // Is the current process a rundll32.exe?
 static BOOL SHELL_InRunDllProcess(VOID)
 {
@@ -479,13 +691,345 @@ static HRESULT SHELL_GetPathFromIDListForExecuteW(LPCITEMIDLIST pidl, LPWSTR psz
     return hr;
 }
 
+//microsoft.public.win32.programmer.kernel.narkive.com/jiYtelWu/createprocess-fails-with-error-6
+class CShellExecute :
+    public CComObjectRootEx<CComMultiThreadModelNoCS>,
+    public IUnknown // Only used for refcounting (SEE_MASK_ASYNCOK)
+{
+    CComHeapPtr<ITEMIDLIST> m_pidlAlloc;
+    LPSHELLEXECUTEINFOW m_pSEI;
+    LPITEMIDLIST m_pidl;
+    PWSTR m_pszFile = NULL;
+    CGrowBufPath<MAX_PATH> m_FileBuf;
+    PWSTR m_pszDir = NULL;
+    CGrowBufPath<MAX_PATH> m_DirBuf;
+    int m_Error = ERROR_NO_ASSOCIATION;
+    SFGAOF m_SFGAO = SFGAO_VALIDATE;
+    bool m_bIsUrl = false;
+    bool m_bIsNs = false; // "::{CLSID}"
+
+protected:
+    HRESULT GetFilePathFromAppPath();
+    HRESULT ResolveFilePath();
+    IBindCtx* CreateBindCtx();
+    //UINT InvokePidl();
+    //LPITEMIDLIST EnsurePidl();
+    //SFGAOF GetSFGAO();
+    HRESULT TryInvokePidl();
+
+public:
+    inline BOOL DoEnvSubst() { return m_pSEI->fMask & SEE_MASK_DOENVSUBST; }
+    inline BOOL UseClass() { return m_pSEI->fMask & SEE_MASK_CLASSALL; }
+    inline BOOL UseInvoke() { return (m_pSEI->fMask & SEE_MASK_INVOKEIDLIST) == SEE_MASK_INVOKEIDLIST; }
+
+    HRESULT SetFile(PCWSTR pszSrc)
+    {
+        if (m_FileBuf.Data() != pszSrc && !m_FileBuf.Set(pszSrc))
+            return E_OUTOFMEMORY;
+        m_pszFile = m_FileBuf;
+        return S_OK;
+    }
+
+    UINT SetError(int Win32, HRESULT hr, HINSTANCE hInst);
+    UINT ExecuteNormal(LPSHELLEXECUTEINFOW pSEI);
+
+    DECLARE_NOT_AGGREGATABLE(CShellExecute)
+    BEGIN_COM_MAP(CShellExecute)
+    END_COM_MAP()
+};
+
+UINT CShellExecute::SetError(int Win32, HRESULT hr = -1, HINSTANCE hInst = NULL)
+{
+    if (Win32 != -1)
+    {
+        m_Error = Win32;
+        m_pSEI->hInstApp = hInst ? hInst : (HINSTANCE)(m_Error ? SE_ERR_ACCESSDENIED : 42);
+    }
+    else
+    {
+        m_pSEI->hInstApp = SUCCEEDED(hr) ? (HINSTANCE)42 : hInst;
+        m_Error = Win32ErrFromHInst(m_pSEI->hInstApp);
+        if (m_Error < 0)
+            m_Error = ERROR_ACCESS_DENIED;
+        if (hr != -1 && FAILED(hr))
+            m_Error = Win32ErrFromHrWithFallback(hr, ERROR_ACCESS_DENIED);
+    }
+    SetLastError(m_Error);
+    return m_Error;
+}
+
+static BOOL SHELL_TryAppPathW( LPCWSTR szName, LPWSTR lpResult, WCHAR **env);
+HRESULT CShellExecute::GetFilePathFromAppPath()
+{
+    WCHAR buf[MAX_PATH];
+    if (!StrIsNullOrEmpty(m_pszFile) && SHELL_TryAppPathW(m_pszFile, buf, NULL) &&
+        PathResolveW(buf, NULL, PRF_VERIFYEXISTS | PRF_TRYPROGRAMEXTENSIONS))
+    {
+        return SetFile(buf);
+    }
+    return S_FALSE;
+}
+
+HRESULT CShellExecute::ResolveFilePath()
+{
+    if (m_bIsNs || m_bIsUrl)
+        return S_FALSE;
+    HRESULT hr = GetFilePathFromAppPath();
+    if (hr != S_FALSE)
+        return hr;
+    if (StrIsNullOrEmpty(m_pszFile))
+        return E_INVALIDARG;
+    if (FAILED(hr = SetFile(m_pszFile)))
+        return hr;
+    PCWSTR pszDirs[2] = { m_pszDir, NULL };
+    if (!PathResolveW(m_pszFile, pszDirs, PRF_FIRSTDIRDEF | PRF_VERIFYEXISTS | PRF_TRYPROGRAMEXTENSIONS))
+    {
+        // It was not a file and not a known scheme (m_bIsUrl), could it be a "www." hint?
+        DWORD cch = m_FileBuf.Capacity() + 1;
+        if (FAILED(hr = UrlApplySchemeW(m_pszFile, m_FileBuf, &cch, URL_APPLY_GUESSSCHEME)))
+            return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
+        m_bIsUrl = hr == S_OK;
+    }
+    return S_OK;
+}
+
+IBindCtx* CShellExecute::CreateBindCtx()
+{
+    IBindCtx *pBC = NULL;
+    PCWSTR params[] = 
+    {
+        STR_DONT_PARSE_RELATIVE, // Everything should parse with this
+        STR_PARSE_TRANSLATE_ALIASES,
+    };
+
+    if (m_bIsUrl)
+    {
+        BindCtx_RegisterObjectParams(NULL, params, 2, NULL, &pBC);
+        return pBC;
+    }
+    else if (!PathIsRoot(m_pszFile))
+    {
+        DWORD fAttrib;
+        if (UseClass())
+            fAttrib = INVALID_FILE_ATTRIBUTES;
+        else if (m_pszFile != m_FileBuf.Data())      // We can't write to the buffer,
+            fAttrib = GetFileAttributesW(m_pszFile); // just query.
+        else if (!PathFileExistsDefExtAndAttributesW(m_pszFile, WHICH_DEFAULT | WHICH_OPTIONAL, &fAttrib))
+            fAttrib = INVALID_FILE_ATTRIBUTES;
+
+        WIN32_FIND_DATAW wfd = { fAttrib };
+        CComPtr<IBindCtx> pFileBC;
+        if (fAttrib != INVALID_FILE_ATTRIBUTES && SUCCEEDED(IFileSystemBindData_Constructor(&wfd, &pFileBC)))
+            BindCtx_RegisterObjectParams(pFileBC, params, 2, NULL, &pBC);
+        else
+            BindCtx_RegisterObjectParams(NULL, params, 1, NULL, &pBC);
+    }
+    return pBC;
+}
+
+HRESULT CShellExecute::TryInvokePidl()
+{
+    HRESULT hr = S_FALSE;
+    if (!(UseInvoke() || m_bIsNs || !UseClass()))
+        return hr;
+
+    if (!m_pidl)
+    {
+        if (FAILED(hr = ResolveFilePath()))
+            return hr;
+        hr = S_FALSE;
+    }
+    BOOL bCanInvoke = !(m_pSEI->fMask & (SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_DDEWAIT |
+                                         SEE_MASK_FILEANDURL | SEE_MASK_UNKNOWN_0x1000));
+    if ((bCanInvoke && StrIsNullOrEmpty(m_pSEI->lpVerb)) ||
+        (UseInvoke() || m_bIsNs || m_bIsUrl) ||
+        (m_SFGAO & SFGAO_LINK))
+    {
+        if (!m_pidl)
+        {
+            if ((m_pidl = ILCreateFromPathW(m_pszFile)) == NULL)
+                return S_FALSE; // Don't return an error here, DDE might work later
+            m_pidlAlloc.Attach(m_pidl);
+        }
+        UINT fOrgFlags = m_pSEI->fMask;
+        m_pSEI->fMask |= SEE_MASK_FLAG_NO_UI; // IContextMenu might recurse back on us, don't show errors
+        hr = SHELL_InvokePidl(m_pidl, m_pSEI);
+        m_pSEI->fMask = fOrgFlags;
+    }
+    return hr;
+}
+
+/*UINT CShellExecute::InvokePidl()
+{
+    if (EnsurePidl())
+    {
+        UINT fOrgFlags = m_pSEI->fMask;
+        m_pSEI->fMask |= SEE_MASK_FLAG_NO_UI;
+        HRESULT hr = SHELL_InvokePidl(m_pidl, m_pSEI);
+        m_pSEI->fMask = fOrgFlags;
+        return Win32FromHrWithFallback(hr, ERROR_NO_ASSOCIATION);
+    }
+    return m_Error;
+}*/
+
+/*LPITEMIDLIST CShellExecute::EnsurePidl()
+{
+    if (m_pidl)
+        return m_pidl;
+    LPITEMIDLIST pidl;
+    HRESULT hr = SHParseDisplayName(m_pSEI->lpFile, NULL, &pidl, SFGAO_STORAGECAPMASK, &m_SFGAO);
+    if (FAILED(hr))
+    {
+        // TODO: Does Windows support relative paths here? <<<<<<<<<<<<<<<<<<<<<<
+        m_Error = Win32FromHrWithFallback(hr, ERROR_FILE_NOT_FOUND);
+        return NULL;
+    }
+    m_pidlAlloc.Attach(pidl);
+    return m_pidl = pidl;
+}
+
+SFGAOF CShellExecute::GetSFGAO()
+{
+    if (m_SFGAO != SFGAO_VALIDATE)
+        return m_SFGAO;
+    SFGAOF attrib = 0;
+    if (EnsurePidl() && FAILED(SHGetNameAndFlagsW(m_pidl, 0, NULL, 0, &attrib)))
+        attrib = 0;
+    return m_SFGAO = attrib;
+}*/
+
+UINT CShellExecute::ExecuteNormal(LPSHELLEXECUTEINFOW pSEI)
+{
+    HRESULT hr;
+    pSEI->hProcess = NULL; // FIXME: Only NT5 does this
+    m_pSEI = pSEI;
+    m_Error = ERROR_NO_ASSOCIATION; // TODO: Verify on Windows
+    m_SFGAO = SFGAO_VALIDATE;
+    m_pidl = (m_pSEI->fMask & SEE_MASK_IDLIST) ? (LPITEMIDLIST)m_pSEI->lpIDList : NULL;
+    //IUnknown *pSite = (m_pSEI->fMask & SEE_MASK_FLAG_HINST_IS_SITE) ? (IUnknown*)m_pSEI->hInstApp : NULL;
+    m_pSEI->hInstApp = (HINSTANCE)SE_ERR_FNF; // TODO: Verify on Windows || FIXME: hook is called with original value
+
+    // Initialize the working directory
+    if (!StrIsNullOrEmpty(pSEI->lpDirectory))
+    {
+        m_pszDir = const_cast<PWSTR>(pSEI->lpDirectory);
+        if (DoEnvSubst() && m_DirBuf.ExpandEnvironmentStrings(m_pszDir))
+            m_pszDir = m_DirBuf;
+    }
+    if (!PathIsDirectoryW(m_pszDir) && m_DirBuf.GetCurrentDirectory())
+        m_pszDir = m_DirBuf;
+    if (!PathIsDirectoryW(m_pszDir) && m_DirBuf.GetWindowsDirectory())
+        m_pszDir = m_DirBuf;
+
+    // Initialize the file path (if any)
+    if (!StrIsNullOrEmpty(pSEI->lpFile))
+    {
+        m_pszFile = const_cast<PWSTR>(pSEI->lpFile);
+        if (DoEnvSubst() && m_FileBuf.ExpandEnvironmentStrings(m_pszFile))
+            m_pszFile = m_FileBuf;
+        else if (m_FileBuf.Set(m_pszFile))
+            m_pszFile = m_FileBuf;
+
+        m_bIsUrl = UrlIs(m_pszFile, URLIS_URL);
+        m_bIsNs = !UseClass() && !UseInvoke() && m_pszFile[0] == ':' &&
+                  m_pszFile[1] == ':' && m_pszFile[2] == '{';
+    }
+    else if (!m_pidl)
+    {
+        m_pszFile = m_pszDir; // For ShellExecute(NULL, NULL, NULL, NULL, "C:\\", SW_SHOW);
+        if (StrIsNullOrEmpty(pSEI->lpDirectory) && LOBYTE(GetVersion()) >= 6)
+        {
+            if (LPITEMIDLIST pidl = SHCloneSpecialIDList(NULL, CSIDL_PERSONAL, TRUE))
+            {
+                m_pidlAlloc.Attach(m_pidl = pidl);
+                m_pszFile = NULL;
+            }
+        }
+    }
+
+    if (m_pszFile && *m_pszFile == '\"' && m_FileBuf.Set(m_pszFile))
+        PathUnquoteSpaces(const_cast<PWSTR>(m_pszFile = m_FileBuf));
+//TODO SDK OLD: "Note If the path is not included with the name, the current directory is assumed."
+    // Try to obtain the file/pidl we don't already have
+    if (m_pidl)
+    {
+        m_SFGAO = SFGAO_STORAGECAPMASK;
+        if (!StrIsNullOrEmpty(m_pszFile))
+            hr = SHGetNameAndFlagsW(m_pidl, 0, NULL, 0, &m_SFGAO);
+        else if ((m_pszFile = m_FileBuf.AllocCch(MAX_PATH)))
+            hr = SHGetNameAndFlagsW(m_pidl, SHGDN_FORPARSING, m_pszFile, MAX_PATH, &m_SFGAO);
+        else
+            hr = E_FAIL;
+
+        if (FAILED(hr))
+            m_SFGAO = SFGAO_VALIDATE;
+        else if (!(m_SFGAO & SFGAO_STREAM)) // Prefer raw input for non-files
+            m_pszFile = const_cast<PWSTR>(pSEI->lpFile);
+    }
+    else
+    {
+        CComPtr<IBindCtx> pBC(CreateBindCtx()); // Note: We continue even if this is NULL
+        PIDLIST_ABSOLUTE pidl;
+        if (SUCCEEDED(SHParseDisplayName(m_pszFile, pBC, &pidl, SFGAO_STORAGECAPMASK, &m_SFGAO)))
+            m_pidlAlloc.Attach(m_pidl = pidl);
+        else
+            m_SFGAO = SFGAO_VALIDATE;
+    }
+
+    hr = S_FALSE;
+    // Validate UNC path
+    #if 0 // TODO
+    if (hr == S_FALSE && PathIsUNC(m_pszFile))
+    {
+        UINT fUncConnect = (m_pSEI->fMask & SEE_MASK_CONNECTNETDRV) ? VALIDATEUNC_CONNECT : 0;
+        if (m_pSEI->fMask & SEE_MASK_FLAG_NO_UI)
+            fUncConnect |= VALIDATEUNC_NOUI;
+        if (!SHValidateUNC(m_pSEI->hwnd, m_pszFile, fUncConnect))
+        {
+            // FIXME: Do something here after SHValidateUNC is implemented
+        }
+    }
+    #endif
+
+    // Try hooks
+    if (hr == S_FALSE)
+    {
+        if ((hr = TryShellExecuteHooks(m_pSEI)) != S_FALSE)
+            SetError(-1, hr, m_pSEI->hInstApp); // The hook sets hInstApp
+    }
+
+    // Invoke as pidl
+    if (hr == S_FALSE && (m_pidl || !StrIsNullOrEmpty(m_pszFile)))
+    {
+        if ((hr = TryInvokePidl()) != S_FALSE)
+            SetError(-1, hr);
+    }
+
+    // Assoc for non-exe
+
+    // TODO: TryInvokeApplication
+
+    if (!m_Error && (SIZE_T)m_pSEI->hInstApp <= 32)
+        m_pSEI->hInstApp = (HINSTANCE)42;
+    return m_Error;
+}
+
+// TODO: ShellExecuteW should call this
+static UINT ShellExecuteNormal(LPSHELLEXECUTEINFOW pSEI)
+{
+    CComPtr<CShellExecute> ShellExec;
+    if (FAILED(ShellObjectCreator(ShellExec)))
+        return ERROR_OUTOFMEMORY;
+    return ShellExec->ExecuteNormal(pSEI);
+}
+
 /*************************************************************************
  *    SHELL_ExecuteW [Internal]
  *
  */
 static UINT_PTR SHELL_ExecuteW(const WCHAR *lpCmd, WCHAR *env, BOOL shWait,
                                const SHELLEXECUTEINFOW *psei, LPSHELLEXECUTEINFOW psei_out)
-{
+{if (GetLastError()==(UINT)-2)ShellExecuteNormal((LPSHELLEXECUTEINFOW)psei);
     STARTUPINFOW  startup;
     PROCESS_INFORMATION info;
     UINT_PTR retval = SE_ERR_NOASSOC;
@@ -1519,108 +2063,6 @@ static HRESULT shellex_load_object_and_run(HKEY hkey, LPCGUID guid, LPSHELLEXECU
     return shellex_run_context_menu_default(obj, sei);
 }
 
-static HRESULT shellex_get_contextmenu(LPSHELLEXECUTEINFOW sei, CComPtr<IContextMenu>& cm)
-{
-    CComHeapPtr<ITEMIDLIST> allocatedPidl;
-    LPITEMIDLIST pidl = NULL;
-
-    if (sei->lpIDList)
-    {
-        pidl = (LPITEMIDLIST)sei->lpIDList;
-    }
-    else
-    {
-        SFGAOF sfga = 0;
-        HRESULT hr = SHParseDisplayName(sei->lpFile, NULL, &allocatedPidl, SFGAO_STORAGECAPMASK, &sfga);
-        if (FAILED(hr))
-        {
-            WCHAR Buffer[MAX_PATH] = {};
-            // FIXME: MAX_PATH.....
-            UINT retval = SHELL_FindExecutable(sei->lpDirectory, sei->lpFile, sei->lpVerb, Buffer, _countof(Buffer), NULL, NULL, NULL, sei->lpParameters);
-            if (retval <= 32)
-                return HRESULT_FROM_WIN32(retval);
-
-            hr = SHParseDisplayName(Buffer, NULL, &allocatedPidl, SFGAO_STORAGECAPMASK, &sfga);
-            // This should not happen, we found it...
-            if (FAILED_UNEXPECTEDLY(hr))
-                return hr;
-        }
-
-        pidl = allocatedPidl;
-    }
-
-    CComPtr<IShellFolder> shf;
-    LPCITEMIDLIST pidllast = NULL;
-    HRESULT hr = SHBindToParent(pidl, IID_PPV_ARG(IShellFolder, &shf), &pidllast);
-    if (FAILED(hr))
-        return hr;
-
-    return shf->GetUIObjectOf(NULL, 1, &pidllast, IID_NULL_PPV_ARG(IContextMenu, &cm));
-}
-
-static HRESULT ShellExecute_ContextMenuVerb(LPSHELLEXECUTEINFOW sei)
-{
-    TRACE("%p\n", sei);
-
-    CCoInit coInit;
-
-    if (FAILED_UNEXPECTEDLY(coInit.hr))
-        return coInit.hr;
-
-    CComPtr<IContextMenu> cm;
-    HRESULT hr = shellex_get_contextmenu(sei, cm);
-    if (FAILED_UNEXPECTEDLY(hr))
-        return hr;
-
-    CComHeapPtr<char> verb, parameters, dir;
-    __SHCloneStrWtoA(&verb, sei->lpVerb);
-    __SHCloneStrWtoA(&parameters, sei->lpParameters);
-    __SHCloneStrWtoA(&dir, sei->lpDirectory);
-
-    BOOL fDefault = StrIsNullOrEmpty(sei->lpVerb);
-    CMINVOKECOMMANDINFOEX ici = { sizeof(ici) };
-    ici.fMask = SeeFlagsToCmicFlags(sei->fMask) | CMIC_MASK_UNICODE;
-    ici.nShow = sei->nShow;
-    if (!fDefault)
-    {
-        ici.lpVerb = verb;
-        ici.lpVerbW = sei->lpVerb;
-    }
-    ici.hwnd = sei->hwnd;
-    ici.lpParameters = parameters;
-    ici.lpParametersW = sei->lpParameters;
-    ici.lpDirectory = dir;
-    ici.lpDirectoryW = sei->lpDirectory;
-    ici.dwHotKey = sei->dwHotKey;
-    ici.hIcon = sei->hIcon;
-    if (ici.fMask & (CMIC_MASK_HASLINKNAME | CMIC_MASK_HASTITLE))
-        ici.lpTitleW = sei->lpClass;
-
-    enum { idFirst = 1, idLast = 0x7fff };
-    HMENU hMenu = CreatePopupMenu();
-    // Note: Windows does not pass CMF_EXTENDEDVERBS so "hidden" verbs cannot be executed
-    hr = cm->QueryContextMenu(hMenu, 0, idFirst, idLast, fDefault ? CMF_DEFAULTONLY : 0);
-    if (!FAILED_UNEXPECTEDLY(hr))
-    {
-        if (fDefault)
-        {
-            INT uDefault = GetMenuDefaultItem(hMenu, FALSE, 0);
-            uDefault = (uDefault != -1) ? uDefault - idFirst : 0;
-            ici.lpVerb = MAKEINTRESOURCEA(uDefault);
-            ici.lpVerbW = MAKEINTRESOURCEW(uDefault);
-        }
-
-        hr = cm->InvokeCommand((LPCMINVOKECOMMANDINFO)&ici);
-        if (!FAILED_UNEXPECTEDLY(hr))
-            hr = S_OK;
-    }
-
-    DestroyMenu(hMenu);
-
-    return hr;
-}
-
-
 /*************************************************************************
  *    ShellExecute_FromContextMenu [Internal]
  */
@@ -1783,57 +2225,44 @@ static BOOL SHELL_translate_idlist(LPSHELLEXECUTEINFOW sei, LPWSTR wszParameters
     return appKnownSingular;
 }
 
-static BOOL
-SHELL_InvokePidl(
-    _In_ LPSHELLEXECUTEINFOW sei,
-    _In_ LPCITEMIDLIST pidl)
+static HRESULT ShellExecute_InvokeAsPidl(LPSHELLEXECUTEINFOW sei, LPCITEMIDLIST pidl = NULL)
 {
-    // Bind pidl
-    CComPtr<IShellFolder> psfFolder;
-    LPCITEMIDLIST pidlLast;
-    HRESULT hr = SHBindToParent(pidl, IID_PPV_ARG(IShellFolder, &psfFolder), &pidlLast);
-    if (FAILED_UNEXPECTEDLY(hr))
-        return FALSE;
+    // IContextMenu::InvokeCommand will call us with a class, don't recurse back to it
+    if (sei->fMask & SEE_MASK_CLASSALL)
+        return HRESULT_FROM_WIN32(ERROR_INVALID_PARAMETER);
 
-    // Get the context menu to invoke a command
-    CComPtr<IContextMenu> pCM;
-    hr = psfFolder->GetUIObjectOf(NULL, 1, &pidlLast, IID_NULL_PPV_ARG(IContextMenu, &pCM));
-    if (FAILED_UNEXPECTEDLY(hr))
-        return FALSE;
-
-    // Invoke a command
-    CMINVOKECOMMANDINFO ici = { sizeof(ici) };
-    ici.fMask = (sei->fMask & SEE_CMIC_COMMON_BASICFLAGS) & ~CMIC_MASK_UNICODE; // FIXME: Unicode?
-    ici.nShow = sei->nShow;
-    ici.hwnd = sei->hwnd;
-    char szVerb[VERBKEY_CCHMAX];
-    if (sei->lpVerb && sei->lpVerb[0])
+    CComHeapPtr<ITEMIDLIST> allocatedPidl;
+    if (!pidl)
     {
-        WideCharToMultiByte(CP_ACP, 0, sei->lpVerb, -1, szVerb, _countof(szVerb), NULL, NULL);
-        szVerb[_countof(szVerb) - 1] = ANSI_NULL; // Avoid buffer overrun
-        ici.lpVerb = szVerb;
-    }
-    else // The default verb?
-    {
-        HMENU hMenu = CreatePopupMenu();
-        const INT idCmdFirst = 1, idCmdLast = 0x7FFF;
-        hr = pCM->QueryContextMenu(hMenu, 0, idCmdFirst, idCmdLast, CMF_DEFAULTONLY);
-        if (FAILED_UNEXPECTEDLY(hr))
+        if (sei->fMask & SEE_MASK_IDLIST)
         {
-            DestroyMenu(hMenu);
-            return FALSE;
+            if ((pidl = (LPCITEMIDLIST)sei->lpIDList) == NULL)
+                return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
         }
-
-        INT nDefaultID = GetMenuDefaultItem(hMenu, FALSE, 0);
-        DestroyMenu(hMenu);
-        if (nDefaultID == -1)
-            nDefaultID = idCmdFirst;
-
-        ici.lpVerb = MAKEINTRESOURCEA(nDefaultID - idCmdFirst);
+        else
+        {
+            SFGAOF sfga = 0;
+            HRESULT hr = SHParseDisplayName(sei->lpFile, NULL, &allocatedPidl, SFGAO_STORAGECAPMASK, &sfga);
+            if (FAILED(hr))
+            {
+                WCHAR Buffer[MAX_PATH]; // FIXME: MAX_PATH
+                UINT retval = SHELL_FindExecutable(sei->lpDirectory, sei->lpFile, 
+                                                   sei->lpVerb, Buffer, _countof(Buffer),
+                                                   NULL, NULL, NULL, sei->lpParameters);
+                if (retval <= 32)
+                    return HRESULT_FROM_WIN32(retval);
+                hr = SHParseDisplayName(Buffer, NULL, &allocatedPidl, SFGAO_STORAGECAPMASK, &sfga);
+                if (FAILED_UNEXPECTEDLY(hr)) // This should not happen, we found it...
+                    return hr;
+            }
+            pidl = allocatedPidl;
+        }
     }
-    hr = pCM->InvokeCommand(&ici);
-
-    return !FAILED_UNEXPECTEDLY(hr);
+    UINT fOrgFlags = sei->fMask;
+    sei->fMask |= SEE_MASK_FLAG_NO_UI;
+    HRESULT hr = SHELL_InvokePidl(pidl, sei);
+    sei->fMask = fOrgFlags;
+    return hr;
 }
 
 static UINT_PTR SHELL_quote_and_execute(LPCWSTR wcmd, LPCWSTR wszParameters, LPCWSTR wszKeyname, LPCWSTR wszApplicationName, LPWSTR env, LPSHELLEXECUTEINFOW psei, LPSHELLEXECUTEINFOW psei_out, SHELL_ExecuteW32 execfunc)
@@ -1968,6 +2397,16 @@ static BOOL SHELL_execute(LPSHELLEXECUTEINFOW sei, SHELL_ExecuteW32 execfunc)
           ((sei_tmp.fMask & SEE_MASK_CLASSALL) == SEE_MASK_CLASSNAME) ?
           debugstr_w(sei_tmp.lpClass) : "not used");
 
+    HRESULT hr = TryShellExecuteHooks(sei);
+    if (hr != S_FALSE)
+    {
+        if ((SIZE_T)sei->hInstApp > 32 || !sei->hInstApp)
+            return TRUE;
+        int err = Win32ErrFromHInst(sei->hInstApp);
+        SetLastError(err > 0 ? err : ERROR_ACCESS_DENIED);
+        return FALSE;
+    }
+
     /* make copies of all path/command strings */
     CHeapPtr<WCHAR, CLocalAllocator> wszApplicationName;
     DWORD dwApplicationNameLen = MAX_PATH + 2;
@@ -2084,15 +2523,6 @@ static BOOL SHELL_execute(LPSHELLEXECUTEINFOW sei, SHELL_ExecuteW32 execfunc)
     {
         LPCITEMIDLIST pidl = (LPCITEMIDLIST)sei_tmp.lpIDList;
 
-        CComPtr<IShellExecuteHookW> pSEH;
-        HRESULT hr = SHBindToParent(pidl, IID_PPV_ARG(IShellExecuteHookW, &pSEH), NULL);
-        if (SUCCEEDED(hr))
-        {
-            hr = pSEH->Execute(&sei_tmp);
-            if (hr == S_OK)
-                return TRUE;
-        }
-
         hr = SHGetNameAndFlagsW(pidl, SHGDN_FORPARSING, wszApplicationName, dwApplicationNameLen, NULL);
         if (FAILED(hr))
         {
@@ -2117,8 +2547,7 @@ static BOOL SHELL_execute(LPSHELLEXECUTEINFOW sei, SHELL_ExecuteW32 execfunc)
 
     if ((sei_tmp.fMask & SEE_MASK_INVOKEIDLIST) == SEE_MASK_INVOKEIDLIST)
     {
-        HRESULT hr = ShellExecute_ContextMenuVerb(&sei_tmp);
-        if (SUCCEEDED(hr))
+        if (SUCCEEDED(ShellExecute_InvokeAsPidl(&sei_tmp)))
         {
             sei->hInstApp = (HINSTANCE)42;
             return TRUE;
@@ -2157,8 +2586,8 @@ static BOOL SHELL_execute(LPSHELLEXECUTEINFOW sei, SHELL_ExecuteW32 execfunc)
          StrCmpNW(sei_tmp.lpFile, L"::{", 3) == 0))
     {
         CComHeapPtr<ITEMIDLIST> pidlParsed;
-        HRESULT hr = SHParseDisplayName(sei_tmp.lpFile, NULL, &pidlParsed, 0, NULL);
-        if (SUCCEEDED(hr) && SHELL_InvokePidl(&sei_tmp, pidlParsed))
+        hr = SHParseDisplayName(sei_tmp.lpFile, NULL, &pidlParsed, 0, NULL);
+        if (SUCCEEDED(hr) && SUCCEEDED(ShellExecute_InvokeAsPidl(&sei_tmp, pidlParsed)))
         {
             sei_tmp.hInstApp = (HINSTANCE)UlongToHandle(42);
             return TRUE;
@@ -2352,7 +2781,7 @@ HINSTANCE WINAPI ShellExecuteA(HWND hWnd, LPCSTR lpVerb, LPCSTR lpFile,
           debugstr_a(lpParameters), debugstr_a(lpDirectory), iShowCmd);
 
     sei.cbSize = sizeof(sei);
-    sei.fMask = SEE_MASK_FLAG_NO_UI;
+    sei.fMask = SEE_MASK_FLAG_NO_UI | SEE_MASK_FLAG_DDEWAIT | SEE_MASK_UNKNOWN_0x1000;
     sei.hwnd = hWnd;
     sei.lpVerb = lpVerb;
     sei.lpFile = lpFile;
@@ -2520,7 +2949,7 @@ HINSTANCE WINAPI ShellExecuteW(HWND hwnd, LPCWSTR lpVerb, LPCWSTR lpFile,
 
     TRACE("\n");
     sei.cbSize = sizeof(sei);
-    sei.fMask = SEE_MASK_FLAG_NO_UI;
+    sei.fMask = SEE_MASK_FLAG_NO_UI | SEE_MASK_FLAG_DDEWAIT | SEE_MASK_UNKNOWN_0x1000;
     sei.hwnd = hwnd;
     sei.lpVerb = lpVerb;
     sei.lpFile = lpFile;

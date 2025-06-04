@@ -14,8 +14,7 @@ class CNetworkConnections:
     public IShellExtInit,
     public IShellFolder2,
     public IOleCommandTarget,
-    public IShellFolderViewCB,
-    public IShellExecuteHookW
+    public IShellFolderViewCB
 {
     public:
         CNetworkConnections();
@@ -56,9 +55,6 @@ class CNetworkConnections:
 
         // IShellFolderViewCB
         STDMETHOD(MessageSFVCB)(UINT uMsg, WPARAM wParam, LPARAM lParam) override;
-
-        // IShellExecuteHookW
-        STDMETHOD(Execute)(LPSHELLEXECUTEINFOW pei) override;
 
     private:
 
