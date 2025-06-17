@@ -58,6 +58,10 @@ public:
     CRegistryFolder();
     virtual ~CRegistryFolder();
 
+    HRESULT DeleteKeyOrValue(HWND hWnd, IDataObject *pDO);
+    HRESULT DisplayItemProperties(HWND hWnd, IDataObject *pDO);
+    static HRESULT CALLBACK DefCtxMenuCallback(IShellFolder *pSF, HWND hwnd, IDataObject *pDO, UINT uMsg, WPARAM wParam, LPARAM lParam);
+
     // IShellFolder
     STDMETHOD(EnumObjects)(
         HWND hwndOwner,

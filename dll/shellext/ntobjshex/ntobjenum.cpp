@@ -95,26 +95,28 @@ OBJECT_TYPE MapTypeNameToType(LPCWSTR TypeName, DWORD cbTypeName)
     return UNKNOWN_OBJECT_TYPE;
 }
 
+HRESULT OpenRegKey(HKEY root, PCWSTR path, UINT Access, HKEY &hKey)
+{
+    if (root)
+    {
+        UINT res = RegOpenKeyExW(root, path + (*path == '\\'), 0, Access, &hKey);
+        return HRESULT_FROM_WIN32(res);
+    }
+    HRESULT status = NtOpenObject(KEY_OBJECT, (PHANDLE) &hKey, Access, path);
+    return NT_SUCCESS(status) ? S_OK : HRESULT_FROM_NT(status);
+}
+
 HRESULT ReadRegistryValue(HKEY root, PCWSTR path, PCWSTR valueName, PVOID * valueData, PDWORD valueLength)
 {
     HKEY hkey;
-
-    DWORD res;
-    if (root)
+    HRESULT hr = OpenRegKey(root, path, STANDARD_RIGHTS_READ | KEY_QUERY_VALUE, hkey);
+    if (FAILED(hr))
     {
-        res = RegOpenKeyExW(root, *path == '\\' ? path + 1 : path, 0, STANDARD_RIGHTS_READ | KEY_QUERY_VALUE, &hkey);
-    }
-    else
-    {
-        res = NtOpenObject(KEY_OBJECT, (PHANDLE) &hkey, STANDARD_RIGHTS_READ | KEY_QUERY_VALUE, path);
-    }
-    if (!NT_SUCCESS(res))
-    {
-        ERR("RegOpenKeyExW failed for path %S with status=%x\n", path, res);
-        return HRESULT_FROM_NT(res);
+        ERR("RegOpenKeyExW failed for path %S with HR=%x\n", path, hr);
+        return hr;
     }
 
-    res = RegQueryValueExW(hkey, valueName, NULL, NULL, NULL, valueLength);
+    DWORD res = RegQueryValueExW(hkey, valueName, NULL, NULL, NULL, valueLength);
     if (!NT_SUCCESS(res))
     {
         ERR("RegQueryValueExW failed for path %S with status=%x\n", path, res);

@@ -84,6 +84,7 @@ struct RegPidlEntry
 
 #include <poppack.h>
 
+HRESULT OpenRegKey(HKEY root, PCWSTR path, UINT Access, HKEY &hKey);
 HRESULT ReadRegistryValue(HKEY root, PCWSTR path, PCWSTR valueName, PVOID * valueData, PDWORD valueLength);
 
 HRESULT GetEnumRegistryRoot(IEnumIDList ** ppil);

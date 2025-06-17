@@ -9,6 +9,17 @@
 
 extern const GUID CLSID_NtObjectFolder;
 
+#define IDS_REGDEFVAL L"(Default)"
+#define IDS_MENUDELETE L"&Delete"
+#define IDS_MENUPROPERTIES L"&Properties"
+#define IDS_CONFIRMDELETE L"Are you sure you want to delete \"%1\"?"
+
+static inline void LoadString(PCWSTR ResId, PWSTR Out, UINT cchMax)
+{
+    // TODO: Localize these strings
+    lstrcpynW(Out, ResId, cchMax);
+}
+
 class CFolderViewCB :
     public CComObjectRootEx<CComMultiThreadModelNoCS>,
     public IShellFolderViewCB
@@ -418,7 +429,7 @@ public:
 
             LPITEMIDLIST parent = m_shellPidl;
 
-            CComPtr<IShellFolder> psfParent = this;
+            CComPtr<IShellFolder> psfParent = static_cast<TSelf*>(this);
 
             LPCITEMIDLIST child;
 
@@ -461,7 +472,7 @@ public:
                 nkeys = 0;
             }
 
-            HRESULT hr = CDefFolderMenu_Create2(parent, hwndOwner, cidl, apidl, psfParent, DefCtxMenuCallback, nkeys, keys, &pcm);
+            HRESULT hr = CDefFolderMenu_Create2(parent, hwndOwner, cidl, apidl, psfParent, TSelf::DefCtxMenuCallback, nkeys, keys, &pcm);
             if (FAILED_UNEXPECTEDLY(hr))
                 return hr;
 
