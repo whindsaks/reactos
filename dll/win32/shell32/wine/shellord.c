@@ -1012,7 +1012,7 @@ void WINAPI SHAddToRecentDocs (UINT uFlags,LPCVOID pv)
 {
 #ifdef __REACTOS__
     INT ret;
-    WCHAR szTargetPath[MAX_PATH], szLinkDir[MAX_PATH], szLinkFile[MAX_PATH], szDescription[80];
+    WCHAR szTargetPath[MAX_PATH], szLinkDir[MAX_PATH], szLinkFile[MAX_PATH];
     WCHAR szPath[MAX_PATH];
     DWORD cbBuffer;
     HANDLE hFind;
@@ -1032,7 +1032,7 @@ void WINAPI SHAddToRecentDocs (UINT uFlags,LPCVOID pv)
     /* check policy */
     ret = SHRestricted(REST_NORECENTDOCSHISTORY);
     TRACE("policy value for NoRecentDocsHistory = %08x\n", ret);
-    if (ret != 0)
+    if (ret != 0 && pv)
         return;
 
     /* store to szTargetPath */
@@ -1043,9 +1043,8 @@ void WINAPI SHAddToRecentDocs (UINT uFlags,LPCVOID pv)
         {
             case SHARD_PATHA:
                 MultiByteToWideChar(CP_ACP, 0, pv, -1, szLinkDir, ARRAYSIZE(szLinkDir));
-                GetFullPathNameW(szLinkDir, ARRAYSIZE(szTargetPath), szTargetPath, NULL);
-                break;
-
+                pv = szLinkDir;
+                // fallthrough
             case SHARD_PATHW:
                 GetFullPathNameW(pv, ARRAYSIZE(szTargetPath), szTargetPath, NULL);
                 break;
@@ -1062,7 +1061,7 @@ void WINAPI SHAddToRecentDocs (UINT uFlags,LPCVOID pv)
     }
 
     /* get recent folder */
-    if (!SHGetSpecialFolderPathW(NULL, szLinkDir, CSIDL_RECENT, FALSE))
+    if (!SHGetSpecialFolderPathW(NULL, szLinkDir, CSIDL_RECENT, pv != NULL))
     {
         ERR("serious issues 1\n");
         return;
@@ -1131,9 +1130,12 @@ void WINAPI SHAddToRecentDocs (UINT uFlags,LPCVOID pv)
             goto Quit;
         }
 
-        IShellLinkW_GetPath(psl, szPath, ARRAYSIZE(szPath), NULL, 0);
+        hr = IShellLinkW_GetPath(psl, szPath, ARRAYSIZE(szPath), NULL, 0);
         IShellLinkW_Release(psl);
         psl = NULL;
+
+        if (hr != S_OK)
+            goto Quit; // The shortcut does not point to something in the file-system, stop
 
         lstrcpynW(szTargetPath, szPath, ARRAYSIZE(szTargetPath));
         pchDotExt = PathFindExtensionW(szTargetPath);
@@ -1153,10 +1155,6 @@ void WINAPI SHAddToRecentDocs (UINT uFlags,LPCVOID pv)
     /* ***  JOB 0: Build strings *** */
 
     pchTargetTitle = PathFindFileNameW(szTargetPath);
-
-    lstrcpyW(szDescription, L"Shortcut to ");
-    StrCatBuffW(szDescription, pchTargetTitle, ARRAYSIZE(szDescription));
-
     lstrcpynW(szLinkFile, szLinkDir, ARRAYSIZE(szLinkFile));
     PathAppendW(szLinkFile, pchTargetTitle);
     StrCatBuffW(szLinkFile, L".lnk", ARRAYSIZE(szLinkFile));
@@ -1232,8 +1230,6 @@ void WINAPI SHAddToRecentDocs (UINT uFlags,LPCVOID pv)
         hr = IShellLinkW_SetIDList(psl, pv);
     else
         hr = IShellLinkW_SetPath(psl, pv);
-
-    IShellLinkW_SetDescription(psl, szDescription);
 
     hr = IPersistFile_Save(pPf, szLinkFile, TRUE);
     if (FAILED(hr))
