@@ -50,7 +50,8 @@ list(APPEND SOURCE
     stg_prop.c
     stg_stream.c
     storage32.c
-    usrmarshal.c)
+    usrmarshal.c
+    variant.c)
 
 if(MSVC AND (ARCH STREQUAL "i386"))
     list(APPEND SOURCE msvc-thiscall.c)

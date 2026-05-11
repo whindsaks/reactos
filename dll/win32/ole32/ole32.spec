@@ -338,7 +338,7 @@
 @ stdcall PropStgNameToFmtId(wstr ptr)
 @ stdcall PropSysAllocString(wstr)
 @ stdcall PropSysFreeString(wstr)
-#@ stub PropVariantChangeType
+@ stdcall PropVariantChangeType(ptr ptr long long long)
 @ stdcall PropVariantClear(ptr) combase.PropVariantClear
 @ stdcall PropVariantCopy(ptr ptr) combase.PropVariantCopy
 @ stdcall ReadClassStg(ptr ptr)
