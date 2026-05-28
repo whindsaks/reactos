@@ -106,6 +106,13 @@ CAppDB::FindAvailableByPackageName(const CStringW &name)
     return NULL;
 }
 
+CPathW
+CAppDB::BuildManifestPath(PCWSTR PkgName, PCWSTR DBPath)
+{
+    CPathW AppsPath = DBPath ? CPathW(DBPath) : (CPathW(GetDefaultPath()) += RAPPS_DATABASE_SUBDIR);
+    return CPathW(AppsPath) += CStringW(PkgName) + MANIFEST_DOTEXT;
+}
+
 CAvailableApplicationInfo *
 CAppDB::CreateAvailableAppInstance(const CStringW &PkgName, PCWSTR DBPath)
 {

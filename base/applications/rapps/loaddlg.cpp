@@ -120,6 +120,28 @@ UrlUnescapeAndMakeFileNameValid(CStringW& str)
 }
 
 static void
+RunScript(PCWSTR Type, PCWSTR Event, PCWSTR PkgName, PCWSTR Parameter, int ExitCode = 0)
+{
+    if (_wcsicmp(L"IJS", Type)) // InternalJavaScript
+        return;
+
+    PROCESS_INFORMATION pi;
+    STARTUPINFOW si = { sizeof(si) };
+    WCHAR szSysDir[MAX_PATH];
+    GetSystemDirectory(szSysDir, MAX_PATH);
+    CStringW manifest = CAppDB::BuildManifestPath(PkgName);
+    CStringW ecbuf;
+    ecbuf.Format(L" %d", ExitCode);
+    CStringW cmd = L"\"" + BuildPath(szSysDir, L"wscript.exe") + L"\" //nologo //E:jscript \"" +
+                   manifest + L"\" " + CStringW(Event) + CStringW(L" ") + Parameter + ecbuf;
+    if (!CreateProcessW(NULL, cmd.GetBuffer(), NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))
+        return ;
+    WaitForProcess(pi.hProcess);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+}
+
+static void
 SetFriendlyUrl(HWND hWnd, LPCWSTR pszUrl)
 {
     CStringW buf;
@@ -152,6 +174,7 @@ struct DownloadInfo
         {
             cfg->GetString(DB_SAVEAS, szFileName);
             cfg->GetString(DB_DEPENDENCIES, szDependencies);
+            cfg->GetString(DB_SCRIPT, szScript);
         }
     }
 
@@ -171,6 +194,7 @@ struct DownloadInfo
     CStringW szFileName;
     CStringW szSilentInstallArgs;
     CStringW szDependencies;
+    CStringW szScript;
     ULONG SizeInBytes;
 };
 
@@ -1156,13 +1180,20 @@ run:
                 {
                     shExInfo.lpParameters = params;
                     if (it == INSTALLER_MSI)
+                    {
+                        app = shExInfo.lpFile;
                         shExInfo.lpFile = L"msiexec.exe"; // params contains the .msi path
+                    }
                 }
             }
         }
 
         /* FIXME: Do we want to log installer status? */
         WriteLogMessage(EVENTLOG_SUCCESS, MSG_SUCCESS_INSTALL, Info.szName);
+
+        DWORD exitcode;
+        CPathW scriptparam = PathQuote(!app.IsEmpty() ? app.GetString() : shExInfo.lpFile);
+        RunScript(Info.szScript, L"PreInstall", Info.szPackageName, scriptparam);
 
         if (ShellExecuteExW(&shExInfo))
         {
@@ -1176,15 +1207,19 @@ run:
             // TODO: issue an install operation separately so that the apps could be downloaded in the background
             if (shExInfo.hProcess)
             {
-                WaitForSingleObject(shExInfo.hProcess, INFINITE);
+                // TODO: Disable cancel button?
+                exitcode = WaitForProcess(shExInfo.hProcess);
                 CloseHandle(shExInfo.hProcess);
                 SendMessageW(hMainWnd, WM_NOTIFY_INSTALLERFINISHED, 0, (LPARAM)(PCWSTR)Info.szPackageName);
             }
         }
         else
         {
-            ShowLastError(hMainWnd, FALSE, GetLastError());
+            exitcode = GetLastError();
+            ShowLastError(hMainWnd, FALSE, exitcode);
         }
+
+        RunScript(Info.szScript, L"PostInstall", Info.szPackageName, scriptparam, exitcode);
 
         if (!tempdir.IsEmpty())
         {

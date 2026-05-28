@@ -192,7 +192,8 @@ WaitForProcess(HANDLE hProcess)
         }
         else
         {
-            // TODO: if (wait == WAIT_OBJECT_0) GetExitCodeProcess for MSI reboot codes
+            if (wait == WAIT_OBJECT_0)
+                GetExitCodeProcess(hProcess, &code);
             break;
         }
     }

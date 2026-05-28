@@ -128,6 +128,14 @@ BuildPath(const T &Base, LPCWSTR Append)
     return path + Append;
 }
 
+template <class T> static CPathW
+PathQuote(const T & Input)
+{
+    CPathW Output(Input);
+    Output.QuoteSpaces();
+    return Output;
+}
+
 CStringW
 SplitFileAndDirectory(LPCWSTR FullPath, CStringW *pDir = NULL);
 BOOL

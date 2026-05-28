@@ -100,6 +100,7 @@ enum InstallerType
 #define DB_SILENTARGS L"SilentParameters"
 #define DB_NTVER L"NTVersion" // "Max-" || "Min-Max" || "Min" || "Min+"
 #define DB_DEPENDENCIES L"Dependencies"
+#define DB_SCRIPT L"Script"
 
 #define DB_GENINSTSECTION L"Generate"
 #define GENERATE_ARPSUBKEY L"RApps" // Our uninstall data is stored here

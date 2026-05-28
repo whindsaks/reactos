@@ -25,6 +25,8 @@ class CAppDB
 
     static CStringW
     GetDefaultPath();
+    static CPathW
+    BuildManifestPath(PCWSTR PkgName, PCWSTR DBPath = NULL);
 
     VOID
     GetApps(CAtlList<CAppInfo *> &List, AppsCategories Type) const;
