@@ -22,6 +22,7 @@ BEGIN
         MENUITEM "&Kur\tCtrl+Enter", ID_INSTALL
         MENUITEM "K&aldır\tCtrl+Del", ID_UNINSTALL
         MENUITEM "&Değiştir", ID_MODIFY
+        MENUITEM "Ru&n", ID_RUNAPP
         MENUITEM SEPARATOR
         MENUITEM "&Girdiyi Kayıt Defteri'nden Kaldır", ID_REGREMOVE
         MENUITEM SEPARATOR

@@ -46,6 +46,8 @@ ErrorBox(HWND hOwner, UINT Error = GetLastError());
 VOID
 CopyTextToClipboard(LPCWSTR lpszText);
 VOID
+ReplaceMenuTree(HMENU hMenu, HMENU hNewMenu);
+VOID
 ShowPopupMenuEx(HWND hwnd, HWND hwndOwner, UINT MenuID, UINT DefaultItem, POINT *Point = NULL);
 VOID
 EmulateDialogReposition(HWND hwnd);
@@ -112,6 +114,8 @@ HRESULT
 RegKeyHasValues(HKEY hKey, LPCWSTR Path, REGSAM wowsam = 0);
 LPCWSTR
 GetRegString(CRegKey &Key, LPCWSTR Name, CStringW &Value);
+BOOL
+QueryArpKeysString(LPCWSTR pszKeyName, PCWSTR pszName, CStringW *pszResult);
 
 bool
 ExpandEnvStrings(CStringW &Str);

@@ -20,6 +20,7 @@ BEGIN
         MENUITEM "&Слагане\tCtrl+Enter", ID_INSTALL
         MENUITEM "&Махане\tCtrl+Del", ID_UNINSTALL
         MENUITEM "&Промяна", ID_MODIFY
+        MENUITEM "Ru&n", ID_RUNAPP
         MENUITEM SEPARATOR
         MENUITEM "Пр&емахване от регистъра", ID_REGREMOVE
         MENUITEM SEPARATOR

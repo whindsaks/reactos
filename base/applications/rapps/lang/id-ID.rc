@@ -20,6 +20,7 @@ BEGIN
         MENUITEM "P&asang\tCtrl+Enter", ID_INSTALL
         MENUITEM "Bong&kar\tCtrl+Del", ID_UNINSTALL
         MENUITEM "&Ubah", ID_MODIFY
+        MENUITEM "Ru&n", ID_RUNAPP
         MENUITEM SEPARATOR
         MENUITEM "Hapus dari R&egistri", ID_REGREMOVE
         MENUITEM SEPARATOR

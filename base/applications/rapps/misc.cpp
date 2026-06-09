@@ -94,6 +94,7 @@ ShowPopupMenuEx(HWND hwnd, HWND hwndOwner, UINT MenuID, UINT DefaultItem, POINT 
     else
     {
         hPopupMenu = GetMenu(hwnd);
+        { WCHAR d[99]; wsprintf(d,L"%p from h:%p\n", hPopupMenu, hwnd),OutputDebugString(d); }
     }
 
     ZeroMemory(&ItemInfo, sizeof(ItemInfo));
@@ -335,51 +336,38 @@ WriteLogMessage(WORD wType, DWORD dwEventID, LPCWSTR lpMsg)
     return TRUE;
 }
 
+static HKEY g_QueryAllHKeys[] = { HKEY_CURRENT_USER, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, HKEY_LOCAL_MACHINE };
+static UINT g_QueryAllWow64[] = { KEY_WOW64_64KEY  , KEY_WOW64_32KEY  , KEY_WOW64_64KEY   , KEY_WOW64_32KEY    };
+
 BOOL
-GetInstalledVersion_WowUser(CStringW *szVersionResult, const CStringW &szRegName, BOOL IsUserKey, REGSAM keyWow)
+QueryArpKeysString(LPCWSTR pszKeyName, PCWSTR pszName, CStringW *pszResult)
 {
-    BOOL bHasSucceded = FALSE;
-    ATL::CRegKey key;
-    CStringW szVersion;
-    CStringW szPath = CStringW(L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\") + szRegName;
-
-    if (key.Open(IsUserKey ? HKEY_CURRENT_USER : HKEY_LOCAL_MACHINE, szPath.GetString(), keyWow | KEY_READ) !=
-        ERROR_SUCCESS)
+    CStringW szPath = CStringW(L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\") + pszKeyName;
+    for (UINT i = 0; i < _countof(g_QueryAllHKeys); ++i)
     {
-        return FALSE;
-    }
-
-    if (szVersionResult != NULL)
-    {
-        ULONG dwSize = MAX_PATH * sizeof(WCHAR);
-
-        if (key.QueryStringValue(L"DisplayVersion", szVersion.GetBuffer(MAX_PATH), &dwSize) == ERROR_SUCCESS)
+        ATL::CRegKey key;
+        if (key.Open(g_QueryAllHKeys[i], szPath.GetString(), KEY_READ | g_QueryAllWow64[i]))
+            continue;
+        if (!pszName)
+            return TRUE; // Just a query for the key
+        DWORD maxlen = MAX_PATH, cb = maxlen * sizeof(WCHAR);
+        CStringW szTemp;
+        if (key.QueryStringValue(pszName, szTemp.GetBuffer(MAX_PATH), &cb) == ERROR_SUCCESS)
         {
-            szVersion.ReleaseBuffer();
-            *szVersionResult = szVersion;
-            bHasSucceded = TRUE;
-        }
-        else
-        {
-            szVersion.ReleaseBuffer();
+            szTemp.ReleaseBuffer();
+            if (pszResult)
+                *pszResult = szTemp;
+            return TRUE;
         }
     }
-    else
-    {
-        bHasSucceded = TRUE;
-    }
-
-    return bHasSucceded;
+    return FALSE;
 }
 
 BOOL
 GetInstalledVersion(CStringW *pszVersion, const CStringW &szRegName)
 {
-    return (
-        !szRegName.IsEmpty() && (GetInstalledVersion_WowUser(pszVersion, szRegName, TRUE, KEY_WOW64_32KEY) ||
-                                 GetInstalledVersion_WowUser(pszVersion, szRegName, FALSE, KEY_WOW64_32KEY) ||
-                                 GetInstalledVersion_WowUser(pszVersion, szRegName, TRUE, KEY_WOW64_64KEY) ||
-                                 GetInstalledVersion_WowUser(pszVersion, szRegName, FALSE, KEY_WOW64_64KEY)));
+    PCWSTR pszValue = pszVersion ? L"DisplayVersion" : NULL;
+    return !szRegName.IsEmpty() && QueryArpKeysString(szRegName, pszValue, pszVersion);
 }
 
 BOOL

@@ -1995,6 +1995,7 @@ CApplicationView::OnCommand(WPARAM wParam, LPARAM lParam)
         case ID_REFRESH:
         case ID_RESETDB:
         case ID_CHECK_ALL:
+        case ID_RUNAPP:
             m_MainWindow->SendMessageW(WM_COMMAND, wCommand, 0);
             break;
     }
@@ -2079,6 +2080,7 @@ CApplicationView::SetDisplayAppType(APPLICATION_VIEW_TYPE AppType)
     EnableMenuItem(hMenu, ID_UNINSTALL, MF_GRAYED);
     EnableMenuItem(hMenu, ID_MODIFY, MF_GRAYED);
     EnableMenuItem(hMenu, ID_REGREMOVE, MF_GRAYED);
+    EnableMenuItem(hMenu, ID_RUNAPP, MF_GRAYED);
     m_Toolbar->SendMessageW(TB_ENABLEBUTTON, ID_UNINSTALL, FALSE);
     m_Toolbar->SendMessageW(TB_ENABLEBUTTON, ID_MODIFY, FALSE);
 
@@ -2200,12 +2202,10 @@ CApplicationView::ItemGetFocus(LPVOID CallbackParam)
     RefreshDetailsPane(*Info);
 
     HMENU hMenu = GetMenu();
+    BOOL CanUninstall = ApplicationViewType == AppViewTypeInstalledApps;
     if (ApplicationViewType == AppViewTypeInstalledApps)
     {
         /* ID_INSTALL is left disabled */
-
-        EnableMenuItem(hMenu, ID_UNINSTALL, MF_ENABLED);
-        m_Toolbar->SendMessageW(TB_ENABLEBUTTON, ID_UNINSTALL, TRUE);
 
         BOOL CanModify = Info->CanModify();
         EnableMenuItem(hMenu, ID_MODIFY, CanModify ? MF_ENABLED : MF_GRAYED);
@@ -2215,17 +2215,20 @@ CApplicationView::ItemGetFocus(LPVOID CallbackParam)
     }
     else if (ApplicationViewType == AppViewTypeAvailableApps)
     {
-        // We shouldn't get there in APPWIZ-mode.
-        ATLASSERT(!m_MainWindow->m_bAppwizMode);
+        ATLASSERT(!m_MainWindow->m_bAppwizMode); // We shouldn't get here in APPWIZ-mode.
 
+        CAvailableApplicationInfo *AvailInfo = static_cast<CAvailableApplicationInfo*>(Info);
         EnableMenuItem(hMenu, ID_INSTALL, MF_ENABLED);
         m_Toolbar->SendMessageW(TB_ENABLEBUTTON, ID_INSTALL, TRUE);
 
-        /* ID_UNINSTALL, ID_MODIFY and ID_REGREMOVE are left disabled */
-        // TODO: When we are able to detect whether this selected available
-        // application is already installed (could be an older version),
-        // do also what's done in the AppViewTypeInstalledApps case above.
+        // ID_MODIFY and ID_REGREMOVE are left disabled (TODO: Enable or hide them if not applicable)
+        CanUninstall = AvailInfo->IsInstalled();
+        bool CanRun = AvailInfo->CanRun();
+        EnableMenuItem(hMenu, ID_RUNAPP, CanRun ? MF_ENABLED : MF_GRAYED);
     }
+
+    EnableMenuItem(hMenu, ID_UNINSTALL, CanUninstall ? MF_ENABLED : MF_GRAYED);
+    m_Toolbar->SendMessageW(TB_ENABLEBUTTON, ID_UNINSTALL, CanUninstall);
 }
 
 // This function is called when a ListView item (an application) is checked/unchecked.

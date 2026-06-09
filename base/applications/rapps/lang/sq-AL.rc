@@ -20,6 +20,7 @@ BEGIN
         MENUITEM "&Instalo\tCtrl+Enter", ID_INSTALL
         MENUITEM "&Uninstall\tCtrl+Del", ID_UNINSTALL
         MENUITEM "&Modifiko", ID_MODIFY
+        MENUITEM "Ru&n", ID_RUNAPP
         MENUITEM SEPARATOR
         MENUITEM "Hiq nga R&egjistri", ID_REGREMOVE
         MENUITEM SEPARATOR

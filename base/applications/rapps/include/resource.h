@@ -84,6 +84,7 @@
 #define ID_RESETDB               561
 #define ID_CHECK_ALL             562
 #define ID_SEARCH                563
+#define ID_RUNAPP                564
 
 /* Messages */
 #define ID_ACTIVATE_APPWIZ       600

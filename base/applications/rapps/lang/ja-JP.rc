@@ -22,6 +22,7 @@ BEGIN
         MENUITEM "インストール(&I)\tCtrl+Enter", ID_INSTALL
         MENUITEM "アンインストール(&U)\tCtrl+Del", ID_UNINSTALL
         MENUITEM "変更(&M)", ID_MODIFY
+        MENUITEM "Ru&n", ID_RUNAPP
         MENUITEM SEPARATOR
         MENUITEM "レジストリから削除(&E)", ID_REGREMOVE
         MENUITEM SEPARATOR

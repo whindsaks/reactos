@@ -32,7 +32,7 @@ CAvailableApplicationInfo::CAvailableApplicationInfo(
     const CStringW &PkgName,
     AppsCategories Category,
     const CPathW &BasePath)
-    : CAppInfo(PkgName, ClampAvailableCategory(Category)), m_Parser(Parser), m_ScrnshotRetrieved(false), m_LanguagesLoaded(false)
+    : CAppInfo(PkgName, ClampAvailableCategory(Category)), m_Parser(Parser)
 {
     m_Parser->GetString(L"Name", szDisplayName);
     m_Parser->GetString(L"Version", szDisplayVersion);
@@ -123,6 +123,9 @@ CompareVersion(const CStringW &left, const CStringW &right)
 bool
 CAvailableApplicationInfo::IsInstalled(CStringW *pOutKeyName) const
 {
+    if (!pOutKeyName && (m_AvailFlags.Tried & COR_INSTALLED))
+        return (m_AvailFlags.Result & COR_INSTALLED) != 0;
+
     LPCWSTR pszKeyName = NULL;
     CStringW szRegName;
     m_Parser->GetString(DB_REGNAME, szRegName);
@@ -133,7 +136,7 @@ CAvailableApplicationInfo::IsInstalled(CStringW *pOutKeyName) const
 
     if (pszKeyName && pOutKeyName)
         *pOutKeyName = pszKeyName;
-    return pszKeyName != NULL;
+    return m_AvailFlags.Set(COR_INSTALLED, pszKeyName != NULL);
 }
 
 VOID
@@ -224,7 +227,7 @@ CAvailableApplicationInfo::LicenseString()
 VOID
 CAvailableApplicationInfo::InsertLanguageInfo(CAppRichEdit *RichEdit)
 {
-    if (!m_LanguagesLoaded)
+    if (!(m_AvailFlags.Tried & COR_LOADLANGUAGES))
     {
         RetrieveLanguages();
     }
@@ -285,7 +288,7 @@ CAvailableApplicationInfo::InsertLanguageInfo(CAppRichEdit *RichEdit)
 VOID
 CAvailableApplicationInfo::RetrieveLanguages()
 {
-    m_LanguagesLoaded = true;
+    m_AvailFlags.Set(COR_LOADLANGUAGES, true);
 
     CStringW szBuffer;
     if (!m_Parser->GetString(L"Languages", szBuffer))
@@ -309,6 +312,58 @@ CAvailableApplicationInfo::RetrieveLanguages()
             m_LanguageLCIDs.Add(static_cast<LCID>(iLCID));
         }
     }
+}
+
+bool
+CAvailableApplicationInfo::GetRunInfo(CStringW *pszApp, CStringW *pszParameters) const
+{
+    bool Result = false;
+    CStringW ArpKeyName, RunCmd, Buffer;
+    if (IsInstalled(&ArpKeyName) && m_Parser->GetString(DB_RUNCMD, RunCmd))
+    {
+        if (!QueryArpKeysString(ArpKeyName, L"InstallLocation", &Buffer) &&
+            QueryArpKeysString(ArpKeyName, L"UninstallString", &Buffer))
+        {
+            LPWSTR dir = Buffer.GetBuffer();
+            PathRemoveArgsW(dir);
+            PathUnquoteSpacesW(dir);
+            PathRemoveFileSpecW(dir);
+            Buffer.ReleaseBuffer();
+        }
+        if (!Buffer.IsEmpty())
+        {
+            LPWSTR file = RunCmd.GetBuffer();
+            if (pszParameters)
+                *pszParameters = PathGetArgsW(file);
+            PathRemoveArgsW(file);
+            PathUnquoteSpacesW(file);
+            RunCmd.ReleaseBuffer();
+            Buffer = BuildPath(Buffer, RunCmd);
+            Result = !(GetFileAttributes(Buffer) & FILE_ATTRIBUTE_DIRECTORY);
+            if (pszApp)
+                *pszApp = Buffer;
+        }
+    }
+    return Result;
+}
+
+BOOL
+CAvailableApplicationInfo::Run(HWND hOwner) const
+{
+    CStringW szApp, szParameters;
+    if (!GetRunInfo(&szApp, &szParameters))
+        return FALSE;
+    SHELLEXECUTEINFOW sei = { sizeof(sei), SEE_MASK_FLAG_LOG_USAGE, hOwner, NULL, szApp, szParameters };
+    sei.nShow = SW_SHOW;
+    return ShellExecuteExW(&sei);
+}
+
+bool
+CAvailableApplicationInfo::CanRun() const
+{
+    if (m_AvailFlags.Tried & COR_CANRUN)
+        return (m_AvailFlags.Result & COR_CANRUN) != 0;
+    return m_AvailFlags.Set(COR_CANRUN, GetRunInfo(NULL, NULL));
 }
 
 bool
@@ -361,7 +416,7 @@ CAvailableApplicationInfo::RetrieveIcon(CStringW &Path) const
 BOOL
 CAvailableApplicationInfo::RetrieveScreenshot(CStringW &Path)
 {
-    if (!m_ScrnshotRetrieved)
+    if (!(m_AvailFlags.Tried & COR_SCREENSHOT))
     {
         static_assert(MAX_SCRNSHOT_NUM < 10000, "MAX_SCRNSHOT_NUM is too big");
         for (int i = 0; i < MAX_SCRNSHOT_NUM; i++)
@@ -381,7 +436,7 @@ CAvailableApplicationInfo::RetrieveScreenshot(CStringW &Path)
                 m_szScrnshotLocation.Add(ScrnshotLocation);
             }
         }
-        m_ScrnshotRetrieved = true;
+        m_AvailFlags.Set(COR_SCREENSHOT, true);
     }
 
     if (m_szScrnshotLocation.GetSize() > 0)

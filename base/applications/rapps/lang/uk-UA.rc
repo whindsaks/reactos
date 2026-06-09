@@ -23,6 +23,7 @@ BEGIN
         MENUITEM "&Встановити\tCtrl+Enter", ID_INSTALL
         MENUITEM "В&идалити\tCtrl+Del", ID_UNINSTALL
         MENUITEM "&Змінити", ID_MODIFY
+        MENUITEM "Ru&n", ID_RUNAPP
         MENUITEM SEPARATOR
         MENUITEM "Вида&лити з реєстру", ID_REGREMOVE
         MENUITEM SEPARATOR

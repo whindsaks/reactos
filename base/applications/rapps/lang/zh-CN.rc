@@ -24,6 +24,7 @@ BEGIN
         MENUITEM "安装(&I)\tCtrl+Enter", ID_INSTALL
         MENUITEM "卸载(&U)\tCtrl+Del", ID_UNINSTALL
         MENUITEM "修改(&M)", ID_MODIFY
+        MENUITEM "Ru&n", ID_RUNAPP
         MENUITEM SEPARATOR
         MENUITEM "从注册表删除(&E)", ID_REGREMOVE
         MENUITEM SEPARATOR

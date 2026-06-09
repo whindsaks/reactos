@@ -20,6 +20,7 @@ BEGIN
         MENUITEM "&Installi\tCtrl+Enter", ID_INSTALL
         MENUITEM "&Desinstalli\tCtrl+Del", ID_UNINSTALL
         MENUITEM "&Muuda", ID_MODIFY
+        MENUITEM "Ru&n", ID_RUNAPP
         MENUITEM SEPARATOR
         MENUITEM "&Eemalda registrist", ID_REGREMOVE
         MENUITEM SEPARATOR

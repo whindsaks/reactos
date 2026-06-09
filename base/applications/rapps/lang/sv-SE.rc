@@ -20,6 +20,7 @@ BEGIN
         MENUITEM "&Installera\tCtrl+Enter", ID_INSTALL
         MENUITEM "&Avinstallera\tCtrl+Del", ID_UNINSTALL
         MENUITEM "&Ändra", ID_MODIFY
+        MENUITEM "Ru&n", ID_RUNAPP
         MENUITEM SEPARATOR
         MENUITEM "Ta bort från R&egistret", ID_REGREMOVE
         MENUITEM SEPARATOR

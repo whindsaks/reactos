@@ -596,6 +596,14 @@ CMainWindow::OnCommand(WPARAM wParam, LPARAM lParam)
                 }
                 break;
 
+            case ID_RUNAPP:
+                if (IsAvailableEnum(SelectedEnumType))
+                {
+                    if (CAvailableApplicationInfo *App = (CAvailableApplicationInfo *)m_ApplicationView->GetFocusedItemData())
+                        App->Run(m_hWnd);
+                }
+                break;
+
             case ID_UNINSTALL:
                 if (UninstallSelectedApp(FALSE))
                     UpdateApplicationsList(SelectedEnumType, bReload);

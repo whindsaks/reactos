@@ -100,6 +100,7 @@ enum InstallerType
 #define DB_SILENTARGS L"SilentParameters"
 #define DB_NTVER L"NTVersion" // "Max-" || "Min-Max" || "Min" || "Min+"
 #define DB_DEPENDENCIES L"Dependencies"
+#define DB_RUNCMD L"RunCmd"
 
 #define DB_GENINSTSECTION L"Generate"
 #define GENERATE_ARPSUBKEY L"RApps" // Our uninstall data is stored here
@@ -109,6 +110,19 @@ enum InstallerType
 
 class CAppRichEdit;
 class CConfigParser;
+
+template<class T> struct CachedOpResult
+{
+    T Tried, Result;
+    CachedOpResult() : Tried(0), Result(0) {}
+    bool Set(T NewBits, bool Success = true)
+    {
+        Tried |= NewBits;
+        if (Success)
+            Result |= NewBits;
+        return Success;
+    }
+};
 
 class CAppInfo
 {
@@ -150,12 +164,17 @@ class CAvailableApplicationInfo : public CAppInfo
 {
     CConfigParser *m_Parser;
     CSimpleArray<CStringW> m_szScrnshotLocation;
-    bool m_ScrnshotRetrieved;
     CStringW m_szUrlDownload;
     CStringW m_szSize;
     CStringW m_szUrlSite;
     CSimpleArray<LCID> m_LanguageLCIDs;
-    bool m_LanguagesLoaded;
+    enum {
+        COR_LOADLANGUAGES = 0x01,
+        COR_SCREENSHOT = 0x02,
+        COR_INSTALLED = 0x04,
+        COR_CANRUN    = 0x08,
+    };
+    mutable CachedOpResult<BYTE> m_AvailFlags;
 
     VOID
     InsertVersionInfo(CAppRichEdit *RichEdit);
@@ -165,6 +184,8 @@ class CAvailableApplicationInfo : public CAppInfo
     RetrieveLanguages();
     CStringW
     LicenseString();
+    bool
+    GetRunInfo(CStringW *pszApp, CStringW *pszParameters) const;
 
   public:
     CAvailableApplicationInfo(
@@ -177,6 +198,10 @@ class CAvailableApplicationInfo : public CAppInfo
     CConfigParser *
     GetConfigParser() const { return m_Parser; }
 
+    BOOL
+    Run(HWND hOwner) const;
+    bool
+    CanRun() const;
     bool
     IsCompatible() const;
     bool

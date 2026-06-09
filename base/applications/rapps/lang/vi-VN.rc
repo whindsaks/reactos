@@ -20,6 +20,7 @@ BEGIN
         MENUITEM "&Cài đặt\tCtrl+Enter", ID_INSTALL
         MENUITEM "&Gỡ cài đặt\tCtrl+Del", ID_UNINSTALL
         MENUITEM "&Thay đổi", ID_MODIFY
+        MENUITEM "Ru&n", ID_RUNAPP
         MENUITEM SEPARATOR
         MENUITEM "&Xóa khỏi Registry", ID_REGREMOVE
         MENUITEM SEPARATOR

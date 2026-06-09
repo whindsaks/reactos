@@ -22,6 +22,7 @@ BEGIN
         MENUITEM "&Instaluj\tCtrl+Enter", ID_INSTALL
         MENUITEM "Odinstal&uj\tCtrl+Del", ID_UNINSTALL
         MENUITEM "&Modyfikuj", ID_MODIFY
+        MENUITEM "Ru&n", ID_RUNAPP
         MENUITEM SEPARATOR
         MENUITEM "Usuń z r&ejestru", ID_REGREMOVE
         MENUITEM SEPARATOR

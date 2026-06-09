@@ -22,6 +22,7 @@ BEGIN
         MENUITEM "&Instalare\tCtrl+Enter", ID_INSTALL
         MENUITEM "&Dezinstalare\tCtrl+Del", ID_UNINSTALL
         MENUITEM "&Modificare", ID_MODIFY
+        MENUITEM "Ru&n", ID_RUNAPP
         MENUITEM SEPARATOR
         MENUITEM "&Eliminare din registru", ID_REGREMOVE
         MENUITEM SEPARATOR

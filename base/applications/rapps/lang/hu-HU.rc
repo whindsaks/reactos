@@ -20,6 +20,7 @@ BEGIN
         MENUITEM "Telep&ítés\tCtrl+Enter", ID_INSTALL
         MENUITEM "Eltá&volítás\tCtrl+Del", ID_UNINSTALL
         MENUITEM "&Módosítás", ID_MODIFY
+        MENUITEM "Ru&n", ID_RUNAPP
         MENUITEM SEPARATOR
         MENUITEM "&Eltávolítás a registryből", ID_REGREMOVE
         MENUITEM SEPARATOR
