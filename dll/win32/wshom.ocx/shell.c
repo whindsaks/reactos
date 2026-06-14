@@ -33,6 +33,24 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(wshom);
 
+DWORD WaitForHandles(DWORD nCount, const HANDLE *pHandles, DWORD dwTimeout)
+{
+    for (;;)
+    {
+        DWORD status = MsgWaitForMultipleObjects(nCount, pHandles, FALSE, dwTimeout, QS_ALLINPUT);
+        if (status == WAIT_OBJECT_0 + nCount)
+        {
+            for (MSG msg; PeekMessageW(&msg, NULL, 0, 0, TRUE);)
+            {
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+            continue;
+        }
+        return status;
+    }
+}
+
 typedef struct
 {
     struct provideclassinfo classinfo;
@@ -1311,7 +1329,7 @@ static HRESULT WINAPI WshShell3_Run(IWshShell3 *iface, BSTR cmd, VARIANT *style,
     {
         if (waitforprocess)
         {
-            WaitForSingleObject(info.hProcess, INFINITE);
+            WaitForHandles(1, &info.hProcess, INFINITE);
             GetExitCodeProcess(info.hProcess, exit_code);
             CloseHandle(info.hProcess);
         }
@@ -1356,32 +1374,26 @@ static HRESULT WINAPI WshShell3_Popup(IWshShell3 *iface, BSTR text, VARIANT *sec
         return E_POINTER;
 
     VariantInit(&timeout);
+#ifdef __REACTOS__
+    V_I4(&timeout) = 0; // Only 8.1+ VariantInit zeros the other members
+#endif
     if (!is_optional_argument(seconds_to_wait))
     {
         hr = VariantChangeType(&timeout, seconds_to_wait, 0, VT_I4);
         if (FAILED(hr))
             return hr;
     }
-#ifdef __REACTOS__
-    else
-    {
-        VariantChangeType(&timeout, &timeout, 0, VT_I4);
-    }
-#endif
 
     VariantInit(&param.type);
+#ifdef __REACTOS__
+    V_I4(&param.type) = 0; // Only 8.1+ VariantInit zeros the other members
+#endif
     if (!is_optional_argument(type))
     {
         hr = VariantChangeType(&param.type, type, 0, VT_I4);
         if (FAILED(hr))
             return hr;
     }
-#ifdef __REACTOS__
-    else
-    {
-        VariantChangeType(&param.type, &param.type, 0, VT_I4);
-    }
-#endif
 
     if (is_optional_argument(title))
         param.title = *title;
@@ -1396,11 +1408,11 @@ static HRESULT WINAPI WshShell3_Popup(IWshShell3 *iface, BSTR text, VARIANT *sec
     param.text = text;
     param.button = -1;
     hthread = CreateThread(NULL, 0, popup_thread_proc, &param, 0, &tid);
-    status = MsgWaitForMultipleObjects(1, &hthread, FALSE, V_I4(&timeout) ? V_I4(&timeout) * 1000: INFINITE, 0);
+    status = WaitForHandles(1, &hthread, V_I4(&timeout) ? V_I4(&timeout) * 1000 : INFINITE);
     if (status == WAIT_TIMEOUT)
     {
         PostThreadMessageW(tid, WM_QUIT, 0, 0);
-        MsgWaitForMultipleObjects(1, &hthread, FALSE, INFINITE, 0);
+        WaitForHandles(1, &hthread, INFINITE); /* Wait for thread because it will write to param.button */
         param.button = -1;
     }
     *button = param.button;
