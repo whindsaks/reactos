@@ -1738,14 +1738,212 @@ static HRESULT WINAPI WshShell3_LogEvent(IWshShell3 *iface, VARIANT *Type, BSTR 
 
 static HRESULT WINAPI WshShell3_AppActivate(IWshShell3 *iface, VARIANT *App, VARIANT *Wait, VARIANT_BOOL *out_Success)
 {
+#ifdef __REACTOS__
+    HRESULT hr = S_FALSE;
+    HWND hWnd = GetWindow(GetDesktopWindow(), GW_CHILD);
+    HWND hWndTarget = NULL;
+    VARIANT vTmp;
+    if (!App)
+        return E_POINTER;
+
+    V_VT(&vTmp) = VT_EMPTY;
+    if (V_VT(App) != VT_BSTR && SUCCEEDED(VariantChangeType(&vTmp, App, 0, VT_I4)) && V_I4(&vTmp))
+    {
+        DWORD pidFind = V_I4(&vTmp), pid;
+        for (; hWnd; hWnd = GetWindow(hWnd, GW_HWNDNEXT))
+        {
+            if (!GetWindowThreadProcessId(hWnd, &pid) || pid != pidFind || !IsWindowVisible(hWnd))
+                continue;
+            if (IsWindowEnabled(hWnd))
+            {
+                hWndTarget = hWnd;
+                break; // Enabled and visible, we are done
+            }
+            else if (!hWndTarget)
+            {
+                hWndTarget = hWnd; // We will accept a disabled window if we have to
+            }
+        }
+    }
+    else if (SUCCEEDED(VariantChangeType(&vTmp, App, 0, VT_BSTR)))
+    {
+        BSTR bsFind = V_BSTR(&vTmp);
+        UINT lenFind = lstrlenW(bsFind);
+        for (; hWnd && !hWndTarget && lenFind; hWnd = GetWindow(hWnd, GW_HWNDNEXT))
+        {
+            UINT cch = GetWindowTextLengthW(hWnd);
+            if (!cch)
+                continue;
+            BSTR bsBuf = SysAllocStringLen(NULL, ++cch);
+            if (!bsBuf)
+            {
+                hr = E_OUTOFMEMORY;
+                break;
+            }
+            cch = GetWindowTextW(hWnd, bsBuf, cch);
+            if (cch >= lenFind && CompareStringW(LOCALE_USER_DEFAULT, NORM_IGNORECASE, bsBuf,
+                                                 lenFind, bsFind, lenFind) == CSTR_EQUAL)
+            {
+                hWndTarget = hWnd;
+            }
+            SysFreeString(bsBuf);
+        }
+        VariantClear(&vTmp);
+    }
+
+    if (hWndTarget)
+    {
+        DWORD mytid = GetCurrentThreadId(), pid;
+        DWORD othertid = GetWindowThreadProcessId(hWnd, &pid);
+        BOOL attached = AttachThreadInput(mytid, othertid, TRUE);
+        SetForegroundWindow(hWndTarget);
+        V_VT(&vTmp) = VT_EMPTY;
+        if (Wait && !is_optional_argument(Wait) &&
+            SUCCEEDED(VariantChangeType(&vTmp, Wait, 0, VT_BOOL)) && V_BOOL(&vTmp))
+        {
+            UINT wait = 1000, interval = wait / 10;
+            for (; wait && GetForegroundWindow() != hWndTarget; wait -= interval)
+                Sleep(interval);
+        }
+        SetLastError(0);
+        hr = (SetFocus(hWndTarget) || !GetLastError()) ? S_OK : S_FALSE;
+        if (attached)
+            AttachThreadInput(mytid, othertid, FALSE);
+    }
+
+    if (out_Success)
+        *out_Success = (hr == S_OK) ? VARIANT_TRUE : VARIANT_FALSE;
+    return hr;
+#else
     FIXME("(%s %s %p): stub\n", debugstr_variant(App), debugstr_variant(Wait), out_Success);
     return E_NOTIMPL;
+#endif
 }
+
+#ifdef __REACTOS__
+static UINT GetVkFromKeyword(LPCWSTR String)
+{
+    static const struct {
+        WORD Vk;
+        LPCWSTR String;
+    } map[] = {
+        { VK_RETURN, L"ENTER" },
+        { VK_TAB, L"TAB" },
+        { VK_ESCAPE, L"ESC" },
+        { VK_LEFT, L"LEFT" }, { VK_RIGHT, L"RIGHT" }, { VK_UP, L"UP" }, { VK_DOWN, L"DOWN" },
+        { VK_PRIOR, L"PGUP" }, { VK_NEXT, L"PGDN" },
+        { VK_HOME, L"HOME" },
+        { VK_END, L"END" },
+        { VK_INSERT, L"INSERT" }, { VK_INSERT, L"INS" },
+        { VK_DELETE, L"DELETE" }, { VK_INSERT, L"DEL" },
+        { VK_BACK, L"BACKSPACE" }, { VK_BACK, L"BKSP" }, { VK_BACK, L"BS" },
+        { VK_CANCEL, L"BREAK" },
+        { VK_HELP, L"HELP" },
+        { VK_CAPITAL, L"CAPSLOCK" }, { VK_NUMLOCK, L"NUMLOCK" }, { VK_SCROLL, L"SCROLLLOCK" }
+    };
+    UINT len = 0, vk = 0;
+    for (UINT i = 0; i < _countof(map); ++i)
+    {
+        len = lstrlenW(map[i].String);
+        if (CompareStringW(LOCALE_USER_DEFAULT, NORM_IGNORECASE, String, len, map[i].String, len) == CSTR_EQUAL)
+        {
+            vk = map[i].Vk;
+            break;
+        }
+    }
+    if (String[0] == 'F')
+    {
+        UINT f = String[0] - '0';
+        if (f >= 1 && f <= 9) // TODO: ...F16
+        {
+            vk = VK_F1 + f - 1;
+            len = 2 + (f > 9);
+        }
+    }
+    return MAKELONG(vk, len);
+}
+
+static void SendKeyPress(UINT Vk, int Operation)
+{
+    if (Operation <= 0)
+        keybd_event((BYTE)Vk, 0, /*DOWN*/0, 0);
+    if (Operation >= 0)
+        keybd_event((BYTE)Vk, 0, KEYEVENTF_KEYUP, 0);
+}
+
+static void SendKey(UINT Vk)
+{
+    for (UINT first = LOBYTE(Vk);;)
+    {
+        if (HIBYTE(Vk) & 1)
+            SendKeyPress(VK_SHIFT, first ? -1 : 1);
+        if (HIBYTE(Vk) & 2)
+            SendKeyPress(VK_CONTROL, first ? -1 : 1);
+        if (HIBYTE(Vk) & 4)
+            SendKeyPress(VK_LMENU, first ? -1 : 1);
+        if (!first)
+            break;
+        first = 0;
+        SendKeyPress(LOBYTE(Vk), 0);
+    }
+}
+#endif
 
 static HRESULT WINAPI WshShell3_SendKeys(IWshShell3 *iface, BSTR Keys, VARIANT *Wait)
 {
+#ifdef __REACTOS__
+    UINT ch, vk, len, pack, mods, xvk;
+    for (BSTR p = Keys; (ch = *p) != 0; ++p)
+    {
+        vk = mods = 0;
+        if (*p == '{')
+        {
+            if (!*++p)
+                break; // Ignore "{"(EOF)
+            if (*p == '}')
+                continue; // Ignore "{}"(EOF)
+            len = HIWORD(pack = GetVkFromKeyword(p));
+            if (LOWORD(pack) && p[len] == '}')
+            {
+                vk = LOWORD(pack);
+                p += len;
+            }
+            else
+            {
+                ch = *p++; // TODO: check for '}' or ' '+<Number>
+                goto plain;
+            }
+        }
+        // TODO: Handle '('
+        else more:
+        {
+            if (ch == '+')
+                mods |= 0x80000100;
+            if (ch == '^')
+                mods |= 0x80000200;
+            if (ch == '%')
+                mods |= 0x80000400;
+            if (mods & 0x80000000)
+            {
+                mods = LOWORD(mods);
+                if ((ch = *++p) != 0)
+                    goto more;
+            }
+            if (!ch)
+                break; // Modifier without a base character, we are done
+            if (ch == '~')
+                vk = VK_RETURN;
+            else plain: if (LOBYTE(xvk = VkKeyScanW(ch)) != 0xff)
+                vk = mods ? LOBYTE(xvk) : xvk; // For "%F", don't change Alt+'F' to Alt+Shift+'F'
+        }
+        SendKey(vk | mods);
+        Sleep(1);
+    }
+    return S_OK;
+#else
     FIXME("(%s %p): stub\n", debugstr_w(Keys), Wait);
     return E_NOTIMPL;
+#endif
 }
 
 static HRESULT WINAPI WshShell3_Exec(IWshShell3 *iface, BSTR command, IWshExec **ret)
