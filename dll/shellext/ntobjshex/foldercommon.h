@@ -593,11 +593,7 @@ public:
         ULONG *pSort,
         ULONG *pDisplay) override
     {
-        if (pSort)
-            *pSort = 0;
-        if (pDisplay)
-            *pDisplay = 0;
-        return S_OK;
+        return E_NOTIMPL; // Not required when column 0 is our default.
     }
 
     STDMETHOD(GetDefaultColumnState)(

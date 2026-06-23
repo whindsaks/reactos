@@ -555,10 +555,7 @@ HRESULT WINAPI CControlPanelFolder::EnumSearches(IEnumExtraSearch **ppenum)
 HRESULT WINAPI CControlPanelFolder::GetDefaultColumn(DWORD dwRes, ULONG *pSort, ULONG *pDisplay)
 {
     TRACE("(%p)\n", this);
-
-    if (pSort) *pSort = 0;
-    if (pDisplay) *pDisplay = 0;
-    return S_OK;
+    return E_NOTIMPL; // Not required when column 0 is our default.
 }
 
 HRESULT WINAPI CControlPanelFolder::GetDefaultColumnState(UINT iColumn, DWORD *pcsFlags)
@@ -649,7 +646,7 @@ HRESULT WINAPI CControlPanelFolder::Initialize(PCIDLIST_ABSOLUTE pidl)
     pidlRoot = ILClone(pidl);
 
     /* Create the inner reg folder */
-    REGFOLDERINITDATA RegInit = { static_cast<IShellFolder*>(this), &g_RegFolderInfo };
+    REGFOLDERINITDATA RegInit = { static_cast<IShellFolder2*>(this), &g_RegFolderInfo };
     HRESULT hr;
     hr = CRegFolder_CreateInstance(&RegInit,
                                    pidlRoot,

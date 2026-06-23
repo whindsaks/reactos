@@ -77,11 +77,7 @@ public:
     }
     STDMETHODIMP GetDefaultColumn(DWORD dwRes, ULONG *pSort, ULONG *pDisplay) override
     {
-        if (pSort)
-            *pSort = COL_NAME;
-        if (pDisplay)
-            *pDisplay = COL_NAME;
-        return S_OK;
+        return E_NOTIMPL; // Not required when column 0 is our default.
     }
     STDMETHODIMP GetDefaultColumnState(UINT iColumn, DWORD *pcsFlags) override;
     STDMETHODIMP GetDetailsEx(PCUITEMID_CHILD pidl, const SHCOLUMNID *pscid, VARIANT *pv) override

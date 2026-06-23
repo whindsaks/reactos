@@ -441,12 +441,7 @@ HRESULT WINAPI CPrinterFolder::EnumSearches(IEnumExtraSearch **ppenum)
 
 HRESULT WINAPI CPrinterFolder::GetDefaultColumn(DWORD dwRes, ULONG *pSort, ULONG *pDisplay)
 {
-    if (pSort)
-        *pSort = 0;
-    if (pDisplay)
-        *pDisplay = 0;
-
-    return S_OK;
+    return E_NOTIMPL; // Not required when column 0 is our default.
 }
 
 HRESULT WINAPI CPrinterFolder::GetDefaultColumnState(UINT iColumn, SHCOLSTATEF *pcsFlags)

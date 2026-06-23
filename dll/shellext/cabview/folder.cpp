@@ -228,11 +228,7 @@ HRESULT CEnumIDList::Fill(PCIDLIST_ABSOLUTE pidl, HWND hwnd, SHCONTF contf)
 
 IFACEMETHODIMP CCabFolder::GetDefaultColumn(DWORD dwRes, ULONG *pSort, ULONG *pDisplay)
 {
-    if (pSort)
-        *pSort = COL_NAME;
-    if (pDisplay)
-        *pDisplay = COL_NAME;
-    return S_OK;
+    return E_NOTIMPL; // Not required when column 0 is our default.
 }
 
 IFACEMETHODIMP CCabFolder::GetDefaultColumnState(UINT iColumn, SHCOLSTATEF *pcsFlags)

@@ -145,8 +145,7 @@ STDMETHODIMP CFontExt::EnumSearches(IEnumExtraSearch **ppenum)
 
 STDMETHODIMP CFontExt::GetDefaultColumn(DWORD dwReserved, ULONG *pSort, ULONG *pDisplay)
 {
-    ERR("%s() UNIMPLEMENTED\n", __FUNCTION__);
-    return E_NOTIMPL;
+    return E_NOTIMPL; // Not required when column 0 is our default.
 }
 
 STDMETHODIMP CFontExt::GetDefaultColumnState(UINT iColumn, SHCOLSTATEF *pcsFlags)

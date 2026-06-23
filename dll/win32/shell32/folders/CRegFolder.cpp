@@ -324,7 +324,7 @@ class CRegFolder :
     public CRegFolderInfo
 {
     private:
-        IShellFolder *m_pOuterFolder; // Not ref-counted
+        IShellFolder2 *m_pOuterFolder; // Not ref-counted
         CComHeapPtr<ITEMIDLIST> m_pidlRoot;
 
         HRESULT CompareRegItemsSortOrder(PCUIDLIST_RELATIVE pidl1, PCUIDLIST_RELATIVE pidl2);
@@ -822,22 +822,17 @@ HRESULT WINAPI CRegFolder::SetNameOf(HWND hwndOwner, PCUITEMID_CHILD pidl,    /*
 
 HRESULT WINAPI CRegFolder::GetDefaultSearchGUID(GUID *pguid)
 {
-    return E_NOTIMPL;
+    return m_pOuterFolder ? m_pOuterFolder->GetDefaultSearchGUID(pguid) : E_NOTIMPL;
 }
 
 HRESULT WINAPI CRegFolder::EnumSearches(IEnumExtraSearch ** ppenum)
 {
-    return E_NOTIMPL;
+    return m_pOuterFolder ? m_pOuterFolder->EnumSearches(ppenum) : E_NOTIMPL;
 }
 
 HRESULT WINAPI CRegFolder::GetDefaultColumn(DWORD dwRes, ULONG *pSort, ULONG *pDisplay)
 {
-    if (pSort)
-        *pSort = 0;
-    if (pDisplay)
-        *pDisplay = 0;
-
-    return S_OK;
+    return m_pOuterFolder ? m_pOuterFolder->GetDefaultColumn(dwRes, pSort, pDisplay) : E_NOTIMPL;
 }
 
 HRESULT WINAPI CRegFolder::GetDefaultColumnState(UINT iColumn, DWORD *pcsFlags)

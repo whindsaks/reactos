@@ -67,7 +67,7 @@ typedef struct _REGFOLDERINFO
 
 typedef struct _REGFOLDERINITDATA
 {
-    IShellFolder *psfOuter;
+    IShellFolder2 *psfOuter;
     const REGFOLDERINFO *pInfo;
 } REGFOLDERINITDATA, *PREGFOLDERINITDATA;
 
