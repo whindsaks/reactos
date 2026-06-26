@@ -735,6 +735,9 @@ HRESULT WINAPI CDrivesFolder::ParseDisplayName(HWND hwndOwner, LPBC pbc, LPOLEST
          (L'a' <= lpszDisplayName[0] && lpszDisplayName[0] <= L'z')) &&
         lpszDisplayName[1] == L':' && (lpszDisplayName[2] == L'\\' || !lpszDisplayName[2]))
     {
+        if (!lpszDisplayName[2] && LOBYTE(GetVersion()) < 6)
+            return E_INVALIDARG; // NT5 does not support parsing "c:"
+
         // "C:\..."
         WCHAR szRoot[8];
         PathBuildRootW(szRoot, ((*lpszDisplayName - 1) & 0x1F));

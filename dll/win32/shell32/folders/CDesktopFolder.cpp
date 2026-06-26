@@ -343,6 +343,7 @@ HRESULT CDesktopFolder::_ParseDisplayNameByParent(
     }
     else if (PathIsUNCW(lpszDisplayName)) // "\\\\..."
     {
+
         bPath = TRUE;
         pidlParent.Attach(_ILCreateNetwork());
     }
