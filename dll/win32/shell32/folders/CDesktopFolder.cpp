@@ -343,6 +343,8 @@ HRESULT CDesktopFolder::_ParseDisplayNameByParent(
     }
     else if (PathIsUNCW(lpszDisplayName)) // "\\\\..."
     {
+        if (lpszDisplayName[2] == '?' && (lpszDisplayName[3] == '\\' || !lpszDisplayName[3]))
+            return E_INVALIDARG; // We don't support "\\?\..." paths
 
         bPath = TRUE;
         pidlParent.Attach(_ILCreateNetwork());
