@@ -1341,6 +1341,9 @@ HRESULT WINAPI SHEmptyRecycleBinW(HWND hwnd, LPCWSTR pszRootPath, DWORD dwFlags)
 
     TRACE("%p, %s, 0x%08x\n", hwnd, debugstr_w(pszRootPath), dwFlags);
 
+    if (pszRootPath && !*pszRootPath)
+        pszRootPath = NULL; // "If this value is an empty string or NULL, all Recycle Bins on all drives will be emptied."
+
     if (!(dwFlags & SHERB_NOCONFIRMATION))
     {
         hr = SHGetDesktopFolder(&pDesktop);
