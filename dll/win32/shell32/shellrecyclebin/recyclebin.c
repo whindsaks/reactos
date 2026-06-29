@@ -335,9 +335,9 @@ GetDefaultRecycleBin(
         hr = RecycleBinGeneric_Constructor(&pUnk);
     else
     {
-        WCHAR szRootPath[4] = { *pszVolume, ':', '\\', '\0' };
+        WCHAR szRootPath[4] = { *pszVolume, L':', L'\\', UNICODE_NULL };
         int drive = PathGetDriveNumberW(pszVolume);
-        if (drive < 0 || pszVolume[2] != '\\')
+        if (drive < 0 || pszVolume[2] != L'\\')
             return HRESULT_FROM_WIN32(ERROR_INVALID_NAME);
 
         /* For now, only support this type of recycle bins... */
