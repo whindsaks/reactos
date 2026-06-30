@@ -30,6 +30,7 @@ class CDrivesFolder :
     public IPersistFolder2,
     public IContextMenuCB,
     public IShellFolderViewCB, // Only exists so DefView can get IFolderFilter
+    public IShellIcon,
     public IFolderFilter
 {
     private:
@@ -81,6 +82,9 @@ class CDrivesFolder :
         // IShellFolderViewCB
         STDMETHODIMP MessageSFVCB(UINT uMsg, WPARAM wParam, LPARAM lParam) override;
 
+        // IShellIcon
+        STDMETHOD(GetIconOf)(PCUITEMID_CHILD pidl, UINT GilIn, int *pSysIndex) override;
+
         // IFolderFilter
         STDMETHOD(ShouldShow)(IShellFolder *psf, PCIDLIST_ABSOLUTE pidlFolder, PCUITEMID_CHILD pidlItem) override;
         STDMETHODIMP GetEnumFlags(IShellFolder*, PCIDLIST_ABSOLUTE, HWND*, DWORD*) override { return E_NOTIMPL; }
@@ -98,6 +102,9 @@ class CDrivesFolder :
         COM_INTERFACE_ENTRY_IID(IID_IPersist, IPersist)
         COM_INTERFACE_ENTRY_IID(IID_IContextMenuCB, IContextMenuCB)
         COM_INTERFACE_ENTRY_IID(IID_IShellFolderViewCB, IShellFolderViewCB)
+#if DLL_EXPORT_VERSION >= _WIN32_WINNT_VISTA
+        COM_INTERFACE_ENTRY_IID(IID_IShellIcon, IShellIcon)
+#endif
         COM_INTERFACE_ENTRY_IID(IID_IFolderFilter, IFolderFilter)
         END_COM_MAP()
 };

@@ -9,6 +9,7 @@
  */
 
 #include <precomp.h>
+#include <shellfolderutils.h>
 
 WINE_DEFAULT_DEBUG_CHANNEL (shell);
 
@@ -230,12 +231,13 @@ getIconLocationForFolder(IShellFolder * psf, PCITEMID_CHILD pidl, UINT uFlags,
     // get path
     if (!ILGetDisplayNameExW(psf, pidl, wszPath, 0))
         goto Quit;
-    if (!PathIsDirectoryW(wszPath))
-        goto Quit;
 
     // read-only or system folder?
     dwFileAttrs = _ILGetFileAttributes(ILFindLastID(pidl), NULL, 0);
     if ((dwFileAttrs & (FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_READONLY)) == 0)
+        goto Quit;
+
+    if (!PathIsDirectoryW(wszPath))
         goto Quit;
 
     // build the full path of ini file
@@ -2150,6 +2152,20 @@ HRESULT WINAPI CFSFolder::MessageSFVCB(UINT uMsg, WPARAM wParam, LPARAM lParam)
         break;
     }
     return hr;
+}
+
+HRESULT WINAPI CFSFolder::GetIconOf(PCUITEMID_CHILD pidl, UINT GilIn, int *pSysIndex)
+{
+    WCHAR szPath[MAX_PATH];
+    int idx;
+    UINT unknown;
+    if (ItemIsFolder(pidl))
+    {
+        if (SUCCEEDED(getIconLocationForFolder(this, pidl, GilIn, szPath, _countof(szPath), &idx, &unknown)))
+            return ShellFolderImpl_GetIconOf(szPath, idx, GilIn, pSysIndex);
+    }
+    // else TODO: Handle files
+    return S_FALSE;
 }
 
 HRESULT CFSFolder::FormatDateTime(const FILETIME &ft, LPWSTR Buf, UINT cchBuf)

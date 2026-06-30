@@ -23,6 +23,7 @@
 
 #include <precomp.h>
 #include <process.h>
+#include <shellfolderutils.h>
 
 WINE_DEFAULT_DEBUG_CHANNEL(shell);
 
@@ -625,6 +626,25 @@ HRESULT CDrivesExtractIcon_CreateInstance(IShellFolder * psf, LPCITEMIDLIST pidl
     }
 
     return initIcon->QueryInterface(riid, ppvOut);
+}
+
+static inline HRESULT GetDriveItemIconLocation(LPCITEMIDLIST pidl, UINT GilIn, PWSTR szPath, UINT cchMax, int &IconIndex)
+{
+    // TODO: Optimize this so we don't have to create IDefaultExtractIconInit+IExtractIconW
+    CComPtr<IExtractIconW> pEI;
+    HRESULT hr = CDrivesExtractIcon_CreateInstance(NULL, pidl, IID_PPV_ARG(IExtractIconW, &pEI));
+    if (FAILED(hr))
+        return hr;
+    UINT GilOut = 0;
+    hr = pEI->GetIconLocation(GilIn, szPath, cchMax, &IconIndex, &GilOut);
+    if (FAILED(hr) || (GilOut & (GIL_DONTCACHE | GIL_NOTFILENAME)))
+        return E_FAIL;
+    return S_OK;
+}
+
+static inline HRESULT GetItemIconLocation(LPCITEMIDLIST pidl, UINT GilIn, PWSTR szPath, UINT cchMax, int &IconIndex)
+{
+    return IsRegItem(pidl) ? E_FAIL : GetDriveItemIconLocation(pidl, GilIn, szPath, cchMax, IconIndex);
 }
 
 class CDrivesFolderEnum :
@@ -1428,6 +1448,15 @@ STDMETHODIMP CDrivesFolder::MessageSFVCB(UINT uMsg, WPARAM wParam, LPARAM lParam
         #endif
     }
     return E_NOTIMPL;
+}
+
+STDMETHODIMP CDrivesFolder::GetIconOf(PCUITEMID_CHILD pidl, UINT GilIn, int *pSysIndex)
+{
+    int IconIndex;
+    WCHAR szPath[MAX_PATH];
+    if (GetItemIconLocation(pidl, GilIn, szPath, _countof(szPath), IconIndex) == S_OK)
+        return ShellFolderImpl_GetIconOf(szPath, IconIndex, GilIn, pSysIndex);
+    return S_FALSE;
 }
 
 /************************************************************************/

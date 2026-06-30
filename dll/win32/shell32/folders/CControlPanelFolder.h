@@ -27,7 +27,8 @@ class CControlPanelFolder :
     public CComObjectRootEx<CComMultiThreadModelNoCS>,
     public IShellFolder2,
     public IPersistFolder2,
-    public IShellFolderViewCB
+    public IShellFolderViewCB,
+    public IShellIcon
 {
     private:
         /* both paths are parsible from the desktop */
@@ -74,6 +75,9 @@ class CControlPanelFolder :
         // IShellFolderViewCB
         STDMETHODIMP MessageSFVCB(UINT uMsg, WPARAM wParam, LPARAM lParam) override;
 
+        // IShellIcon
+        STDMETHOD(GetIconOf)(PCUITEMID_CHILD pidl, UINT GilIn, int *pSysIndex) override;
+
         DECLARE_REGISTRY_RESOURCEID(IDR_CONTROLPANEL)
         DECLARE_NOT_AGGREGATABLE(CControlPanelFolder)
 
@@ -86,6 +90,9 @@ class CControlPanelFolder :
         COM_INTERFACE_ENTRY_IID(IID_IPersistFolder2, IPersistFolder2)
         COM_INTERFACE_ENTRY_IID(IID_IPersist, IPersist)
         COM_INTERFACE_ENTRY_IID(IID_IShellFolderViewCB, IShellFolderViewCB)
+#if DLL_EXPORT_VERSION >= _WIN32_WINNT_VISTA
+        COM_INTERFACE_ENTRY_IID(IID_IShellIcon, IShellIcon)
+#endif
         END_COM_MAP()
 };
 

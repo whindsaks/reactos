@@ -810,40 +810,40 @@ EXTERN_C HRESULT WINAPI SHMapIDListToImageListIndexAsync(IShellTaskScheduler *pt
  * Shell_GetCachedImageIndex        [SHELL32.72]
  *
  */
-INT WINAPI Shell_GetCachedImageIndexA(LPCSTR szPath, INT nIndex, UINT bSimulateDoc)
+EXTERN_C INT WINAPI Shell_GetCachedImageIndexA(LPCSTR szPath, INT nIndex, UINT GilIn)
 {
     INT ret, len;
     LPWSTR szTemp;
 
-    WARN("(%s,%08x,%08x) semi-stub.\n",debugstr_a(szPath), nIndex, bSimulateDoc);
+    WARN("(%s,%08x,%08x) semi-stub.\n",debugstr_a(szPath), nIndex, GilIn);
 
     len = MultiByteToWideChar( CP_ACP, 0, szPath, -1, NULL, 0 );
     szTemp = (LPWSTR)HeapAlloc( GetProcessHeap(), 0, len * sizeof(WCHAR) );
     MultiByteToWideChar( CP_ACP, 0, szPath, -1, szTemp, len );
 
-    ret = SIC_GetIconIndex( szTemp, nIndex, 0 );
+    ret = Shell_GetCachedImageIndexW(szTemp, nIndex, GilIn);
 
     HeapFree( GetProcessHeap(), 0, szTemp );
 
     return ret;
 }
 
-EXTERN_C INT WINAPI Shell_GetCachedImageIndexW(LPCWSTR szPath, INT nIndex, UINT bSimulateDoc)
+EXTERN_C INT WINAPI Shell_GetCachedImageIndexW(LPCWSTR szPath, INT nIndex, UINT GilIn)
 {
-    WARN("(%s,%08x,%08x) semi-stub.\n",debugstr_w(szPath), nIndex, bSimulateDoc);
+    WARN("(%s,%08x,%08x) semi-stub.\n",debugstr_w(szPath), nIndex, GilIn);
 
     return SIC_GetIconIndex(szPath, nIndex, 0);
 }
 
-EXTERN_C INT WINAPI Shell_GetCachedImageIndexAW(LPCVOID szPath, INT nIndex, BOOL bSimulateDoc)
+EXTERN_C INT WINAPI Shell_GetCachedImageIndexAW(LPCVOID szPath, INT nIndex, UINT GilIn)
 {    if( SHELL_OsIsUnicode())
-      return Shell_GetCachedImageIndexW((LPCWSTR)szPath, nIndex, bSimulateDoc);
-    return Shell_GetCachedImageIndexA((LPCSTR)szPath, nIndex, bSimulateDoc);
+      return Shell_GetCachedImageIndexW((LPCWSTR)szPath, nIndex, GilIn);
+    return Shell_GetCachedImageIndexA((LPCSTR)szPath, nIndex, GilIn);
 }
 
-EXTERN_C INT WINAPI Shell_GetCachedImageIndex(LPCWSTR szPath, INT nIndex, UINT bSimulateDoc)
+EXTERN_C INT WINAPI Shell_GetCachedImageIndex(LPCWSTR szPath, INT nIndex, UINT GilIn)
 {
-    return Shell_GetCachedImageIndexAW(szPath, nIndex, bSimulateDoc);
+    return Shell_GetCachedImageIndexAW(szPath, nIndex, GilIn);
 }
 
 /*************************************************************************

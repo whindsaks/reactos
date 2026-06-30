@@ -29,6 +29,7 @@ class CDesktopFolder :
     public IShellFolder2,
     public IPersistFolder2,
     public IContextMenuCB,
+    public IShellIcon,
     public IItemNameLimits
 {
     private:
@@ -110,6 +111,9 @@ class CDesktopFolder :
         // IContextMenuCB
         STDMETHOD(CallBack)(IShellFolder *psf, HWND hwndOwner, IDataObject *pdtobj, UINT uMsg, WPARAM wParam, LPARAM lParam) override;
 
+        // IShellIcon
+        STDMETHOD(GetIconOf)(PCUITEMID_CHILD pidl, UINT flags, int *pIconIndex) override;
+
         /*** IItemNameLimits methods ***/
 
         STDMETHODIMP
@@ -143,6 +147,7 @@ class CDesktopFolder :
         COM_INTERFACE_ENTRY_IID(IID_IPersistFolder, IPersistFolder)
         COM_INTERFACE_ENTRY_IID(IID_IPersistFolder2, IPersistFolder2)
         COM_INTERFACE_ENTRY_IID(IID_IPersist, IPersist)
+        COM_INTERFACE_ENTRY_IID(IID_IShellIcon, IShellIcon)
         COM_INTERFACE_ENTRY_IID(IID_IItemNameLimits, IItemNameLimits)
         END_COM_MAP()
 };

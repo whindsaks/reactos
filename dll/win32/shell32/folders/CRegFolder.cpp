@@ -206,6 +206,8 @@ HRESULT CGuidItemExtractIcon_CreateInstance(LPCITEMIDLIST pidl, REFIID iid, LPVO
             return hr;
 
         ret = HCR_GetIconW(KeyName, wTemp, iconname, _countof(wTemp), &icon_idx);
+
+        // TODO: "OpenIcon" in ..\\DefaultIcon for SetOpenIcon
     }
 
     if (ret)

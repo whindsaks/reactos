@@ -219,6 +219,24 @@ static inline COLORREF GetViewColor(COLORREF Clr, UINT SysFallback)
 extern HRESULT ShellViewIdToFolderViewMode(const SHELLVIEWID *pVid);
 extern const SHELLVIEWID* FolderViewModeToShellViewId(UINT FVM);
 
+int
+GetFolderItemImageSysIndex(PCUITEMID_CHILD pidl, IShellFolder &Folder, IShellIcon *pSI, UINT GilIn)
+{
+    int Index, FallbackIndex;
+    if (pSI && pSI->GetIconOf(pidl, GilIn, &Index) == S_OK)
+        return Index;
+    if (GilIn & GIL_OPENICON)
+    {
+        Index = -1;
+        FallbackIndex = SHMapPIDLToSystemImageListIndex(&Folder, pidl, &Index);
+        if (Index >= 0)
+            return Index;
+        if (FallbackIndex >= 0)
+            return FallbackIndex;
+    }
+    return SHMapPIDLToSystemImageListIndex(&Folder, pidl, NULL);
+}
+
 class CDefView :
     public CWindowImpl<CDefView, CWindow, CControlWinTraits>,
     public CComObjectRootEx<CComMultiThreadModelNoCS>,
@@ -235,6 +253,7 @@ private:
     CComPtr<IShellFolder>     m_pSFParent;
     CComPtr<IShellFolder2>    m_pSF2Parent;
     CComPtr<IShellDetails>    m_pSDParent;
+    CComPtr<IShellIcon>       m_pShellIcon;
     CComPtr<IShellFolderViewCB> m_pShellFolderViewCB;
     CComPtr<IShellBrowser>    m_pShellBrowser;
     CComPtr<ICommDlgBrowser>  m_pCommDlgBrowser;
@@ -663,7 +682,7 @@ HRESULT WINAPI CDefView::Initialize(IShellFolder *shellFolder)
     m_pSFParent = shellFolder;
     shellFolder->QueryInterface(IID_PPV_ARG(IShellFolder2, &m_pSF2Parent));
     shellFolder->QueryInterface(IID_PPV_ARG(IShellDetails, &m_pSDParent));
-
+    shellFolder->QueryInterface(IID_PPV_ARG(IShellIcon, &m_pShellIcon));
     return S_OK;
 }
 
@@ -2759,7 +2778,7 @@ LRESULT CDefView::OnNotify(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandl
             }
             if (lpdi->item.mask & LVIF_IMAGE)
             {
-                lpdi->item.iImage = SHMapPIDLToSystemImageListIndex(m_pSFParent, pidl, 0);
+                lpdi->item.iImage = GetFolderItemImageSysIndex(pidl, *m_pSFParent, m_pShellIcon, 0);
             }
             if (lpdi->item.mask & LVIF_STATE)
             {

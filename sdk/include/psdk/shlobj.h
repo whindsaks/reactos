@@ -2316,6 +2316,12 @@ SHDefExtractIconW(
 
 #define SHDefExtractIcon WINELIB_NAME_AW(SHDefExtractIcon)
 
+EXTERN_C INT WINAPI Shell_GetCachedImageIndex(LPCTSTR szPath, INT nIndex, UINT GilIn);
+#if (NTDDI_VERSION >= NTDDI_LONGHORN) || defined(_SHELL32_)
+EXTERN_C INT WINAPI Shell_GetCachedImageIndexA(LPCSTR szPath, INT nIndex, UINT GilIn);
+EXTERN_C INT WINAPI Shell_GetCachedImageIndexW(LPCWSTR szPath, INT nIndex, UINT GilIn);
+#endif
+
 /*
  * DROPFILES for CF_HDROP and CF_PRINTERS
  */

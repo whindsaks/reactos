@@ -18,6 +18,7 @@ class CFSFolder :
     public IPersistFolder3,
     public IContextMenuCB,
     public IShellFolderViewCB,
+    public IShellIcon,
     public IItemNameLimits
 {
     private:
@@ -85,6 +86,9 @@ class CFSFolder :
         // IShellFolderViewCB
         STDMETHOD(MessageSFVCB)(UINT uMsg, WPARAM wParam, LPARAM lParam) override;
 
+        // IShellIcon
+        STDMETHOD(GetIconOf)(PCUITEMID_CHILD pidl, UINT GilIn, int *pSysIndex) override;
+
         /*** IItemNameLimits methods ***/
 
         STDMETHODIMP
@@ -116,6 +120,7 @@ class CFSFolder :
         COM_INTERFACE_ENTRY_IID(IID_IPersistFolder3, IPersistFolder3)
         COM_INTERFACE_ENTRY_IID(IID_IPersist, IPersist)
         COM_INTERFACE_ENTRY_IID(IID_IShellFolderViewCB, IShellFolderViewCB)
+        COM_INTERFACE_ENTRY_IID(IID_IShellIcon, IShellIcon)
         COM_INTERFACE_ENTRY_IID(IID_IItemNameLimits, IItemNameLimits)
     END_COM_MAP()
 

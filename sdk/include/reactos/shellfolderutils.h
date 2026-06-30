@@ -55,4 +55,18 @@ static HRESULT ShellFolderImpl_CompareItemIDs(IShellFolder2 *psf, LPARAM lParam,
     return ShellFolderImpl_CompareItemColumn<LOGICALCMP>(psf, column, pidl1, pidl2);
 }
 
+static inline HRESULT ShellFolderImpl_GetIconOf(LPCWSTR Path, int IconIndex, UINT GilIn, int *pSysIndex)
+{
+    GilIn &= GIL_FORSHELL | GIL_OPENICON;
+#if DLL_EXPORT_VERSION >= _WIN32_WINNT_VISTA || defined(_SHELL32_)
+    IconIndex = Shell_GetCachedImageIndexW(Path, IconIndex, GilIn);
+#else
+    IconIndex = Shell_GetCachedImageIndex(Path, IconIndex, GilIn);
+#endif
+    if (IconIndex < 0)
+        return S_FALSE;
+    *pSysIndex = IconIndex;
+    return S_OK;
+}
+
 #endif // __cplusplus

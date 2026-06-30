@@ -1051,6 +1051,18 @@ HRESULT WINAPI CDesktopFolder::CallBack(IShellFolder *psf, HWND hwndOwner, IData
     return SHELL32_DefaultContextMenuCallBack(psf, pdtobj, uMsg);
 }
 
+HRESULT WINAPI CDesktopFolder::GetIconOf(PCUITEMID_CHILD pidl, UINT flags, int *pIconIndex)
+{
+    HRESULT hr;
+    CComPtr<IShellFolder2> psf;
+    if (FAILED_UNEXPECTEDLY(hr = _GetSFFromPidl(pidl, &psf)))
+        return hr;
+    CComPtr<IShellIcon> psi;
+    if (FAILED(hr = psf->QueryInterface(IID_PPV_ARG(IShellIcon, &psi))))
+        return S_FALSE;
+    return psi->GetIconOf(pidl, flags, pIconIndex);
+}
+
 /*************************************************************************
  * CDesktopFolderViewCB
  */

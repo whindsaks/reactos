@@ -20,6 +20,7 @@
  */
 
 #include <precomp.h>
+#include <shellfolderutils.h>
 
 WINE_DEFAULT_DEBUG_CHANNEL(shell);
 
@@ -147,19 +148,27 @@ static PIDLCPanelStruct *_ILGetCPanelPointer(LPCITEMIDLIST pidl)
     return NULL;
 }
 
-HRESULT CCPLExtractIcon_CreateInstance(IShellFolder * psf, LPCITEMIDLIST pidl, REFIID riid, LPVOID * ppvOut)
+static inline PCWSTR GetCplItemIconLocation(LPCITEMIDLIST pidl, int &IconIndex)
 {
     PIDLCPanelStruct *pData = _ILGetCPanelPointer(pidl);
     if (!pData)
+        return NULL;
+    IconIndex = (int)pData->iconIdx != -1 ? pData->iconIdx : 0;
+    return pData->szName;
+}
+
+HRESULT CCPLExtractIcon_CreateInstance(IShellFolder * psf, LPCITEMIDLIST pidl, REFIID riid, LPVOID * ppvOut)
+{
+    int index;
+    PCWSTR pszPath = GetCplItemIconLocation(pidl, index);
+    if (!pszPath)
         return E_FAIL;
 
     CComPtr<IDefaultExtractIconInit> initIcon;
     HRESULT hr = SHCreateDefaultExtractIcon(IID_PPV_ARG(IDefaultExtractIconInit, &initIcon));
     if (FAILED_UNEXPECTEDLY(hr))
         return hr;
-
-    initIcon->SetNormalIcon(pData->szName, (int)pData->iconIdx != -1 ? pData->iconIdx : 0);
-
+    initIcon->SetNormalIcon(pszPath, index);
     return initIcon->QueryInterface(riid, ppvOut);
 }
 
@@ -688,6 +697,13 @@ HRESULT WINAPI CControlPanelFolder::MessageSFVCB(UINT uMsg, WPARAM wParam, LPARA
         }
     }
     return E_NOTIMPL;
+}
+
+HRESULT WINAPI CControlPanelFolder::GetIconOf(PCUITEMID_CHILD pidl, UINT GilIn, int *pSysIndex)
+{
+    int IconIndex;
+    PCWSTR pszPath = GetCplItemIconLocation(pidl, IconIndex);
+    return pszPath ? ShellFolderImpl_GetIconOf(pszPath, IconIndex, GilIn, pSysIndex) : S_FALSE;
 }
 
 CCPLItemMenu::CCPLItemMenu()
