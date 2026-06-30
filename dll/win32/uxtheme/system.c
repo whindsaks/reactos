@@ -506,12 +506,141 @@ static void UXTHEME_SaveSystemMetrics(void)
         &iconTitleFont, SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
 }
 
+#ifdef __REACTOS__
+static const WCHAR *g_RegColorNames[] = {
+    L"Scrollbar",             /* 00 = COLOR_SCROLLBAR */
+    L"Background",            /* 01 = COLOR_DESKTOP */
+    L"ActiveTitle",           /* 02 = COLOR_ACTIVECAPTION  */
+    L"InactiveTitle",         /* 03 = COLOR_INACTIVECAPTION */
+    L"Menu",                  /* 04 = COLOR_MENU */
+    L"Window",                /* 05 = COLOR_WINDOW */
+    L"WindowFrame",           /* 06 = COLOR_WINDOWFRAME */
+    L"MenuText",              /* 07 = COLOR_MENUTEXT */
+    L"WindowText",            /* 08 = COLOR_WINDOWTEXT */
+    L"TitleText",             /* 09 = COLOR_CAPTIONTEXT */
+    L"ActiveBorder",          /* 10 = COLOR_ACTIVEBORDER */
+    L"InactiveBorder",        /* 11 = COLOR_INACTIVEBORDER */
+    L"AppWorkSpace",          /* 12 = COLOR_APPWORKSPACE */
+    L"Hilight",               /* 13 = COLOR_HIGHLIGHT */
+    L"HilightText",           /* 14 = COLOR_HIGHLIGHTTEXT */
+    L"ButtonFace",            /* 15 = COLOR_BTNFACE */
+    L"ButtonShadow",          /* 16 = COLOR_BTNSHADOW */
+    L"GrayText",              /* 17 = COLOR_GRAYTEXT */
+    L"ButtonText",            /* 18 = COLOR_BTNTEXT */
+    L"InactiveTitleText",     /* 19 = COLOR_INACTIVECAPTIONTEXT */
+    L"ButtonHilight",         /* 20 = COLOR_BTNHIGHLIGHT */
+    L"ButtonDkShadow",        /* 21 = COLOR_3DDKSHADOW */
+    L"ButtonLight",           /* 22 = COLOR_3DLIGHT */
+    L"InfoText",              /* 23 = COLOR_INFOTEXT */
+    L"InfoWindow",            /* 24 = COLOR_INFOBK */
+    L"ButtonAlternateFace",   /* 25 = COLOR_ALTERNATEBTNFACE */
+    L"HotTrackingColor",      /* 26 = COLOR_HOTLIGHT */
+    L"GradientActiveTitle",   /* 27 = COLOR_GRADIENTACTIVECAPTION */
+    L"GradientInactiveTitle", /* 28 = COLOR_GRADIENTINACTIVECAPTION */
+    L"MenuHilight",           /* 29 = COLOR_MENUHILIGHT */
+    L"MenuBar",               /* 30 = COLOR_MENUBAR */
+};
+
+static void ApplySysColors(HTHEME hTheme)
+{
+    enum { NUM_COLORS = COLOR_MENUBAR + 1 };
+    COLORREF colors[NUM_COLORS];
+    INT colorlist[NUM_COLORS];
+    UINT i, cch;
+    HKEY hKey;
+
+    if (!hTheme)
+        return; // TODO: Get from the classic registry scheme?
+
+    for (i = 0; i < NUM_COLORS; ++i)
+        colors[i] = hTheme ? GetThemeSysColor(hTheme, i) : /*TODO*/0;
+    for (i = 0; i < NUM_COLORS; i++)
+        colorlist[i] = i;
+    SetSysColors(NUM_COLORS, colorlist, colors);
+
+    if (!RegCreateKeyW(HKEY_CURRENT_USER, L"Control Panel\\Colors", &hKey))
+    {
+        for (i = 0; i < NUM_COLORS; i++)
+        {
+            WCHAR buf[3 + 1 + 3 + 1 + 3 + 1];
+            cch = wsprintfW(buf, L"%d %d %d", GetRValue(colors[i]), GetGValue(colors[i]), GetBValue(colors[i]));
+            RegSetValueExW(hKey, g_RegColorNames[i], 0, REG_SZ, (BYTE*)buf, ++cch * sizeof(WCHAR));
+        }
+        RegCloseKey(hKey);
+    }
+}
+
+static void ApplyMetricsFromThemeHandle(HTHEME hTheme)
+{
+    
+    ICONMETRICSW im = { sizeof(im) };
+    NONCLIENTMETRICSW ncm = { sizeof(ncm) };
+    BOOL bFlatMenu = GetThemeSysBool(hTheme, TMT_FLATMENUS);
+    BOOL bHasIconMetrics = SystemParametersInfoW(SPI_GETICONMETRICS, sizeof(ICONMETRICSW), &im, 0);
+
+    ApplySysColors(hTheme);
+    //ncm.cbSize -= sizeof(ncm.iPaddedBorderWidth);
+    SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, ncm.cbSize, &ncm, 0);
+    ncm.iBorderWidth = GetThemeSysSize(hTheme, SM_CXFRAME);
+    ncm.iScrollWidth = GetThemeSysSize(hTheme, SM_CXVSCROLL);
+    ncm.iScrollHeight = GetThemeSysSize(hTheme, SM_CYHSCROLL);
+    ncm.iCaptionWidth = GetThemeSysSize(hTheme, SM_CXSIZE);
+    ncm.iCaptionHeight = GetThemeSysSize(hTheme, SM_CYSIZE);
+    ncm.iSmCaptionWidth = GetThemeSysSize(hTheme, SM_CXSMSIZE);
+    ncm.iSmCaptionHeight = GetThemeSysSize(hTheme, SM_CYSMSIZE);
+    ncm.iMenuWidth = GetThemeSysSize(hTheme, SM_CXMENUSIZE);
+    ncm.iMenuHeight = GetThemeSysSize(hTheme, SM_CYMENUSIZE);
+    GetThemeSysFont(hTheme, TMT_CAPTIONFONT, &ncm.lfCaptionFont);
+    GetThemeSysFont(hTheme, TMT_SMALLCAPTIONFONT, &ncm.lfSmCaptionFont);
+    GetThemeSysFont(hTheme, TMT_MENUFONT, &ncm.lfMenuFont );
+    GetThemeSysFont(hTheme, TMT_STATUSFONT, &ncm.lfStatusFont);
+    GetThemeSysFont(hTheme, TMT_MSGBOXFONT, &ncm.lfMessageFont);
+InvalidateRect(NULL, NULL, TRUE);
+    SystemParametersInfoW(SPI_SETNONCLIENTMETRICS, ncm.cbSize, &ncm, SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
+InvalidateRect(NULL, NULL, TRUE);
+    if (SUCCEEDED(GetThemeSysFont(hTheme, TMT_ICONTITLEFONT, &im.lfFont)))
+    {
+        SystemParametersInfoW(SPI_SETICONTITLELOGFONT, sizeof(im.lfFont), &im.lfFont, SPIF_UPDATEINIFILE);
+        if (bHasIconMetrics)
+            SystemParametersInfoW(SPI_SETICONMETRICS, sizeof(ICONMETRICS), &im, SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
+    }
+UXTHEME_broadcast_theme_changed(NULL, !!hTheme);
+    InvalidateRect(NULL, NULL, TRUE);
+    SystemParametersInfoW(SPI_SETFLATMENU, 0, &bFlatMenu, SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
+}
+
+static void ApplyMetricsFromTheme(PTHEME_FILE ptf)
+{
+    HWND hWnd;
+    HTHEME hTheme;
+    if (!ptf)
+    {
+        ApplySysColors(NULL);
+        return;
+    }
+
+    hWnd = CreateWindowExW(WS_EX_NOACTIVATE, L"STATIC", NULL, WS_DISABLED, 0, 0, 0, 0, NULL, NULL, NULL, NULL);
+    hTheme = OpenThemeData(hWnd, L"WINDOW");
+    if (hTheme)
+    {
+        ApplyMetricsFromThemeHandle(hTheme);
+        CloseThemeData(hTheme);
+    }
+    if (hWnd)
+        DestroyWindow(hWnd);
+}
+#endif
+
 /***********************************************************************
  *      UXTHEME_ApplyTheme
  *
  * Change the current active theme
  */
+#ifdef __REACTOS__
+static HRESULT UXTHEME_ApplyTheme(PTHEME_FILE tf, UINT flags)
+#else
 static HRESULT UXTHEME_ApplyTheme(PTHEME_FILE tf)
+#endif
 {
     HKEY hKey;
     WCHAR tmp[2];
@@ -565,9 +694,15 @@ static HRESULT UXTHEME_ApplyTheme(PTHEME_FILE tf)
     }
     else
         TRACE("Failed to open theme registry key\n");
-    
+#ifdef __REACTOS__
+    if (flags & 0x01)
+        ApplyMetricsFromTheme(tf);
+#endif
     UXTHEME_SaveSystemMetrics ();
-    
+#ifdef __REACTOS__
+//    if (flags & 0x20)
+//        RedrawWindow(NULL, NULL, NULL, RDW_ERASE | RDW_FRAME | RDW_INTERNALPAINT | RDW_INVALIDATE | RDW_ALLCHILDREN);
+#endif
     return hr;
 }
 
@@ -1240,11 +1375,16 @@ HRESULT WINAPI ApplyTheme(HTHEMEFILE hThemeFile, char *unknown, HWND hWnd)
     HRESULT hr;
 #ifdef __REACTOS__
     TRACE("(%p,%#x,%p)\n", hThemeFile, Flags, hWnd);
+    hr = UXTHEME_ApplyTheme(hThemeFile, Flags);
 #else
     TRACE("(%p,%s,%p)\n", hThemeFile, unknown, hWnd);
-#endif
     hr = UXTHEME_ApplyTheme(hThemeFile);
+#endif
     UXTHEME_broadcast_theme_changed (NULL, (g_ActiveThemeFile != NULL));
+
+//Sleep(2222);
+//RedrawWindow(NULL, NULL, NULL, RDW_ERASE | RDW_FRAME | RDW_INTERNALPAINT | RDW_INVALIDATE | RDW_ERASENOW | RDW_UPDATENOW | RDW_ALLCHILDREN);
+//InvalidateRect(NULL, NULL, TRUE);
     return hr;
 }
 
