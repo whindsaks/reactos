@@ -641,6 +641,320 @@ static PTHEME_PROPERTY MSSTYLES_AddMetric(PTHEME_FILE tf, int iPropertyPrimitive
  * PARAMS
  *     tf                  Theme to parse
  */
+#if 1 /* Set to 1 to use the Wine version */
+#define SetThreadDpiAwarenessContext(x) (x)
+#define GetDpiForSystem() ( 96 )
+#define GetDpiForWindow(hwnd) ( ((hwnd), GetDpiForSystem()) )
+static BOOL MSSTYLES_GetNextInteger(LPCWSTR lpStringStart, LPCWSTR lpStringEnd, LPCWSTR *lpValEnd, int *value);
+static HRESULT MSSTYLES_GetFont (LPCWSTR lpCur, LPCWSTR lpEnd,
+                                 LPCWSTR *lpValEnd, LOGFONTW* pFont);
+
+ /* Color-related state for theme ini parsing */
+struct PARSECOLORSTATE
+{
+    int colorCount;
+    int colorElements[TMT_LASTCOLOR-TMT_FIRSTCOLOR+1];
+    COLORREF colorRgb[TMT_LASTCOLOR-TMT_FIRSTCOLOR+1];
+    int captionColors;
+};
+
+static inline void parse_init_color (struct PARSECOLORSTATE* state)
+{
+    memset (state, 0, sizeof (*state));
+}
+
+static BOOL parse_handle_color_property (struct PARSECOLORSTATE* state, 
+                                         int iPropertyId, LPCWSTR lpValue,
+                                         DWORD dwValueLen)
+{
+    int r,g,b;
+    LPCWSTR lpValueEnd = lpValue + dwValueLen;
+    if(MSSTYLES_GetNextInteger(lpValue, lpValueEnd, &lpValue, &r) &&
+    MSSTYLES_GetNextInteger(lpValue, lpValueEnd, &lpValue, &g) &&
+    MSSTYLES_GetNextInteger(lpValue, lpValueEnd, &lpValue, &b)) {
+	state->colorElements[state->colorCount] = iPropertyId - TMT_FIRSTCOLOR;
+	state->colorRgb[state->colorCount++] = RGB(r,g,b);
+	switch (iPropertyId)
+	{
+	  case TMT_ACTIVECAPTION: 
+	    state->captionColors |= 0x1; 
+	    break;
+	  case TMT_INACTIVECAPTION: 
+	    state->captionColors |= 0x2; 
+	    break;
+	  case TMT_GRADIENTACTIVECAPTION: 
+	    state->captionColors |= 0x4; 
+	    break;
+	  case TMT_GRADIENTINACTIVECAPTION: 
+	    state->captionColors |= 0x8; 
+	    break;
+	}
+	return TRUE;
+    }
+    else {
+	return FALSE;
+    }
+}
+
+static void parse_apply_color (struct PARSECOLORSTATE* state)
+{
+    if (state->colorCount > 0)
+	SetSysColors(state->colorCount, state->colorElements, state->colorRgb);
+    if (state->captionColors == 0xf)
+	SystemParametersInfoW (SPI_SETGRADIENTCAPTIONS, 0, (PVOID)TRUE, 0);
+}
+
+/* Non-client-metrics-related state for theme ini parsing */
+struct PARSENONCLIENTSTATE
+{
+    NONCLIENTMETRICSW metrics;
+    BOOL metricsDirty;
+    LOGFONTW iconTitleFont;
+};
+
+static inline void parse_init_nonclient (struct PARSENONCLIENTSTATE* state)
+{
+    DPI_AWARENESS_CONTEXT old_context;
+
+    old_context = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_UNAWARE);
+
+    memset (state, 0, sizeof (*state));
+    state->metrics.cbSize = sizeof (NONCLIENTMETRICSW);
+    SystemParametersInfoW (SPI_GETNONCLIENTMETRICS, sizeof (NONCLIENTMETRICSW),
+        &state->metrics, 0);
+    SystemParametersInfoW (SPI_GETICONTITLELOGFONT, sizeof (LOGFONTW),
+        &state->iconTitleFont, 0);
+
+    SetThreadDpiAwarenessContext(old_context);
+}
+
+static BOOL parse_handle_nonclient_font (struct PARSENONCLIENTSTATE* state, 
+                                         int iPropertyId, LPCWSTR lpValue,
+                                         DWORD dwValueLen)
+{
+    LOGFONTW font;
+    
+    memset (&font, 0, sizeof (font));
+    if (SUCCEEDED (MSSTYLES_GetFont (lpValue, lpValue + dwValueLen, &lpValue,
+        &font)))
+    {
+        switch (iPropertyId)
+        {
+	  case TMT_CAPTIONFONT:
+	      state->metrics.lfCaptionFont = font;
+	      state->metricsDirty = TRUE;
+	      break;
+	  case TMT_SMALLCAPTIONFONT:
+	      state->metrics.lfSmCaptionFont = font;
+	      state->metricsDirty = TRUE;
+	      break;
+	  case TMT_MENUFONT:
+	      state->metrics.lfMenuFont = font;
+	      state->metricsDirty = TRUE;
+	      break;
+	  case TMT_STATUSFONT:
+	      state->metrics.lfStatusFont = font;
+	      state->metricsDirty = TRUE;
+	      break;
+	  case TMT_MSGBOXFONT:
+	      state->metrics.lfMessageFont = font;
+	      state->metricsDirty = TRUE;
+	      break;
+	  case TMT_ICONTITLEFONT:
+	      state->iconTitleFont = font;
+	      state->metricsDirty = TRUE;
+	      break;
+        }
+        return TRUE;
+    }
+    else
+        return FALSE;
+}
+
+static BOOL parse_handle_nonclient_size (struct PARSENONCLIENTSTATE* state, 
+                                         int iPropertyId, LPCWSTR lpValue,
+                                         DWORD dwValueLen)
+{
+    int size;
+    LPCWSTR lpValueEnd = lpValue + dwValueLen;
+    if(MSSTYLES_GetNextInteger(lpValue, lpValueEnd, &lpValue, &size)) {
+        switch (iPropertyId)
+        {
+            case TMT_SIZINGBORDERWIDTH:
+                state->metrics.iBorderWidth = size;
+                state->metricsDirty = TRUE;
+                break;
+            case TMT_SCROLLBARWIDTH:
+                state->metrics.iScrollWidth = size;
+                state->metricsDirty = TRUE;
+                break;
+            case TMT_SCROLLBARHEIGHT:
+                state->metrics.iScrollHeight = size;
+                state->metricsDirty = TRUE;
+                break;
+            case TMT_CAPTIONBARWIDTH:
+                state->metrics.iCaptionWidth = size;
+                state->metricsDirty = TRUE;
+                break;
+            case TMT_CAPTIONBARHEIGHT:
+                state->metrics.iCaptionHeight = size;
+                state->metricsDirty = TRUE;
+                break;
+            case TMT_SMCAPTIONBARWIDTH:
+                state->metrics.iSmCaptionWidth = size;
+                state->metricsDirty = TRUE;
+                break;
+            case TMT_SMCAPTIONBARHEIGHT:
+                state->metrics.iSmCaptionHeight = size;
+                state->metricsDirty = TRUE;
+                break;
+            case TMT_MENUBARWIDTH:
+                state->metrics.iMenuWidth = size;
+                state->metricsDirty = TRUE;
+                break;
+            case TMT_MENUBARHEIGHT:
+                state->metrics.iMenuHeight = size;
+                state->metricsDirty = TRUE;
+                break;
+        }
+        return TRUE;
+    }
+    else
+        return FALSE;
+}
+
+static void parse_apply_nonclient (struct PARSENONCLIENTSTATE* state)
+{
+    DPI_AWARENESS_CONTEXT old_context;
+
+    if (state->metricsDirty)
+    {
+        old_context = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_UNAWARE);
+        SystemParametersInfoW (SPI_SETNONCLIENTMETRICS, sizeof (state->metrics),
+            &state->metrics, 0);
+        SystemParametersInfoW (SPI_SETICONTITLELOGFONT, sizeof (state->iconTitleFont),
+            &state->iconTitleFont, 0);
+        SetThreadDpiAwarenessContext(old_context);
+    }
+}
+
+void MSSTYLES_ParseThemeIni(PTHEME_FILE tf/*, BOOL setMetrics*/)
+{BOOL setMetrics=1;
+    PTHEME_CLASS cls;
+    PTHEME_CLASS globals;
+    PTHEME_PARTSTATE ps;
+    PUXINI_FILE ini;
+    WCHAR szAppName[MAX_THEME_APP_NAME];
+    WCHAR szClassName[MAX_THEME_CLASS_NAME];
+    WCHAR szPropertyName[MAX_THEME_VALUE_NAME];
+    int iPartId;
+    int iStateId;
+    int iPropertyPrimitive;
+    int iPropertyId;
+    DWORD dwLen;
+    LPCWSTR lpName;
+    DWORD dwValueLen;
+    LPCWSTR lpValue;
+
+    ini = MSSTYLES_GetActiveThemeIni(tf);
+
+    while((lpName=UXINI_GetNextSection(ini, &dwLen))) {
+        if(CompareStringW(LOCALE_SYSTEM_DEFAULT, NORM_IGNORECASE, lpName, dwLen, L"SysMetrics", -1) == CSTR_EQUAL) {
+            struct PARSECOLORSTATE colorState;
+            struct PARSENONCLIENTSTATE nonClientState;
+            
+            parse_init_color (&colorState);
+            parse_init_nonclient (&nonClientState);
+
+            while((lpName=UXINI_GetNextValue(ini, &dwLen, &lpValue, &dwValueLen))) {
+                lstrcpynW(szPropertyName, lpName, min(dwLen+1, ARRAY_SIZE(szPropertyName)));
+                if(MSSTYLES_LookupProperty(szPropertyName, &iPropertyPrimitive, &iPropertyId)) {
+                    if(iPropertyId >= TMT_FIRSTCOLOR && iPropertyId <= TMT_LASTCOLOR) {
+                        if (!parse_handle_color_property (&colorState, iPropertyId, 
+                            lpValue, dwValueLen))
+                            FIXME("Invalid color value for %s\n", 
+                                debugstr_w(szPropertyName)); 
+                    }
+		    else if (setMetrics && (iPropertyId == TMT_FLATMENUS)) {
+			BOOL flatMenus = (*lpValue == 'T') || (*lpValue == 't');
+			SystemParametersInfoW (SPI_SETFLATMENU, 0, (PVOID)(INT_PTR)flatMenus, 0);
+		    }
+		    else if ((iPropertyId >= TMT_FIRSTFONT) 
+			&& (iPropertyId <= TMT_LASTFONT))
+		    {
+		        if (!parse_handle_nonclient_font (&nonClientState,
+		            iPropertyId, lpValue, dwValueLen))
+                            FIXME("Invalid font value for %s\n", 
+                                debugstr_w(szPropertyName)); 
+		    }
+		    else if ((iPropertyId >= TMT_FIRSTSIZE)
+			&& (iPropertyId <= TMT_LASTSIZE))
+		    {
+		        if (!parse_handle_nonclient_size (&nonClientState,
+		            iPropertyId, lpValue, dwValueLen))
+                            FIXME("Invalid size value for %s\n", 
+                                debugstr_w(szPropertyName)); 
+		    }
+                    /* Catch all metrics, including colors */
+                    MSSTYLES_AddMetric(tf, iPropertyPrimitive, iPropertyId, lpValue, dwValueLen);
+                }
+                else {
+                    TRACE("Unknown system metric %s\n", debugstr_w(szPropertyName));
+                }
+            }
+            if (setMetrics) 
+            {
+                parse_apply_color (&colorState);
+		parse_apply_nonclient (&nonClientState);
+	    }
+            continue;
+        }
+        if(MSSTYLES_ParseIniSectionName(lpName, dwLen, szAppName, szClassName, &iPartId, &iStateId)) {
+            BOOL isGlobal = FALSE;
+            if(!lstrcmpiW(szClassName, L"globals")) {
+                isGlobal = TRUE;
+            }
+            cls = MSSTYLES_AddClass(tf, szAppName, szClassName);
+            ps = MSSTYLES_AddPartState(cls, iPartId, iStateId);
+
+            while((lpName=UXINI_GetNextValue(ini, &dwLen, &lpValue, &dwValueLen))) {
+                lstrcpynW(szPropertyName, lpName, min(dwLen+1, ARRAY_SIZE(szPropertyName)));
+                if(MSSTYLES_LookupProperty(szPropertyName, &iPropertyPrimitive, &iPropertyId)) {
+                    MSSTYLES_AddProperty(ps, iPropertyPrimitive, iPropertyId, lpValue, dwValueLen, isGlobal);
+                }
+                else {
+                    TRACE("Unknown property %s\n", debugstr_w(szPropertyName));
+                }
+            }
+        }
+    }
+
+    /* App/Class combos override values defined by the base class, map these overrides */
+    globals = MSSTYLES_FindClass(tf, NULL, L"globals");
+    cls = tf->classes;
+    while(cls) {
+        if(*cls->szAppName) {
+            cls->overrides = MSSTYLES_FindClass(tf, NULL, cls->szClassName);
+            if(!cls->overrides) {
+                TRACE("No overrides found for app %s class %s\n", debugstr_w(cls->szAppName), debugstr_w(cls->szClassName));
+            }
+            else {
+                cls->overrides = globals;
+            }
+        }
+        else {
+            /* Everything overrides globals..except globals */
+            if(cls != globals) cls->overrides = globals;
+        }
+        cls = cls->next;
+    }
+    UXINI_CloseINI(ini);
+
+    if(!tf->classes) {
+        ERR("Failed to parse theme ini\n");
+    }
+}
+#else
 void MSSTYLES_ParseThemeIni(PTHEME_FILE tf)
 {
     static const WCHAR szSysMetrics[] = {'S','y','s','M','e','t','r','i','c','s','\0'};
@@ -742,6 +1056,7 @@ void MSSTYLES_ParseThemeIni(PTHEME_FILE tf)
         ERR("Failed to parse theme ini\n");
     }
 }
+#endif
 
 /***********************************************************************
  *      MSSTYLES_OpenThemeClass
