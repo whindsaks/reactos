@@ -67,6 +67,19 @@ struct ToolBase
 class ToolsModel
 {
 private:
+    class VirtualBrush
+    {
+    protected:
+        COLORREF m_rgbColor = RGB(0, 0, 0);
+        PAL_TYPE m_palette = PAL_MODERN;
+        HBRUSH m_hBrush = NULL;
+
+    public:
+        ~VirtualBrush();
+
+        HBRUSH GetBrush(PAL_TYPE palette, COLORREF rgbColor);
+    };
+
     int m_lineWidth;
     INT m_penWidth;
     INT m_brushWidth;
@@ -79,6 +92,8 @@ private:
     BOOL m_transpBg;
     int m_zoom;
     ToolBase *m_pToolObject;
+    VirtualBrush m_fgBrush;
+    VirtualBrush m_bgBrush;
 
     ToolBase *GetOrCreateTool(TOOLTYPE nTool);
     void SendSetCursor();
@@ -144,6 +159,10 @@ public:
     void SpecialTweak(BOOL bMinus);
 
     void DrawWithMouseTool(POINT pt, WPARAM wParam);
+
+    HBRUSH GetFgBrush();
+    HBRUSH GetBgBrush();
+    static HBRUSH CreateBrush(PAL_TYPE palette, COLORREF color);
 };
 
 extern ToolsModel toolsModel;
