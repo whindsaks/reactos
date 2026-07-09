@@ -90,10 +90,14 @@ PrintShortGroupCommands(
     pCommand = pGroup->pCommandListHead;
     while (pCommand != NULL)
     {
-        _swprintf(szBuffer1, L"%s %s", pGroup->pwszCmdGroupToken, pCommand->pwszCmdToken);
-        LoadStringW(pContext->hModule, pCommand->dwShortCmdHelpToken, szBuffer2, _countof(szBuffer2));
+        DPRINT("CheckVersion (Command) %S %S", pGroup->pwszCmdGroupToken, pCommand->pwszCmdToken);
+        if (CheckOsVersion(pCommand->pfnOsVersionCheck))
+        {
+            _swprintf(szBuffer1, L"%s %s", pGroup->pwszCmdGroupToken, pCommand->pwszCmdToken);
+            LoadStringW(pContext->hModule, pCommand->dwShortCmdHelpToken, szBuffer2, _countof(szBuffer2));
 
-        ConPrintf(StdOut, L"%-15s - %s", szBuffer1, szBuffer2);
+            ConPrintf(StdOut, L"%-15s - %s", szBuffer1, szBuffer2);
+        }
         pCommand = pCommand->pNext;
     }
 }
@@ -165,7 +169,7 @@ PrintContext(
         pHelpArray[dwIndex].Type = Command;
         pHelpArray[dwIndex].pszCommand = pCommand->pwszCmdToken;
         pHelpArray[dwIndex].dwHelpId = pCommand->dwShortCmdHelpToken;
-//        pHelpArray[dwIndex].Pointer.pCommand = pCommand;
+        pHelpArray[dwIndex].Pointer.pCommand = pCommand;
         dwIndex++;
         pCommand = pCommand->pNext;
     }
@@ -177,7 +181,7 @@ PrintContext(
         pHelpArray[dwIndex].Type = Group;
         pHelpArray[dwIndex].pszCommand = pGroup->pwszCmdGroupToken;
         pHelpArray[dwIndex].dwHelpId = pGroup->dwShortCmdHelpToken;
-//        pHelpArray[dwIndex].Pointer.pGroup = pGroup;
+        pHelpArray[dwIndex].Pointer.pGroup = pGroup;
         dwIndex++;
         pGroup = pGroup->pNext;
     }
@@ -200,15 +204,29 @@ PrintContext(
         switch (pHelpArray[dwIndex].Type)
         {
             case Command:
+                if (CheckOsVersion(pHelpArray[dwIndex].Pointer.pCommand->pfnOsVersionCheck))
+                {
+                    if (LoadStringW(pContext->hModule, pHelpArray[dwIndex].dwHelpId, szBuffer, _countof(szBuffer)) == 0)
+                        szBuffer[0] = UNICODE_NULL;
+                    ConPrintf(StdOut, L"%-15s - %s", pHelpArray[dwIndex].pszCommand, szBuffer);
+                }
+                break;
+
             case Group:
-                if (LoadStringW(pContext->hModule, pHelpArray[dwIndex].dwHelpId, szBuffer, _countof(szBuffer)) == 0)
-                    szBuffer[0] = UNICODE_NULL;
-                ConPrintf(StdOut, L"%-15s - %s", pHelpArray[dwIndex].pszCommand, szBuffer);
+                if (CheckOsVersion(pHelpArray[dwIndex].Pointer.pGroup->pfnOsVersionCheck))
+                {
+                    if (LoadStringW(pContext->hModule, pHelpArray[dwIndex].dwHelpId, szBuffer, _countof(szBuffer)) == 0)
+                        szBuffer[0] = UNICODE_NULL;
+                    ConPrintf(StdOut, L"%-15s - %s", pHelpArray[dwIndex].pszCommand, szBuffer);
+                }
                 break;
 
             case SubContext:
-                GetContextFullName(pHelpArray[dwIndex].Pointer.pSubContext, szBuffer, _countof(szBuffer));
-                ConPrintf(StdOut, L"%-15s - Changes to the \"%s\" context.\n", pHelpArray[dwIndex].pszCommand, szBuffer);
+                if (CheckOsVersion(pHelpArray[dwIndex].Pointer.pSubContext->pfnOsVersionCheck))
+                {
+                    GetContextFullName(pHelpArray[dwIndex].Pointer.pSubContext, szBuffer, _countof(szBuffer));
+                    ConPrintf(StdOut, L"%-15s - Changes to the \"%s\" context.\n", pHelpArray[dwIndex].pszCommand, szBuffer);
+                }
                 break;
         }
     }
@@ -265,7 +283,8 @@ PrintSubcontexts(
     ConResPrintf(StdOut, IDS_SUBCONTEXT_HEADER);
     for (dwIndex = 0; dwIndex < dwCount; dwIndex++)
     {
-        ConPrintf(StdOut, L" %s", pSubContextArray[dwIndex]->pszContextName);
+        if (CheckOsVersion(pSubContextArray[dwIndex]->pfnOsVersionCheck))
+            ConPrintf(StdOut, L" %s", pSubContextArray[dwIndex]->pszContextName);
     }
     ConPuts(StdOut, L"\n");
 
@@ -284,6 +303,9 @@ PrintCommandHelp(
     DWORD dwLength = 1;
 
     DPRINT("PrintCommandHelp(%p %p %p)\n", pContext, pGroup, pCommand);
+
+    if (!CheckOsVersion(pCommand->pfnOsVersionCheck))
+        return;
 
     dwLength += wcslen(pCommand->pwszCmdToken);
     if (pGroup)

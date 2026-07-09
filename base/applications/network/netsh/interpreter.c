@@ -193,6 +193,14 @@ InterpretCommand(
             case STATE_COMMAND:
                 DPRINT("STATE_COMMAND\n");
 
+                if (!CheckOsVersion(pCommand->pfnOsVersionCheck))
+                {
+                    DPRINT("Command: Version check failed!\n");
+                    dwError = ERROR_CMD_NOT_FOUND;
+                    State = STATE_DONE;
+                    break;
+                }
+
                 /* Check for help keywords */
                 if (((dwArgIndex + 1) == (dwArgCount - 1)) &&
                     ((_wcsicmp(argv[dwArgIndex + 1], L"?") == 0) || (_wcsicmp(argv[dwArgIndex + 1], L"help") == 0)))
@@ -232,6 +240,14 @@ InterpretCommand(
             case STATE_GROUP:
                 DPRINT("STATE_GROUP\n");
 
+                if (!CheckOsVersion(pGroup->pfnOsVersionCheck))
+                {
+                    DPRINT("Group: Version check failed!\n");
+                    dwError = ERROR_CMD_NOT_FOUND;
+                    State = STATE_DONE;
+                    break;
+                }
+
                 /* Check for group without command */
                 if (dwArgIndex == (dwArgCount - 1))
                 {
@@ -263,6 +279,14 @@ InterpretCommand(
 
             case STATE_CONTEXT:
                 DPRINT("STATE_CONTEXT\n");
+
+                if (!CheckOsVersion(pTempSubContext->pfnOsVersionCheck))
+                {
+                    DPRINT("Context: Version check failed!\n");
+                    dwError = ERROR_CMD_NOT_FOUND;
+                    State = STATE_DONE;
+                    break;
+                }
 
                 if (pTempSubContext == pCurrentContext)
                 {

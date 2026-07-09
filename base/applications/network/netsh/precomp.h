@@ -138,7 +138,7 @@ extern PWSTR pszMachine;
 extern UINT  VersionInfoArchitecture;
 extern UINT  VersionInfoOsProductSuite;
 extern UINT  VersionInfoOsType;
-extern UINT  VersionInfoVersion;
+extern WCHAR VersionInfoVersion[MAX_PATH];
 extern WCHAR VersionInfoBuildNumber[MAX_PATH];
 extern WCHAR VersionInfoServicePackMajorVersion[MAX_PATH];
 extern WCHAR VersionInfoServicePackMinorVersion[MAX_PATH];
@@ -287,6 +287,10 @@ MergeStrings(
     _In_ UINT nCount);
 
 /* wmi.c */
+
+BOOL
+CheckOsVersion(
+    _In_ PNS_OSVERSIONCHECK pfnOsVersionCheck);
 
 HRESULT
 GetWmiVersionInfo(VOID);
