@@ -921,7 +921,7 @@ RegisterContext(
     DWORD i, j;
     DWORD dwError = ERROR_SUCCESS;
 
-    DPRINT1("RegisterContext(%p)\n", pChildContext);
+    DPRINT("RegisterContext(%p)\n", pChildContext);
     if (pChildContext == NULL)
     {
         DPRINT1("Invalid child context!\n");
