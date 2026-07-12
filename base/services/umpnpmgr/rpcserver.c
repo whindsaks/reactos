@@ -4156,29 +4156,29 @@ PNP_HwProfFlags(
 
     if (ulAction == PNP_GET_HWPROFFLAGS)
     {
-         if (RegOpenKeyExW(hKey,
-                           pDeviceID,
-                           0,
-                           KEY_QUERY_VALUE,
-                           &hDeviceKey) != ERROR_SUCCESS)
-         {
-            *pulValue = 0;
-         }
-         else
-         {
-             dwSize = sizeof(DWORD);
-             if (RegQueryValueExW(hDeviceKey,
-                                  L"CSConfigFlags",
-                                  NULL,
-                                  NULL,
-                                  (LPBYTE)pulValue,
-                                  &dwSize) != ERROR_SUCCESS)
-             {
-                 *pulValue = 0;
-             }
+        if (RegOpenKeyExW(hKey,
+                          pDeviceID,
+                          0,
+                          KEY_QUERY_VALUE,
+                          &hDeviceKey) != ERROR_SUCCESS)
+        {
+           *pulValue = 0;
+        }
+        else
+        {
+            dwSize = sizeof(DWORD);
+            if (RegQueryValueExW(hDeviceKey,
+                                 L"CSConfigFlags",
+                                 NULL,
+                                 NULL,
+                                 (LPBYTE)pulValue,
+                                 &dwSize) != ERROR_SUCCESS)
+            {
+                *pulValue = 0;
+            }
 
-             RegCloseKey(hDeviceKey);
-         }
+            RegCloseKey(hDeviceKey);
+        }
     }
     else if (ulAction == PNP_SET_HWPROFFLAGS)
     {
