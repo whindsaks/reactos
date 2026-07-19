@@ -31,10 +31,10 @@ PCWSTR InfUnattendSignature = L"$ReactOS$";
 
 static int
 CompareInfFirstLineString(
-    IN HINF hInf,
-    IN PCWSTR Section,
-    IN PCWSTR Name,
-    IN PCWSTR String)
+    _In_ HINF hInf,
+    _In_ PCWSTR Section,
+    _In_ PCWSTR Name,
+    _In_ PCWSTR String)
 {
     INFCONTEXT Context;
     PCWSTR Value;
@@ -54,9 +54,9 @@ CompareInfFirstLineString(
 
 static BOOLEAN
 IsInfUnattendSetupEnabled(
-    IN PUSETUP_DATA pSetupData,
-    IN PCWSTR InfPath,
-    IN BOOLEAN CheckDetached)
+    _In_ PUSETUP_DATA pSetupData,
+    _In_ PCWSTR InfPath,
+    _In_ BOOLEAN CheckDetached)
 {
     HINF hInf;
     BOOLEAN Result = FALSE;
@@ -98,18 +98,18 @@ abort:
 
 static void
 GetDefaultUnattendInfPath(
-    IN PUSETUP_DATA pSetupData,
-    OUT PWSTR InfPath,
-    IN SIZE_T cch)
+    _In_ PUSETUP_DATA pSetupData,
+    _Out_writes_(cch) PWSTR InfPath,
+    _In_ SIZE_T cch)
 {
     CombinePaths(InfPath, cch, 2, pSetupData->SourcePath.Buffer, L"unattend.inf");
 }
 
 static BOOLEAN
 GetUnattendInfPath(
-    IN PUSETUP_DATA pSetupData,
-    OUT PWSTR InfPath,
-    IN SIZE_T cch)
+    _In_ PUSETUP_DATA pSetupData,
+    _Out_ PWSTR InfPath,
+    _In_ SIZE_T cch)
 {
     WCHAR Drive;
     UINT DriveType, Types;

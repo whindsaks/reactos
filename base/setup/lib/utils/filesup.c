@@ -1076,7 +1076,7 @@ UnMapFile(
 
 static UINT
 GetWin32DriveTypeOfDriveNumber(
-    IN USHORT DriveNumber)
+    _In_ USHORT DriveNumber)
 {
     PROCESS_DEVICEMAP_INFORMATION DeviceMap;
     NTSTATUS Status;
@@ -1096,8 +1096,8 @@ GetWin32DriveTypeOfDriveNumber(
 
 UINT
 GetNtDevicePathOfDriveNumber(
-    IN USHORT DriveNumber,
-    OUT PUNICODE_STRING pOutput)
+    _In_ USHORT DriveNumber,
+    _Out_ PUNICODE_STRING pOutput)
 {
     WCHAR szDosDevPath[] = { L'A' + DriveNumber, L':', UNICODE_NULL };
     UINT Result = DRIVE_UNKNOWN, Type;

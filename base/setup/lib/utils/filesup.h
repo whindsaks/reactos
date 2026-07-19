@@ -126,7 +126,7 @@ do {    \
 
 UINT
 GetNtDevicePathOfDriveNumber(
-    IN WORD DriveNumber,
-    OUT PUNICODE_STRING pOutput);
+    _In_ USHORT DriveNumber,
+    _Out_ PUNICODE_STRING pOutput);
 
 /* EOF */
