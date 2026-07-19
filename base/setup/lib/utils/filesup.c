@@ -1076,7 +1076,7 @@ UnMapFile(
 
 static UINT
 GetWin32DriveTypeOfDriveNumber(
-    IN WORD DriveNumber)
+    IN USHORT DriveNumber)
 {
     PROCESS_DEVICEMAP_INFORMATION DeviceMap;
     NTSTATUS Status;
@@ -1096,14 +1096,13 @@ GetWin32DriveTypeOfDriveNumber(
 
 UINT
 GetNtDevicePathOfDriveNumber(
-    IN WORD DriveNumber,
+    IN USHORT DriveNumber,
     OUT PUNICODE_STRING pOutput)
 {
     WCHAR szDosDevPath[] = { L'A' + DriveNumber, L':', UNICODE_NULL };
     UINT Result = DRIVE_UNKNOWN, Type;
     HANDLE DirectoryHandle, DeviceHandle, Kernel32;
-    PVOID pfnQDD;
-    ANSI_STRING AnsiString;
+    UINT (WINAPI *pfnQueryDosDeviceW)(PCWSTR,PWSTR,DWORD);
     UNICODE_STRING String;
     OBJECT_ATTRIBUTES ObjectAttributes;
     ULONG ReturnLength;
@@ -1117,13 +1116,14 @@ GetNtDevicePathOfDriveNumber(
     RtlInitUnicodeString(&String, L"KERNEL32");
     Status = LdrGetDllHandle(NULL, NULL, &String, &Kernel32);
     if (NT_SUCCESS(Status))
-        Status = LdrLoadDll(NULL, 0, &String, &Kernel32); /* Hold a reference */
-    RtlInitAnsiString(&AnsiString, "QueryDosDeviceW");
-    if (NT_SUCCESS(Status))
-        Status = LdrGetProcedureAddress(Kernel32, &AnsiString, 0, &pfnQDD);
+    {
+        ANSI_STRING AnsiString;
+        RtlInitAnsiString(&AnsiString, "QueryDosDeviceW");
+        Status = LdrGetProcedureAddress(Kernel32, &AnsiString, 0, (PVOID*)&pfnQueryDosDeviceW);
+    }
     if (NT_SUCCESS(Status))
     {
-        UINT cch = ((UINT(WINAPI*)())pfnQDD)(szDosDevPath, pOutput->Buffer, pOutput->MaximumLength / sizeof(WCHAR));
+        UINT cch = pfnQueryDosDeviceW(szDosDevPath, pOutput->Buffer, pOutput->MaximumLength / sizeof(WCHAR));
         pOutput->Length = (cch - 1) * sizeof(WCHAR);
         if (cch)
             return Type;

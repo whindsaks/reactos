@@ -79,12 +79,9 @@ IsInfUnattendSetupEnabled(
     }
 
     /* Extra safety check for inf files not on the ISO */
-    if (CheckDetached)
+    if (CheckDetached && CompareInfFirstLineString(hInf, L"Unattend", L"UnattendForDetached", L"yes"))
     {
-        if (CompareInfFirstLineString(hInf, L"Unattend", L"UnattendForDetached", L"yes"))
-        {
-            goto abort;
-        }
+        goto abort;
     }
 
     if (CompareInfFirstLineString(hInf, L"Unattend", L"Signature", InfUnattendSignature))
