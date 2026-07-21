@@ -1266,7 +1266,7 @@ static MUI_ENTRY skSKFormatPartitionEntries[] =
     {
         0,
         0,
-        "ENTER = Pokra\237ova\234   F3 = Skon\237i\234",
+        "ENTER = Pokra\237ova\234   ESC = Zru\347i\234   F3 = Skon\237i\234",
         TEXT_TYPE_STATUS | TEXT_PADDING_BIG,
         TEXT_ID_STATIC
     },
@@ -1885,7 +1885,7 @@ MUI_ERROR skSKErrorEntries[] =
     },
     {
         // ERROR_SIGNATURE_TXTSETUPSIF,
-        "Setup found an invalid signature in TXTSETUP.SIF.\n", //chybnì (neplatnì) podpis (znak, zna\237ka, \347ifra)
+        "Setup found an invalid signature in TXTSETUP.SIF.\n", //chybnï¿½ (neplatnï¿½) podpis (znak, zna\237ka, \347ifra)
         "ENTER = Re\347tart po\237\241ta\237a"
     },
     {
@@ -1921,7 +1921,7 @@ MUI_ERROR skSKErrorEntries[] =
     },
     {
         // ERROR_WARN_PARTITION,
-//          "In\347tal tor zistil, §e najmenej jeden pevnì disk obsahuje nekompatibiln£\n"
+//          "In\347talï¿½tor zistil, ï¿½e najmenej jeden pevnï¿½ disk obsahuje nekompatibilnï¿½\n"
           "In\347tal\240tor na\347iel najmenej na jednom pevnom disku nekompatibiln\243\n"
           "tabu\226ku oblast\241, s ktorou sa ned\240 spr\240vne zaobch\240dza\234!\n"
           "\n"

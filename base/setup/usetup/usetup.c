@@ -2560,6 +2560,11 @@ Restart:
             }
             goto Restart;
         }
+        else if (Ir->Event.KeyEvent.wVirtualKeyCode == VK_ESCAPE)  /* ESC */
+        {
+            FsVolContext->NextPageOnAbort = SELECT_PARTITION_PAGE;
+            return FSVOL_ABORT;
+        }
         else if (Ir->Event.KeyEvent.wVirtualKeyCode == VK_RETURN || IsUnattendedSetup) /* ENTER */
         {
             /*

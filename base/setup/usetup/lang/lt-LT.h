@@ -6,7 +6,7 @@
  * LICENSE:     GPL - See COPYING in the top level directory
  * FILE:        base/setup/usetup/lang/lt-LT.h
  * PURPOSE:     Lithuanian Language File
- * TRANSLATOR:  Vytis "CMan" GirdØijauskas (cman@cman.us)
+ * TRANSLATOR:  Vytis "CMan" Girdï¿½ijauskas (cman@cman.us)
  * DATE:        2008-01-06
  */
 
@@ -1268,7 +1268,7 @@ static MUI_ENTRY ltLTFormatPartitionEntries[] =
     {
         0,
         0,
-        "ENTER = T\322sti   F3 = Baigti",
+        "ENTER = T\322sti   ESC = At\325aukti   F3 = Baigti",
         TEXT_TYPE_STATUS | TEXT_PADDING_BIG,
         TEXT_ID_STATIC
     },

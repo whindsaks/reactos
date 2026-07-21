@@ -133,7 +133,7 @@ static MUI_ENTRY hrHRWelcomePageEntries[] =
     {
         8,
         17,
-     // "\x07  Pritisnite R za popravak ReactOS instalacije koriste†i Recovery Console.",
+     // "\x07  Pritisnite R za popravak ReactOS instalacije koristeï¿½i Recovery Console.",
         "\x07  Pritisnite R za popravak ReactOS instalacije.",
         TEXT_STYLE_NORMAL,
         TEXT_ID_STATIC
@@ -1274,7 +1274,7 @@ static MUI_ENTRY hrHRFormatPartitionEntries[] =
     {
         0,
         0,
-        "ENTER = Nastavi   F3 = Iza\320i",
+        "ENTER = Nastavi   ESC = Odustani   F3 = Iza\320i",
         TEXT_TYPE_STATUS | TEXT_PADDING_BIG,
         TEXT_ID_STATIC
     },

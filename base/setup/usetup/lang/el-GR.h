@@ -1273,7 +1273,7 @@ static MUI_ENTRY elGRFormatPartitionEntries[] =
     {
         0,
         0,
-        "   ENTER = \221\254\244\342\256\234\240\230   F3 = \200\247\246\256\351\250\236\251\236",
+        "   ENTER = \221\254\244\342\256\234\240\230   ESC = \200\241\347\250\340\251\236   F3 = \200\247\246\256\351\250\236\251\236",
         TEXT_TYPE_STATUS,
         TEXT_ID_STATIC
     },
@@ -2230,7 +2230,7 @@ MUI_STRING elGRStrings[] =
      "\213\342\232\234\237\246\252 \253\246\254 \244\342\246\254 partition:"},
     {STRING_CHOOSE_NEW_PARTITION,
      "You have chosen to create a primary partition on"},
-//     "„§ ¢â¥˜«œ ¤˜ ›ž£ ¦¬¨šã©œ«œ â¤˜ ¤â¦ partition on"},
+//     "ï¿½ï¿½ï¿½ï¿½â¥˜ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ã©œï¿½ï¿½ â¤˜ ï¿½ï¿½ partition on"},
     {STRING_CHOOSE_NEW_EXTENDED_PARTITION,
      "You have chosen to create an extended partition on"},
     {STRING_CHOOSE_NEW_LOGICAL_PARTITION,

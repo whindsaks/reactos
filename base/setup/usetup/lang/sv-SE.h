@@ -1266,7 +1266,7 @@ static MUI_ENTRY svSEFormatPartitionEntries[] =
     {
         0,
         0,
-        "   ENTER = Forts\204tt   F3 = Avsluta",
+        "   ENTER = Forts\204tt   ESC = Avbryt   F3 = Avsluta",
         TEXT_TYPE_STATUS,
         TEXT_ID_STATIC
     },
@@ -2224,7 +2224,7 @@ MUI_STRING svSEStrings[] =
      "Storlek p\206 den nya partitionen:"},
     {STRING_CHOOSE_NEW_PARTITION,
      "You have chosen to create a primary partition on"},
-//     "Du har valt att skapa en ny partition p†"},
+//     "Du har valt att skapa en ny partition pï¿½"},
     {STRING_CHOOSE_NEW_EXTENDED_PARTITION,
      "You have chosen to create an extended partition on"},
     {STRING_CHOOSE_NEW_LOGICAL_PARTITION,
