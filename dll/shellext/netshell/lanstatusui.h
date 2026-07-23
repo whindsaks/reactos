@@ -3,6 +3,10 @@
 /// HKEY_LOCAL_MACHINE\SOFTWARE\Classes\CLSID\{7007ACCF-3202-11D1-AAD2-00805FC1270E}
 // IID B722BCCB-4E68-101B-A2BC-00AA00404770
 
+enum COPYDATAID {
+    CDID_ISGUID = 42,
+};
+
 #define WM_SHOWSTATUSDLG    (WM_USER+10)
 
 typedef struct tagNotificationItem
@@ -45,7 +49,7 @@ class CLanStatus:
 
     private:
         HRESULT InitializeNetTaskbarNotifications();
-        HRESULT ShowStatusDialogByCLSID(const GUID *pguidCmdGroup);
+        static HRESULT ShowStatusDialogByCLSID(const GUID *pguidCmdGroup);
 
         CComPtr<INetConnectionManager> m_lpNetMan;
         NOTIFICATION_ITEM *m_pHead;

@@ -17,6 +17,19 @@ CLanStatus::CLanStatus() :
 {
 }
 
+static BOOL
+IsEqualNetConnection(INetConnection *pNet, const GUID *pGuid)
+{
+    BOOL result = false;
+    NETCON_PROPERTIES *pNCP;
+    if (pGuid && SUCCEEDED(pNet->GetProperties(&pNCP)))
+    {
+        result = pNCP->guidId == *pGuid;
+        NcFreeNetconProperties(pNCP);
+    }
+    return result;
+}
+
 VOID
 UpdateLanStatusUiDlg(
     HWND hwndDlg,
@@ -975,6 +988,18 @@ LANStatusDlg(
             }
             break;
 
+        case WM_COPYDATA:
+            pContext = (LANSTATUSUI_CONTEXT*)GetWindowLongPtr(hwndDlg, DWLP_USER);
+            if (pContext && lParam && ((COPYDATASTRUCT*)lParam)->dwData == CDID_ISGUID)
+            {
+                if (IsEqualNetConnection(pContext->pNet, (GUID*)((COPYDATASTRUCT*)lParam)->lpData))
+                {
+                    SetWindowLongPtr(hwndDlg, DWLP_MSGRESULT, CDID_ISGUID);
+                    return TRUE;
+                }
+            }
+            break;
+
         case WM_SHOWSTATUSDLG:
             pContext = (LANSTATUSUI_CONTEXT*)GetWindowLongPtr(hwndDlg, DWLP_USER);
             if (!pContext)
@@ -1217,19 +1242,17 @@ CLanStatus::InitializeNetTaskbarNotifications()
 HRESULT
 CLanStatus::ShowStatusDialogByCLSID(const GUID *pguidCmdGroup)
 {
-    NOTIFICATION_ITEM *pItem;
-
-    pItem = m_pHead;
-    while (pItem)
+    // We can be called by a process other than Explorer so we cannot use m_pHead
+    COPYDATASTRUCT cds = { CDID_ISGUID, sizeof(*pguidCmdGroup), const_cast<GUID*>(pguidCmdGroup) };
+    HWND hPrev = NULL, hWnd;
+    for (; (hWnd = FindWindowExW(NULL, hPrev, NULL, TRAYICONWINDOWCAPTIONW)) != NULL; hPrev = hWnd)
     {
-        if (IsEqualGUID(pItem->guidItem, *pguidCmdGroup))
+        if (SendMessageW(hWnd, WM_COPYDATA, NULL, (LPARAM)&cds) == CDID_ISGUID)
         {
-            SendMessageW(pItem->hwndDlg, WM_SHOWSTATUSDLG, 0, WM_LBUTTONUP);
+            SendMessageW(hWnd, WM_SHOWSTATUSDLG, 0, WM_LBUTTONUP);
             return S_OK;
         }
-        pItem = pItem->pNext;
     }
-
     ERR("not found\n");
     return E_FAIL;
 }
