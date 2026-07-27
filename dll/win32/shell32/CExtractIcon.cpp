@@ -120,7 +120,7 @@ HRESULT STDMETHODCALLTYPE CExtractIcon::SetFlags(
 {
     TRACE("(%p, 0x%x)\n", this, uFlags);
 
-    flags = uFlags;
+    flags = uFlags; // GIL output flags, returned by GetIconLocation
     return S_OK;
 }
 
@@ -179,7 +179,6 @@ HRESULT STDMETHODCALLTYPE CExtractIcon::GetIconLocation(
     UINT *pwFlags)
 {
     const struct IconLocation *icon = NULL;
-    SIZE_T cb;
 
     TRACE("(%p, 0x%x, %s, 0x%x, %p, %p)\n", this, uFlags, debugstr_w(szIconFile), cchMax, piIndex, pwFlags);
 
@@ -198,12 +197,13 @@ HRESULT STDMETHODCALLTYPE CExtractIcon::GetIconLocation(
     if (!icon->file)
         return E_FAIL;
 
-    cb = wcslen(icon->file) + 1;
-    if (cchMax < (UINT)cb)
+    SIZE_T cch = wcslen(icon->file) + 1;
+    if (cchMax < cch)
         return E_FAIL;
-    CopyMemory(szIconFile, icon->file, cb * sizeof(WCHAR));
+    CopyMemory(szIconFile, icon->file, cch * sizeof(WCHAR));
     *piIndex = icon->index;
     *pwFlags = flags;
+
     return S_OK;
 }
 
@@ -216,8 +216,24 @@ HRESULT STDMETHODCALLTYPE CExtractIcon::Extract(
 {
     TRACE("(%p, %s, %u, %p, %p, %u)\n", this, debugstr_w(pszFile), nIconIndex, phiconLarge, phiconSmall, nIconSize);
 
-    /* Nothing to do, ExtractIconW::GetIconLocation should be enough */
-    return S_FALSE;
+    /*if (flags & GIL_NOTFILENAME)
+    {
+        if (pszFile[0] == L'*' && !pszFile[1]) // System Image List "path"
+        {
+            HIMAGELIST hLarge, hSmall;
+            if (Shell_GetImageLists(&hLarge, &hSmall))
+            {
+                if (phiconLarge)
+                    *phiconLarge = ImageList_GetIcon(hLarge, nIconIndex, 0);
+                if (phiconSmall)
+                    *phiconSmall = ImageList_GetIcon(hSmall, nIconIndex, 0);
+                return S_OK;
+            }
+        }
+        nIconIndex = 0; // Windows does this, presumably to make it more likely to work if GIL_NOTFILENAME was a lie
+    }
+
+    return SHDefExtractIconW(pszFile, nIconIndex, flags, phiconLarge, phiconSmall, nIconSize);*/return S_FALSE;
 }
 
 HRESULT STDMETHODCALLTYPE CExtractIcon::GetIconLocation(

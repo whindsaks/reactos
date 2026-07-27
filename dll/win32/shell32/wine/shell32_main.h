@@ -56,12 +56,20 @@ SH32_ExtCoCreateInstance(
 #define INVALID_INDEX -1
 BOOL SIC_Initialize(void);
 void SIC_Destroy(void) DECLSPEC_HIDDEN;
-BOOL PidlToSicIndex (IShellFolder * sh, LPCITEMIDLIST pidl, BOOL bBigIcon, UINT uFlags, int * pIndex) DECLSPEC_HIDDEN;
+BOOL PidlToSicIndex (IShellFolder * sh, LPCITEMIDLIST pidl, UINT GilIn, int * pIndex) DECLSPEC_HIDDEN;
 INT SIC_GetIconIndex (LPCWSTR sSourceFile, INT dwSourceIndex, DWORD dwFlags ) DECLSPEC_HIDDEN;
-extern INT ShellLargeIconSize;
-extern INT ShellSmallIconSize;
-extern INT ShellIconBPP;
+UINT SIC_GetIconSize(UINT SHIL);
+HIMAGELIST SIC_GetList(UINT SHIL);
 BOOL WINAPI Shell_GetImageLists(HIMAGELIST * lpBigList, HIMAGELIST * lpSmallList);
+
+static inline void DestroyIcons(HICON hIcons[], UINT Count)
+{
+    for (UINT i = 0; i < Count; ++i)
+    {
+        if (hIcons[i])
+            DestroyIcon(hIcons[i]);
+    }
+}
 
 /* Classes Root */
 HRESULT HCR_GetProgIdKeyOfExtension(PCWSTR szExtension, PHKEY phKey, BOOL AllowFallback);
