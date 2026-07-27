@@ -724,6 +724,17 @@ static inline PCUIDLIST_RELATIVE HIDA_GetPIDLItem(CIDA const* pida, SIZE_T i)
 }
 
 
+static inline SFGAOF SHELL_GetAttributesOf(IShellFolder *psf, LPCITEMIDLIST pidlChild, SFGAOF query)
+{
+    SFGAOF attr = query;
+#ifdef __cplusplus
+    HRESULT hr = psf ? psf->GetAttributesOf(1, &pidlChild, &attr) : E_INVALIDARG;
+#else
+    HRESULT hr = psf ? psf->lpVtbl->GetAttributesOf(psf, 1, &pidlChild, &attr) : E_INVALIDARG;
+#endif
+    return SUCCEEDED(hr) ? (attr & query) : 0;
+}
+
 #ifdef __cplusplus
 
 #if defined(CMIC_MASK_UNICODE) && defined(SEE_MASK_UNICODE)
@@ -909,6 +920,55 @@ struct SHELL_GetSettingImpl
 #else
 #define SHELL_GetSetting(pss, ssf, field) ( SHGetSetSettings((pss), (ssf), FALSE), (pss)->field )
 #endif
+
+static inline HRESULT SHELL_HandleUpdateImage(LPCITEMIDLIST pidl1, LPCITEMIDLIST pidl2)
+{
+    if (pidl2)
+    {
+        int index = SHHandleUpdateImage(pidl2);
+        if (index != -1) // -1 means error
+            return index;
+    }
+    else if (pidl1)
+    {
+        // learn.microsoft.com/en-us/windows/win32/api/shlobj_core/nf-shlobj_core-shhandleupdateimage
+        int index = *(int UNALIGNED *)((BYTE *)pidl1 + 2);
+        if (index >= 0 || index == -1) // -1 means the system image list size changed, reload everything
+            return index;
+    }
+    return HRESULT_FROM_WIN32(ERROR_INTERNAL_ERROR);
+}
+
+#ifdef SHGFI_SYSICONINDEX
+static inline void SHELL_NotifyItemImageChanged(LPCITEMIDLIST pidl, LPCWSTR pszPath)
+{
+    SHFILEINFOW fi;
+    UINT flags = SHGFI_SYSICONINDEX | SHGFI_SHELLICONSIZE;
+    if (pidl)
+    {
+        pszPath = (LPCWSTR)pidl;
+        flags |= SHGFI_PIDL; // Note: PIDL is faster than a path, prefer it if you already have a PIDL
+    }
+    if (SHGetFileInfoW(pszPath, 0, &fi, sizeof(fi), flags))
+        SHChangeNotify(SHCNE_UPDATEIMAGE, SHCNF_DWORD, (LPVOID)(SIZE_T)fi.iIcon, NULL);
+}
+#endif
+
+#ifdef SHDefExtractIcon // Detect shlobj.h
+static inline int SHELL_GetCachedImageIndex(PCWSTR pszFile, int FileIconIndex, UINT GilFlags)
+{
+#if defined(_SHELL32_) || (DLL_EXPORT_VERSION >= _WIN32_WINNT_VISTA && NTDDI_VERSION >= NTDDI_VISTA)
+    return Shell_GetCachedImageIndexW(pszFile, FileIconIndex, GilFlags);
+#else
+    char buf[MAX_PATH];
+    if ((int)GetVersion() >= 0)
+        return Shell_GetCachedImageIndex((PTSTR)pszFile, FileIconIndex, GilFlags);
+    if (WideCharToMultiByte(CP_ACP, 0, pszFile, -1, buf, sizeof(buf), NULL, NULL))
+        return Shell_GetCachedImageIndex((PTSTR)buf, FileIconIndex, GilFlags);
+    return -1;
+#endif
+}
+#endif // shlobj.h
 
 static inline void DumpIdListOneLine(LPCITEMIDLIST pidl)
 {

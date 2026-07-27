@@ -45,11 +45,19 @@ SHDOCVW_GetPathOfShortcut(
     return S_OK;
 }
 
-static bool GetImageListIndex(_In_ IShellFolder *pSF, _In_ LPCITEMIDLIST pidlItem, _Out_ TVITEMW &tvi)
+static bool GetSysImageListIndex(_In_ IShellFolder *pSF, _In_ LPCITEMIDLIST pidlItem, _Out_ TVITEMW &tvi)
 {
     tvi.iImage = SHMapPIDLToSystemImageListIndex(pSF, pidlItem, &tvi.iSelectedImage);
     tvi.iSelectedImage = tvi.iSelectedImage >= 0 ? tvi.iSelectedImage : tvi.iImage;
     return tvi.iImage >= 0;
+}
+
+static bool GetSysImageListIndex(_In_ LPCITEMIDLIST pidlAbs, _Out_ TVITEMW &tvi)
+{
+    CComPtr<IShellFolder> pSF;
+    PCUITEMID_CHILD pidlItem;
+    HRESULT hr = SHBindToParent(pidlAbs, IID_PPV_ARG(IShellFolder, &pSF), &pidlItem);
+    return FAILED_UNEXPECTEDLY(hr) ? false : GetSysImageListIndex(pSF, pidlItem, tvi);
 }
 
 CNSCBand::CNSCBand()
@@ -204,7 +212,7 @@ void CNSCBand::_RegisterChangeNotify()
 #define TARGET_EVENTS ( \
     SHCNE_DRIVEADD | SHCNE_MKDIR | SHCNE_CREATE | SHCNE_DRIVEREMOVED | SHCNE_RMDIR | \
     SHCNE_DELETE | SHCNE_RENAMEFOLDER | SHCNE_RENAMEITEM | SHCNE_UPDATEDIR | \
-    SHCNE_UPDATEITEM | SHCNE_ASSOCCHANGED \
+    SHCNE_UPDATEITEM | SHCNE_UPDATEIMAGE | SHCNE_ASSOCCHANGED \
 )
     // Register shell notification
     SHChangeNotifyEntry shcne = { m_pidlRoot, TRUE };
@@ -242,6 +250,14 @@ void CNSCBand::_DestroyToolbar()
     m_hwndToolbar.DestroyWindow();
 }
 
+void CNSCBand::SetSystemImageList()
+{
+    IImageList *piml;
+    if (FAILED_UNEXPECTEDLY(SHGetImageList(SHIL_SMALL, IID_PPV_ARG(IImageList, &piml))))
+        piml = NULL;
+    TreeView_SetImageList(m_hwndTreeView, (HIMAGELIST)piml, TVSIL_NORMAL);
+}
+
 HRESULT CNSCBand::_CreateTreeView(HWND hwndParent)
 {
     RefreshFlags(&m_dwTVStyle, &m_dwTVExStyle, &m_dwEnumFlags);
@@ -264,13 +280,7 @@ HRESULT CNSCBand::_CreateTreeView(HWND hwndParent)
     if (FAILED_UNEXPECTEDLY(hr))
         return hr;
 
-    // Create image list and set
-    IImageList *piml;
-    hr = SHGetImageList(SHIL_SMALL, IID_PPV_ARG(IImageList, &piml));
-    if (FAILED_UNEXPECTEDLY(hr))
-        return hr;
-
-    TreeView_SetImageList(m_hwndTreeView, (HIMAGELIST)piml, TVSIL_NORMAL);
+    SetSystemImageList();
     return S_OK;
 }
 
@@ -371,7 +381,7 @@ CNSCBand::_UpdateItem(
     tvi.hItem = hItem;
     tvi.mask = TVIF_HANDLE | (UIF & (TVIF_TEXT));
     tvi.pszText = szName;
-    if ((UIF & UIF_IMAGE) && GetImageListIndex(pSF, pidlItem, tvi))
+    if ((UIF & UIF_IMAGE) && GetSysImageListIndex(pSF, pidlItem, tvi))
         tvi.mask |= TVIF_IMAGE | TVIF_SELECTEDIMAGE;
     if (!TreeView_SetItem(m_hwndTreeView, &tvi))
         return E_FAIL;
@@ -501,12 +511,44 @@ LRESULT CNSCBand::OnTimer(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandle
     return 0;
 }
 
+BOOL
+CNSCBand::HandleUpdateImage(
+    _In_ int SysIconIndex,
+    _In_opt_ HTREEITEM hBase)
+{
+    const BOOL All = SysIconIndex == -1;
+    if (All && !hBase)
+        SetSystemImageList();
+
+    TVITEMW tvi;
+    tvi.mask = TVIF_IMAGE | TVIF_SELECTEDIMAGE;
+    HTREEITEM hItem = hBase ? hBase : TreeView_GetRoot(m_hwndTreeView);
+    for (; hItem; hItem = TreeView_GetNextSibling(m_hwndTreeView, hItem))
+    {
+        tvi.hItem = hItem;
+        if (!All)
+        {
+            if (!TreeView_GetItem(m_hwndTreeView, &tvi))
+                return FALSE;
+            if (tvi.iImage != SysIconIndex && tvi.iSelectedImage != SysIconIndex)
+                continue;
+        }
+        tvi.iImage = tvi.iSelectedImage = I_IMAGECALLBACK;
+        TreeView_SetItem(m_hwndTreeView, &tvi);
+
+        if (HTREEITEM hChild = TreeView_GetChild(m_hwndTreeView, hItem))
+            HandleUpdateImage(SysIconIndex, hChild);
+    }
+    return TRUE;
+}
+
 void
 CNSCBand::OnChangeNotify(
     _In_opt_ LPCITEMIDLIST pidl0,
     _In_opt_ LPCITEMIDLIST pidl1,
     _In_ LONG lEvent)
 {
+    HRESULT hr;
     HTREEITEM hItem;
     CItemData* pID;
     switch (lEvent) // Try to handle events without doing a full refresh
@@ -525,7 +567,11 @@ CNSCBand::OnChangeNotify(
                 return;
             break;
         // TODO: SHCNE_DRIVEADD, SHCNE_MKDIR
-        // TODO: SHCNE_UPDATEIMAGE
+        case SHCNE_UPDATEIMAGE:
+            hr = SHELL_HandleUpdateImage(pidl0, pidl1);
+            if ((SUCCEEDED(hr) || hr == -1) && HandleUpdateImage(hr))
+                return;
+            break;
     }
     switch (lEvent)
     {
@@ -1038,6 +1084,15 @@ LRESULT CNSCBand::OnNotify(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandl
             return OnBeginLabelEdit((LPNMTVDISPINFO)lParam);
         case TVN_ENDLABELEDITW:
             return OnEndLabelEdit((LPNMTVDISPINFO)lParam);
+        case TVN_GETDISPINFOW:
+            if (pnmhdr->hwndFrom == m_hwndTreeView)
+            {
+                LPNMTVDISPINFO pTVDI = (LPNMTVDISPINFO)lParam;
+                TVITEMW &tvi = pTVDI->item;
+                if (tvi.mask & (TVIF_IMAGE | TVIF_SELECTEDIMAGE))
+                    GetSysImageListIndex(((CItemData*)tvi.lParam)->absolutePidl, tvi);
+            }
+            break;
         default:
             break;
     }

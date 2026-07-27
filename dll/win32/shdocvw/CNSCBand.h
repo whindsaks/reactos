@@ -198,6 +198,8 @@ protected:
     void OnTreeItemDragging(_In_ LPNMTREEVIEW pnmtv, _In_ BOOL isRightClick);
     LRESULT OnBeginLabelEdit(_In_ LPNMTVDISPINFO dispInfo);
     LRESULT OnEndLabelEdit(_In_ LPNMTVDISPINFO dispInfo);
+    void SetSystemImageList();
+    BOOL HandleUpdateImage(_In_ int SysIconIndex, _In_opt_ HTREEITEM hBase = NULL);
     void OnChangeNotify(
         _In_opt_ LPCITEMIDLIST pidl0,
         _In_opt_ LPCITEMIDLIST pidl1,

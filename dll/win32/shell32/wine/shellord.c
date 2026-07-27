@@ -2525,15 +2525,9 @@ void WINAPI SHUpdateImageW(LPCWSTR pszHashItem, int iIndex, UINT uFlags, int iIm
     // If iImageIndex == -1 (undetermined), it will fall back to the default value of 1.
     INT iEffectiveImageIndex = (iImageIndex == -1) ? 1 : iImageIndex;
 
-    SHCNF_UPDATEIMAGE_DATA_1 item1;
-    item1.cbSize      = sizeof(item1);
-    item1.iIndex      = iIndex;
-    item1.iEffective  = iEffectiveImageIndex;
-    item1.uFlags      = uFlags;
-    item1.iEffective2 = iEffectiveImageIndex;
-    item1.terminator  = 0;
+    SHChangeDWORDAsIDList item1 = { sizeof(item1) - sizeof(WORD), iEffectiveImageIndex };
 
-    SHCNF_UPDATEIMAGE_DATA_2 item2;
+    SHCNF_UPDATEIMAGE_DATA_2 item2; // learn.microsoft.com/en-us/windows/win32/api/shlobj_core/ns-shlobj_core-shchangeupdateimageidlist
 
     LPWSTR pEnd = StrCpyNXW(item2.szHashItem, pszHashItem, _countof(item2.szHashItem));
     *pEnd = UNICODE_NULL;
@@ -2759,6 +2753,7 @@ void WINAPI SHFlushSFCache(void)
  */
 HRESULT WINAPI SHGetImageList(int iImageList, REFIID riid, void **ppv)
 {
+#ifndef __REACTOS__
     HIMAGELIST hLarge, hSmall;
     HIMAGELIST hNew;
     HRESULT ret = E_FAIL;
@@ -2771,7 +2766,6 @@ HRESULT WINAPI SHGetImageList(int iImageList, REFIID riid, void **ppv)
     }
 
     Shell_GetImageLists(&hLarge, &hSmall);
-#ifndef __REACTOS__
     hNew = ImageList_Duplicate(iImageList == SHIL_LARGE ? hLarge : hSmall);
 
     /* Get the interface for the new image list */
@@ -2784,8 +2778,8 @@ HRESULT WINAPI SHGetImageList(int iImageList, REFIID riid, void **ppv)
     /* Duplicating the imagelist causes the start menu items not to draw on
      * the first show. Was the Duplicate necessary for some reason? I believe
      * Windows returns the raw pointer here. */
-    hNew = (iImageList == SHIL_LARGE ? hLarge : hSmall);
-    ret = IImageList2_QueryInterface((IImageList2 *) hNew, riid, ppv);
+    HIMAGELIST hIL = SIC_GetList(iImageList == SHIL_SYSSMALL ? SHIL_SMALL : iImageList); // FIXME: Remove SHIL_SYSSMALL hack
+    HRESULT ret = hIL ? IImageList_QueryInterface((IImageList*)hIL, riid, ppv) : E_FAIL;
 #endif
 
     return ret;

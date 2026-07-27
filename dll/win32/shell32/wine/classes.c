@@ -276,12 +276,17 @@ static BOOL HCR_RegGetIconW(HKEY hkey, LPWSTR szDest, LPCWSTR szName, DWORD len,
         ExpandEnvironmentStringsW(szDest, sTemp, MAX_PATH);
         lstrcpynW(szDest, sTemp, len);
       }
+#ifdef __REACTOS__
+        *picon_idx = PathParseIconLocationW(szDest);
+        UNREFERENCED_PARAMETER(sNum);
+#else
         if (ParseFieldW (szDest, 2, sNum, _countof(sNum)))
              *picon_idx = atoiW(sNum);
           else
              *picon_idx=0; /* sometimes the icon number is missing */
       ParseFieldW (szDest, 1, szDest, len);
           PathUnquoteSpacesW(szDest);
+#endif
       return TRUE;
     }
     return FALSE;

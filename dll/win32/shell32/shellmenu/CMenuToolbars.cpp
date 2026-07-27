@@ -30,11 +30,23 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(CMenuToolbars);
 
+EXTERN_C int WINAPI Shell_GetCachedImageIndexW(LPCWSTR pszIconPath, int iIconIndex, UINT uIconFlags);
+
 // FIXME: Enable if/when wine comctl supports this flag properly
 #define USE_TBSTYLE_EX_VERTICAL 0
 
 // User-defined timer ID used while hot-tracking around the menu
 #define TIMERID_HOTTRACK 1
+
+static inline SFGAOF GetFolderItemBaseType(UINT sfgao)
+{
+    return (sfgao & SFGAO_STREAM) ? SFGAO_STREAM : (sfgao & SFGAO_FOLDER);
+}
+
+static SFGAOF GetFolderItemBaseType(IShellFolder *psf, LPCITEMIDLIST pidl)
+{
+    return GetFolderItemBaseType(SHELL_GetAttributesOf(psf, pidl, SFGAO_FOLDER | SFGAO_STREAM));
+}
 
 LRESULT CMenuToolbarBase::OnWinEventWrap(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
 {
@@ -1392,8 +1404,7 @@ HRESULT CMenuSFToolbar::FillToolbar(BOOL clearFirst)
     WCHAR szAdminTools[MAX_PATH];
     if (bMustHideAdminTools)
     {
-        LoadStringW(GetModuleHandleW(L"shell32.dll"), IDS_ADMINISTRATIVETOOLS,
-                    szAdminTools, _countof(szAdminTools));
+        LoadStringW(shell32_hInstance, IDS_ADMINISTRATIVETOOLS, szAdminTools, _countof(szAdminTools));
     }
 
     for (int i = 0; i<DPA_GetPtrCount(dpaSort);)
@@ -1418,20 +1429,21 @@ HRESULT CMenuSFToolbar::FillToolbar(BOOL clearFirst)
             continue;
         }
 
-        INT indexOpen = 0;
-        INT index = SHMapPIDLToSystemImageListIndex(m_shellFolder, item, &indexOpen);
-
-        LPCITEMIDLIST itemc = item;
-
-        SFGAOF attrs = SFGAO_FOLDER;
-        hr = m_shellFolder->GetAttributesOf(1, &itemc, &attrs);
-
-        DWORD_PTR dwData = reinterpret_cast<DWORD_PTR>(item);
+        INT index = SHMapPIDLToSystemImageListIndex(m_shellFolder, item, NULL);
+        BOOL isPureFolder = GetFolderItemBaseType(m_shellFolder, item) == SFGAO_FOLDER; // Don't expand .cab/.zip
+#if 0 // TODO: We are supposed to display all standard folders in CSIDL_[COMMON_]PROGRAMS with a special icon
+        if (index == IDI_SHELL_FOLDER - 1 && isPureFolder && IsPidlProgramsOrChildFolder(m_idList))
+        {
+            INT redir = Shell_GetCachedImageIndexW(L"shell32.dll", IDI_SHELL_PROGRAMS_FOLDER2 - 1, 0);
+            if (redir != -1)
+                index = redir;
+        }
+#endif
 
         // Fetch next item already, so we know if the current one is the last
         i++;
 
-        AddButton(i, MenuString, attrs & SFGAO_FOLDER, index, dwData, i >= DPA_GetPtrCount(dpaSort));
+        AddButton(i, MenuString, isPureFolder, index, reinterpret_cast<DWORD_PTR>(item), i >= DPA_GetPtrCount(dpaSort));
 
         CoTaskMemFree(MenuString);
     }
@@ -1559,13 +1571,7 @@ HRESULT CMenuSFToolbar::InternalPopupItem(INT iItem, INT index, DWORD_PTR dwData
 
 HRESULT CMenuSFToolbar::InternalHasSubMenu(INT iItem, INT index, DWORD_PTR dwData)
 {
-    HRESULT hr;
     LPCITEMIDLIST pidl = reinterpret_cast<LPITEMIDLIST>(dwData);
-
-    SFGAOF attrs = SFGAO_FOLDER;
-    hr = m_shellFolder->GetAttributesOf(1, &pidl, &attrs);
-    if (FAILED_UNEXPECTEDLY(hr))
-        return hr;
-
-    return (attrs & SFGAO_FOLDER) ? S_OK : S_FALSE;
+    BOOL isPureFolder = GetFolderItemBaseType(m_shellFolder, pidl) == SFGAO_FOLDER;
+    return isPureFolder ? S_OK : S_FALSE;
 }
