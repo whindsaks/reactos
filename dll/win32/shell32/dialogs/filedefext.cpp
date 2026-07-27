@@ -1477,6 +1477,7 @@ BOOL CFileDefExt::OnFolderCustApply(HWND hwndDlg)
 
         // notify to the siblings
         PropSheet_QuerySiblings(GetParent(hwndDlg), 0, 0);
+        SHELL_NotifyItemImageChanged(NULL, m_wszPath);
 
         // done!
         m_bFolderIconIsSet = FALSE;
