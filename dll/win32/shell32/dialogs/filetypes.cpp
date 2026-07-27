@@ -177,7 +177,7 @@ DeleteExt(HWND hwndDlg, LPCWSTR pszExt)
 static inline HICON
 DoExtractIcon(LPCWSTR IconPath, INT iIndex, UINT cx, UINT cy)
 {
-    return SHELL32_SHExtractIcon(IconPath, iIndex, cx, cy);
+    return SH32_SHExtractIcon(IconPath, iIndex, cx, cy, 0);
 }
 
 static HICON

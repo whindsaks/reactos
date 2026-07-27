@@ -190,6 +190,7 @@
 196 stdcall SHAlloc(long)
 197 stdcall -noname SHGlobalDefect(long)
 198 stdcall -noname SHAbortInvokeCommand()
+#199 SHGetFileIcon only in 4.0
 200 stdcall -noname SHCreateDesktop(ptr)
 201 stdcall -noname SHDesktopMessageLoop(ptr)
 202 stub -noname DDEHandleViewFolderNotify
@@ -375,7 +376,7 @@
 845 stub -version=0x600+ -noname CreateConditionRange
 846 stub -version=0x600+ ILLoadFromStreamEx
 847 stub -version=0x600+ -noname SHCombineMultipleConditionsEx
-848 stub -version=0x600+ -noname SHGetNoAssocIconIndex
+848 stdcall -version=0x600+ -noname SHGetNoAssocIconIndex()
 849 stub -version=0x600+ -noname SHCreateConditionFactory
 850 stub -version=0x600+ -noname PathComparePaths
 852 stub -version=0x600+ -noname SHInitializeControlPanelRegkeys
@@ -397,7 +398,7 @@
 870 stub -version=0x600+ -noname DUI_Shell32_StartDeferUninitialization
 871 stub -version=0x600+ -noname DUI_Shell32_EndDeferUninitialization
 872 stub -version=0x600+ -noname SHCreateKindFilter
-873 stub -version=0x600+ -noname SHIconIndexFromPIDL
+873 stdcall -version=0x600+ -noname SHIconIndexFromPIDL(ptr ptr ptr ptr)
 874 stub -version=0x600+ -noname SHLaunchSearch # Vista:874, Win7:886
 881 stub -noname -version=0x601+ SHEnumClassesOfCategories
 882 stub -noname -version=0x601+ SHWriteClassesOfCategories

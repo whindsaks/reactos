@@ -443,7 +443,13 @@ LRESULT CDesktopBrowser::OnSettingChange(UINT uMsg, WPARAM wParam, LPARAM lParam
         LPVOID lpEnvironment;
         RegenerateUserEnvironment(&lpEnvironment, TRUE);
     }
-    SHSettingsChanged((LPCVOID)wParam, (PCWSTR)lParam); // Invalidate cached restrictions
+    
+    if (uMsg == WM_SETTINGCHANGE)
+    {
+        SHSettingsChanged((LPCVOID)wParam, (PCWSTR)lParam); // Invalidate cached restrictions
+        if (StrIsNullOrEmpty((PCWSTR)lParam) || wParam == SPI_SETNONCLIENTMETRICS || !lstrcmpiW((LPCWSTR)lParam, L"WindowMetrics"))
+            FileIconInit(TRUE);
+    }
 
     if (m_hWndShellView)
     {

@@ -26,7 +26,7 @@
 #define SFGAO_SYSTEM 0x00001000
 #endif
 
-#ifndef SHGSI_ICONLOCATION
+#if (NTDDI_VERSION < NTDDI_VISTA)
 #define SIID_FOLDER 3
 #define SIID_FOLDEROPEN 4
 #endif

@@ -33,8 +33,6 @@ CNewMenu::CNewMenu() :
     m_idCmdFirst(0),
     m_idCmdFolder(-1),
     m_idCmdLink(-1),
-    m_bCustomIconFolder(FALSE),
-    m_bCustomIconLink(FALSE),
     m_hIconFolder(NULL),
     m_hIconLink(NULL)
 {
@@ -44,12 +42,11 @@ CNewMenu::~CNewMenu()
 {
     UnloadAllItems();
 
-    if (m_bCustomIconFolder && m_hIconFolder)
+    if (m_hIconFolder)
         DestroyIcon(m_hIconFolder);
-    if (m_bCustomIconLink && m_hIconLink)
+    if (m_hIconLink)
         DestroyIcon(m_hIconLink);
-    if (m_pidlFolder)
-        ILFree(m_pidlFolder);
+    ILFree(m_pidlFolder);
 }
 
 void CNewMenu::UnloadItem(SHELLNEW_ITEM *pItem)
@@ -80,7 +77,7 @@ void CNewMenu::UnloadAllItems()
     m_pLinkItem = NULL;
 }
 
-CNewMenu::SHELLNEW_ITEM *CNewMenu::LoadItem(LPCWSTR pwszExt)
+CNewMenu::SHELLNEW_ITEM *CNewMenu::LoadItem(LPCWSTR pwszExt, SHELLNEW_EXTENSIONTYPE &ExtType)
 {
     HKEY hKey;
     WCHAR wszBuf[MAX_PATH];
@@ -158,8 +155,17 @@ CNewMenu::SHELLNEW_ITEM *CNewMenu::LoadItem(LPCWSTR pwszExt)
         return NULL;
     }
 
+    // (SHGFI_USEFILEATTRIBUTES | SHGFI_ICON) on ".lnk" returns the SIID_DOCNOASSOC icon with a link overlay.
+    // The ".lnk" file does not exist and even if it did, we don't want its icon so we don't even try.
+    UINT FileInfoFlags = SHGFI_USEFILEATTRIBUTES | SHGFI_TYPENAME;
+    ExtType = SHELLNEW_EXT_GENERIC;
+    if (!_wcsicmp(pwszExt, L".lnk"))
+        ExtType = SHELLNEW_EXT_SHORTCUT;
+    else
+        FileInfoFlags |= (SHGFI_ICON | GetFileInfoIconSizeFlags());
+
     SHFILEINFOW fi;
-    if (!SHGetFileInfoW(pwszExt, FILE_ATTRIBUTE_NORMAL, &fi, sizeof(fi), SHGFI_USEFILEATTRIBUTES | SHGFI_TYPENAME | SHGFI_ICON | SHGFI_SMALLICON))
+    if (!SHGetFileInfoW(pwszExt, FILE_ATTRIBUTE_NORMAL, &fi, sizeof(fi), FileInfoFlags))
     {
         free(pData);
         return NULL;
@@ -179,8 +185,7 @@ CNewMenu::SHELLNEW_ITEM *CNewMenu::LoadItem(LPCWSTR pwszExt)
     pNewItem->cbData = pData ? cbData : 0;
     pNewItem->pwszExt = _wcsdup(pwszExt);
     pNewItem->pwszDesc = _wcsdup(fi.szTypeName);
-    if (fi.hIcon)
-        pNewItem->hIcon = fi.hIcon;
+    pNewItem->hIcon = fi.hIcon;
 
     return pNewItem;
 }
@@ -203,11 +208,12 @@ CNewMenu::CacheItems()
         if (wszName[0] != L'.')
             continue;
 
-        pNewItem = LoadItem(wszName);
+        SHELLNEW_EXTENSIONTYPE ExtType;
+        pNewItem = LoadItem(wszName, ExtType);
         if (pNewItem)
         {
             dwSize += wcslen(wszName) + 1;
-            if (!m_pLinkItem && _wcsicmp(pNewItem->pwszExt, L".lnk") == 0)
+            if (ExtType == SHELLNEW_EXT_SHORTCUT && !m_pLinkItem)
             {
                 /* The unique link handler */
                 m_pLinkItem = pNewItem;
@@ -287,10 +293,11 @@ CNewMenu::LoadCachedItems()
 
     for (; *wszName != '\0'; wszName += wcslen(wszName) + 1)
     {
-        pNewItem = LoadItem(wszName);
+        SHELLNEW_EXTENSIONTYPE ExtType;
+        pNewItem = LoadItem(wszName, ExtType);
         if (pNewItem)
         {
-            if (!m_pLinkItem && _wcsicmp(pNewItem->pwszExt, L".lnk") == 0)
+            if (ExtType == SHELLNEW_EXT_SHORTCUT && !m_pLinkItem)
             {
                 /* The unique link handler */
                 m_pLinkItem = pNewItem;
@@ -619,7 +626,7 @@ HRESULT CNewMenu::CreateNewItem(SHELLNEW_ITEM *pItem, LPCMINVOKECOMMANDINFO lpcm
             NewItemByNonCommand(pItem, wszName, _countof(wszName), wszPath);
             break;
 
-        case SHELLNEW_TYPE_INVALID:
+        default:
             ERR("Invalid type\n");
             break;
     }
@@ -732,11 +739,7 @@ CNewMenu::HandleMenuMsg2(UINT uMsg, WPARAM wParam, LPARAM lParam, LRESULT *plRes
             if (!lpmis || lpmis->CtlType != ODT_MENU)
                 break;
 
-            if (lpmis->itemWidth < (UINT)GetSystemMetrics(SM_CXMENUCHECK))
-                lpmis->itemWidth = GetSystemMetrics(SM_CXMENUCHECK);
-            if (lpmis->itemHeight < 16)
-                lpmis->itemHeight = 16;
-
+            MeasureIconCallback(*lpmis);
             if (plResult)
                 *plResult = TRUE;
             break;
@@ -751,11 +754,11 @@ CNewMenu::HandleMenuMsg2(UINT uMsg, WPARAM wParam, LPARAM lParam, LRESULT *plRes
             HICON hIcon = NULL;
             if (id == m_idCmdFolder)
             {
-                hIcon = m_hIconFolder;
+                hIcon = LoadSpecialItemIcon(SIID_FOLDER, m_hIconFolder);
             }
             else if (id == m_idCmdLink)
             {
-                hIcon = m_hIconLink;
+                hIcon = LoadSpecialItemIcon(SIID_LINK, m_hIconLink);
             }
             else
             {
@@ -767,14 +770,7 @@ CNewMenu::HandleMenuMsg2(UINT uMsg, WPARAM wParam, LPARAM lParam, LRESULT *plRes
             if (!hIcon)
                 break;
 
-            DrawIconEx(lpdis->hDC,
-                       2,
-                       lpdis->rcItem.top + (lpdis->rcItem.bottom - lpdis->rcItem.top - 16) / 2,
-                       hIcon,
-                       16,
-                       16,
-                       0, NULL, DI_NORMAL);
-
+            DrawIconCallbackIcon(*lpdis, hIcon);
             if(plResult)
                 *plResult = TRUE;
         }
@@ -787,32 +783,9 @@ HRESULT WINAPI
 CNewMenu::Initialize(PCIDLIST_ABSOLUTE pidlFolder,
                      IDataObject *pdtobj, HKEY hkeyProgID)
 {
-    const INT cx = GetSystemMetrics(SM_CXSMICON), cy = GetSystemMetrics(SM_CYSMICON);
-    WCHAR wszIconPath[MAX_PATH];
-    int icon_idx;
-
-    m_pidlFolder = ILClone(pidlFolder);
-
-    /* Load folder and shortcut icons */
-    if (HLM_GetIconW(IDI_SHELL_FOLDER - 1, wszIconPath, _countof(wszIconPath), &icon_idx))
-    {
-        ::ExtractIconExW(wszIconPath, icon_idx, &m_hIconFolder, NULL, 1);
-        m_bCustomIconFolder = TRUE;
-    }
-    else
-    {
-        m_hIconFolder = (HICON)LoadImage(shell32_hInstance, MAKEINTRESOURCE(IDI_SHELL_FOLDER), IMAGE_ICON, cx, cy, LR_SHARED);
-    }
-
-    if (HLM_GetIconW(IDI_SHELL_SHORTCUT - 1, wszIconPath, _countof(wszIconPath), &icon_idx))
-    {
-        ::ExtractIconExW(wszIconPath, icon_idx, &m_hIconLink, NULL, 1);
-        m_bCustomIconLink = TRUE;
-    }
-    else
-    {
-        m_hIconLink = (HICON)LoadImage(shell32_hInstance, MAKEINTRESOURCE(IDI_SHELL_SHORTCUT), IMAGE_ICON, cx, cy, LR_SHARED);
-    }
+    HRESULT hr = m_pidlFolder ? E_UNEXPECTED : SHILClone(pidlFolder, &m_pidlFolder);
+    if (FAILED(hr))
+        return hr;
 
     return S_OK;
 }

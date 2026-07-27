@@ -1314,6 +1314,7 @@ HRESULT STDMETHODCALLTYPE CShellLink::SetShowCmd(INT iShowCmd)
     return S_OK;
 }
 
+// IShellLinkA::GetIconLocation
 HRESULT STDMETHODCALLTYPE CShellLink::GetIconLocation(LPSTR pszIconPath, INT cchIconPath, INT *piIcon)
 {
     HRESULT hr;
@@ -1339,6 +1340,7 @@ HRESULT STDMETHODCALLTYPE CShellLink::GetIconLocation(LPSTR pszIconPath, INT cch
     return hr;
 }
 
+// IExtractIconA::GetIconLocation
 HRESULT STDMETHODCALLTYPE CShellLink::GetIconLocation(UINT uFlags, PSTR pszIconFile, UINT cchMax, int *piIndex, UINT *pwFlags)
 {
     HRESULT hr;
@@ -1700,6 +1702,7 @@ HRESULT STDMETHODCALLTYPE CShellLink::SetArguments(LPCWSTR pszArgs)
     return S_OK;
 }
 
+// IShellLinkW::GetIconLocation
 HRESULT STDMETHODCALLTYPE CShellLink::GetIconLocation(LPWSTR pszIconPath, INT cchIconPath, INT *piIcon)
 {
     TRACE("(%p)->(%p len=%u iicon=%p)\n", this, pszIconPath, cchIconPath, piIcon);
@@ -1756,6 +1759,7 @@ static HRESULT SHELL_PidlGetIconLocationW(PCIDLIST_ABSOLUTE pidl,
     return S_OK;
 }
 
+// IExtractIconW::GetIconLocation
 HRESULT STDMETHODCALLTYPE CShellLink::GetIconLocation(UINT uFlags, PWSTR pszIconFile, UINT cchMax, int *piIndex, UINT *pwFlags)
 {
     HRESULT hr;
@@ -1792,8 +1796,20 @@ HRESULT STDMETHODCALLTYPE CShellLink::GetIconLocation(UINT uFlags, PWSTR pszIcon
     {
         // TODO: If GetIconLocation succeeded, why are we setting GIL_NOTFILENAME? And are we not PERINSTANCE?
         *pwFlags = GIL_NOTFILENAME | GIL_PERCLASS;
-    }
 
+        if (pszIconFile[0] == '.') // Extension-only icon path
+        {
+            WCHAR buf[MAX_PATH];
+            SHFILEINFOW shfi;
+            if (SUCCEEDED(StringCchPrintfW(buf, _countof(buf), L"x:\\x%s", pszIconFile)) &&
+                SHGetFileInfoW(buf, 0, &shfi, sizeof(shfi), SHGFI_ICONLOCATION | SHGFI_USEFILEATTRIBUTES) &&
+                SUCCEEDED(StringCchCopyW(pszIconFile, cchMax, shfi.szDisplayName)))
+            {
+                *piIndex = shfi.iIcon;
+                *pwFlags = GIL_PERCLASS;
+            }
+        }
+    }
     return hr;
 }
 
@@ -2534,7 +2550,7 @@ HRESULT STDMETHODCALLTYPE CShellLink::Initialize(PCIDLIST_ABSOLUTE pidlFolder, I
     }
     ReleaseStgMedium(&stgm);
 
-    return S_OK;
+    return S_OK; // TODO: Why does this ignore the HRESULT from Load()?
 }
 
 HRESULT STDMETHODCALLTYPE CShellLink::QueryContextMenu(HMENU hMenu, UINT indexMenu, UINT idCmdFirst, UINT idCmdLast, UINT uFlags)
@@ -3262,7 +3278,7 @@ HICON CShellLink::CreateShortcutIcon(LPCWSTR wszIconPath, INT IconIndex)
     HIMAGELIST himl = ImageList_Create(cx, cy, ILC_COLOR32 | ILC_MASK, 1, 1);
     HICON hIcon = NULL, hNewIcon = NULL, hShortcut;
 
-    if (HLM_GetIconW(IDI_SHELL_SHORTCUT - 1, wszLnkIcon, _countof(wszLnkIcon), &lnk_idx))
+    if (HLM_GetIconW(SIID_LINK, wszLnkIcon, _countof(wszLnkIcon), &lnk_idx))
     {
         ::ExtractIconExW(wszLnkIcon, lnk_idx, &hShortcut, NULL, 1);
     }
