@@ -456,3 +456,279 @@ const char * shdebugstr_guid( const struct _GUID *id )
                  id->Data4[0], id->Data4[1], id->Data4[2], id->Data4[3],
                  id->Data4[4], id->Data4[5], id->Data4[6], id->Data4[7], name ? name : "unknown" );
 }
+
+#if DBG
+static inline CHAR GetSafeDumpChar(BYTE Ch, BYTE DefChar = '.')
+{
+    return Ch >= ' ' && Ch < 127 ? Ch : DefChar;
+}
+
+static void EditAppend(HWND hEdit, PCWSTR String)
+{
+    SendMessageW(hEdit, EM_SETSEL, -1, -1);
+    SendMessageW(hEdit, EM_REPLACESEL, FALSE, (LPARAM)String);
+}
+
+static void HexDumpToEditControl(HWND hEdit, LPCVOID Data, SIZE_T Size)
+{
+    const BYTE *p = (BYTE*)Data;
+    const UINT BytesPerRow = 8, cchGap = 1;
+    WCHAR buf[(BytesPerRow * 3) + cchGap + BytesPerRow + 1];
+    for (SIZE_T i = 0, j, cch; i < Size; i += BytesPerRow)
+    {
+        for (j = 0; j < BytesPerRow; ++j)
+        {
+            if (i + j < Size)
+                wsprintfW(buf + (j * 3), L"%.2X ", p[i + j]);
+            else
+                wsprintfW(buf + (j * 3), L".. ");
+        }
+        cch = BytesPerRow * 3;
+        for (j = 0; j < cchGap; ++j)
+            buf[cch++] = ' ';
+        for (j = 0; j < BytesPerRow && i + j < Size; ++j)
+            buf[cch++] = GetSafeDumpChar(p[i + j]);
+        buf[cch++] = '\n';
+        buf[cch] = UNICODE_NULL;
+        EditAppend(hEdit, buf);
+    }
+}
+
+static BOOL SH32Dbg_IsTriggerEnabled(PCWSTR Id)
+{
+    WCHAR szPath[255];
+    PathCombineW(szPath, L"Software\\ReactOS\\Debug", L"shell32.dll");
+    return SHRegGetBoolUSValueW(szPath, Id, FALSE, FALSE);
+}
+
+static BOOL SH32Dbg_IsTrigger(PCWSTR Id)
+{
+    return GetKeyState(VK_CONTROL) < 0 && GetKeyState(VK_SHIFT) < 0 && SH32Dbg_IsTriggerEnabled(Id);
+}
+
+typedef struct _SH32DBGWINDOWINITDATA
+{
+    WNDPROC WndProc;
+    LPCVOID Param;
+    PCWSTR Title;
+    UINT Style;
+} SH32DBGWINDOWINITDATA;
+
+static DWORD CALLBACK SH32DbgWindowThreadProcInit(LPVOID Param)
+{
+    SH32DBGWINDOWINITDATA *p = (SH32DBGWINDOWINITDATA*)Param;
+    HWND hWnd = CreateWindowExW(0, WC_STATIC, p->Title, p->Style & ~WS_VISIBLE,
+                                CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+                                NULL, NULL, NULL, NULL);
+    SetWindowLongPtrW(hWnd, GWLP_USERDATA, (LONG_PTR)p->Param);
+    SetWindowLongPtrW(hWnd, GWLP_WNDPROC, (LONG_PTR)p->WndProc);
+    p->WndProc(hWnd, WM_CREATE, (LONG_PTR)p->Param, (LONG_PTR)p->Param);
+    ShowWindow(hWnd, !!(p->Style & WS_VISIBLE));
+    SetLastError(-1);
+    return 0;
+}
+
+static DWORD CALLBACK SH32DbgWindowThreadProc(LPVOID Param)
+{
+    MSG msg;
+    while ((int)GetMessageW(&msg, 0, 0, 0) > 0)
+    {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+    }
+    return 0;
+}
+
+static void SH32Dbg_Window(WNDPROC WndProc, LPCVOID Param, PCWSTR Title, UINT Style)
+{
+    SH32DBGWINDOWINITDATA data = { WndProc, Param, Title, Style };
+    SHCreateThread(SH32DbgWindowThreadProc, &data, CTF_COINIT | CTF_PROCESS_REF | CTF_FREELIBANDEXIT,
+                   SH32DbgWindowThreadProcInit);
+}
+
+extern char* SH32Dbg_AccessSIC(INT_PTR Op, INT_PTR Param1);
+
+struct SystemImageListDebugHelper
+{
+    struct SIC_ENTRY { PCWSTR Path; UINT iIcon, iIndex, GIL, Time; };
+    SystemImageListDebugHelper() { SH32Dbg_AccessSIC(0, 0); }
+    ~SystemImageListDebugHelper() { SH32Dbg_AccessSIC(1, 0); }
+
+    static INT CALLBACK FindByIndexCallback(LPVOID p1, LPVOID p2, LPARAM lParam)
+    {
+        return (INT)lParam - (INT)((SIC_ENTRY*)p2)->iIndex;
+    }
+    SIC_ENTRY* FindByIndex(int iIndex)
+    {
+        HDPA hDPA = (HDPA)SH32Dbg_AccessSIC(2, 0);
+        return (SIC_ENTRY*)DPA_GetPtr(hDPA, DPA_Search(hDPA, &iIndex, 0, FindByIndexCallback, iIndex, 0));
+    }
+};
+
+static LRESULT CALLBACK ViewSILWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+    HWND hLV = GetDlgItem(hWnd, 1);
+    NMLVKEYDOWN *pLVKD = (NMLVKEYDOWN*)lParam;
+    switch (uMsg)
+    {
+        case WM_CREATE:
+        {
+            hLV = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEW, NULL, WS_CHILD | WS_VISIBLE |
+                                  LVS_SHAREIMAGELISTS | LVS_NOSORTHEADER | LVS_SINGLESEL |
+                                  LVS_REPORT | LVS_AUTOARRANGE, 0, 0, 0, 0, hWnd, (HMENU)1, NULL, NULL);
+            PCWSTR cols[] = { L"#", L"Path", L"Icon", L"Flags" };
+            LVCOLUMN lvc;
+            lvc.mask = LVCF_SUBITEM | LVCF_TEXT | LVCF_WIDTH;
+            for (UINT i = 0; i < _countof(cols); ++i)
+            {
+                lvc.pszText = const_cast<PWSTR>(cols[i]);
+                lvc.cx = i == 1 ? 200 : 75;
+                ListView_InsertColumn(hLV, lvc.iSubItem = i, &lvc);
+            }
+            PostMessageW(hWnd, WM_APP, '1' + SHIL_SMALL, 0);
+            break;
+        }
+        case WM_SIZE:
+            SetWindowPos(hLV, hLV, 0, 0, LOWORD(lParam), HIWORD(lParam), SWP_NOZORDER | SWP_NOACTIVATE);
+            break;
+        case WM_NOTIFY:
+            if (pLVKD->hdr.code == LVN_KEYDOWN)
+                return SendMessageW(hWnd, WM_APP, pLVKD->wVKey, 0) | TRUE;
+            break;
+        case WM_SETFOCUS:
+            return (LRESULT)SetFocus(hLV);
+        case WM_APP:
+            if (wParam >= '1' + SHIL_LARGE && wParam <= '1' + SHIL_JUMBO)
+            {
+                UINT shil = UINT(wParam - '1');
+                if (SIC_GetList(shil))
+                {
+                    SetWindowLongPtrW(hWnd, GWLP_USERDATA, shil);
+                    wParam = VK_F5;
+                }
+            }
+            if (wParam >= VK_F1 && wParam <= VK_F4)
+                ListView_SetView(hLV, UINT(wParam - VK_F1 + 1));
+            if (wParam == VK_F5)
+            {
+                WCHAR buf[42];
+                ListView_DeleteAllItems(hLV);
+                SendMessageW(hLV, WM_SETREDRAW, FALSE, 0);
+                SystemImageListDebugHelper List;
+                HIMAGELIST hIL = SIC_GetList((UINT)GetWindowLongPtrW(hWnd, GWLP_USERDATA));
+                ListView_SetImageList(hLV, hIL, LVSIL_NORMAL);
+                ListView_SetImageList(hLV, hIL, LVSIL_SMALL);
+                UINT c = ImageList_GetImageCount(hIL);
+                int w, h;
+                ImageList_GetIconSize(hIL, &w, &h);
+                wsprintfW(buf, L"%s (%d, %dx%d)", L"SIL", c, w, h);
+                SetWindowTextW(hWnd, buf);
+                for (UINT i = 0; i < c; ++i)
+                {
+                    SystemImageListDebugHelper::SIC_ENTRY *p = List.FindByIndex(i);
+                    wsprintfW(buf, L"%d", i);
+                    LVITEMW lvi;
+                    lvi.mask = LVIF_TEXT | LVIF_IMAGE;
+                    lvi.iItem = lvi.iImage = i;
+                    lvi.iSubItem = 0;
+                    lvi.pszText = buf;
+                    ListView_InsertItem(hLV, &lvi);
+                    ListView_SetItemText(hLV, i, 1, const_cast<PWSTR>(p->Path));
+                    wsprintfW(buf, L"%d", p->iIcon);
+                    ListView_SetItemText(hLV, i, 2, buf);
+                    wsprintfW(buf, L"%#.4x", p->GIL & 0xffff);
+                    ListView_SetItemText(hLV, i, 3, buf);
+                }
+                SendMessageW(hLV, WM_SETREDRAW, TRUE, 0);
+                InvalidateRect(hLV, NULL, TRUE);
+            }
+            break;
+    }
+    return DefWindowProcW(hWnd, uMsg, wParam, lParam);
+}
+
+EXTERN_C void SH32DbgTrigger_ViewSIL()
+{
+    if (SH32Dbg_IsTrigger(L"SIL"))
+        SH32Dbg_Window(ViewSILWndProc, NULL, L"SIL", WS_OVERLAPPEDWINDOW | WS_VISIBLE);
+}
+
+static LRESULT CALLBACK DumpPIDLWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+    HWND hEdit = GetDlgItem(hWnd, 1);
+    switch (uMsg)
+    {
+        case WM_CREATE:
+        {
+            hEdit = CreateWindowExW(WS_EX_CLIENTEDGE, WC_EDIT, NULL, WS_CHILD | WS_VISIBLE |
+                                    WS_HSCROLL | WS_VSCROLL | ES_MULTILINE | ES_READONLY | ES_AUTOHSCROLL,
+                                    0, 0, 0, 0, hWnd, (HMENU)1, NULL, NULL);
+            NONCLIENTMETRICSW ncm;
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, ncm.cbSize = sizeof(ncm), &ncm, 0);
+            ncm.lfMessageFont.lfPitchAndFamily = FIXED_PITCH | FF_DONTCARE;
+            SendMessageW(hEdit, WM_SETFONT, (WPARAM)CreateFontIndirectW(&ncm.lfMessageFont), 0);
+
+            LPCITEMIDLIST pidl = (LPCITEMIDLIST)wParam;
+            UINT parent = ~0UL;
+            for (UINT depth = 0; pidl->mkid.cb; ++depth, pidl = ILGetNext(pidl))
+            {
+                if (depth)
+                    EditAppend(hEdit, L"\n");
+                UINT size = pidl->mkid.cb, type = _ILGetType(pidl);
+                WCHAR buf[MAX_PATH];
+                wsprintfW(buf, L"#%u %ub", depth + 1, size);
+                EditAppend(hEdit, buf);
+                *buf = UNICODE_NULL;
+                if (depth == 0 && type == PT_DESKTOP_REGITEM) guid:
+                {
+                    if (size >= sizeof(WORD) + 2 + sizeof(GUID))
+                    {
+                        GUID *pGuid = (GUID*)((char*)pidl + size - sizeof(GUID));
+                        buf[0] = ' ';
+                        StringFromGUID2(*pGuid, &buf[1], _countof(buf) - 1);
+                    }
+                }
+                else if (depth == 1 && type == PT_COMPUTER_REGITEM && parent == PT_DESKTOP_REGITEM)
+                {
+                    goto guid;
+                }
+                EditAppend(hEdit, buf);
+                EditAppend(hEdit, L"\n");
+                HexDumpToEditControl(hEdit, pidl, size);
+                parent = type;
+            }
+            SendMessageW(hEdit, EM_SETSEL, 0, 0);
+            break;
+        }
+        case WM_DESTROY:
+            DeleteObject((HFONT)SendMessage(hEdit, WM_GETFONT, 0, 0));
+            break;
+        case WM_SIZE:
+            SetWindowPos(hEdit, hEdit, 0, 0, LOWORD(lParam), HIWORD(lParam), SWP_NOZORDER | SWP_NOACTIVATE);
+            break;
+        case WM_SETFOCUS:
+            return (LRESULT)SetFocus(hEdit);
+    }
+    return DefWindowProcW(hWnd, uMsg, wParam, lParam);
+}
+
+static void SH32Dbg_DumpPIDL(IShellFolder* pSF, LPCITEMIDLIST pidl)
+{
+    PIDLIST_ABSOLUTE pidlFree = NULL, pidlFolder;
+    if (pSF && SUCCEEDED(SHGetIDListFromObject(pSF, &pidlFolder)))
+    {
+        pidl = pidlFree = ILCombine(pidlFolder, pidl);
+        ILFree(pidlFolder);
+    }
+    if (!_ILIsEmpty(pidl))
+        SH32Dbg_Window(DumpPIDLWndProc, pidl, L"PIDL", WS_OVERLAPPEDWINDOW | WS_VISIBLE);
+
+    ILFree(pidlFree);
+}
+
+EXTERN_C void SH32DbgTrigger_DvDumpPIDL(IShellFolder* pSF, LPCITEMIDLIST pidl)
+{
+    if (GetAsyncKeyState(VK_CAPITAL) < 0 && SH32Dbg_IsTrigger(L"DV"))
+        SH32Dbg_DumpPIDL(pSF, pidl);
+}
+#endif // DBG

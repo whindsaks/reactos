@@ -11,10 +11,52 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(shell);
 
+HRESULT SH32_GetStockIconLocation(UINT siid, PWSTR szPath, UINT cchMax, int *piIcon);
+
+#define g_StockIconMagic ( (PCWSTR)(SIZE_T)&SH32_GetStockIconLocation )
+
+LPWSTR DuplicateString(
+    LPCWSTR Source,
+    LPWSTR *Destination)
+{
+    SIZE_T cb;
+
+    if (*Destination)
+        CoTaskMemFree(*Destination);
+
+    cb = (wcslen(Source) + 1) * sizeof(WCHAR);
+    *Destination = (LPWSTR)CoTaskMemAlloc(cb);
+    if (*Destination)
+        CopyMemory(*Destination, Source, cb);
+    return *Destination;
+}
+
 struct IconLocation
 {
     LPWSTR file;
     UINT index;
+
+    IconLocation() : file(NULL) { }
+
+    void Free()
+    {
+        if (file && file != g_StockIconMagic)
+            CoTaskMemFree(file);
+        file = NULL;
+    }
+
+    HRESULT Set(
+        LPCWSTR pszFile,
+        int iIcon)
+    {
+        if (pszFile == NULL) // learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nf-shobjidl_core-shcreatedefaultextracticon#remarks
+            pszFile = g_StockIconMagic;
+        else if (!DuplicateString(pszFile, &this->file))
+            return E_OUTOFMEMORY;
+
+        this->index = iIcon;
+        return S_OK;
+    }
 };
 
 class CExtractIcon :
@@ -69,50 +111,17 @@ BEGIN_COM_MAP(CExtractIcon)
 END_COM_MAP()
 };
 
-VOID DuplicateString(
-    LPCWSTR Source,
-    LPWSTR *Destination)
-{
-    SIZE_T cb;
-
-    if (*Destination)
-        CoTaskMemFree(*Destination);
-
-    cb = (wcslen(Source) + 1) * sizeof(WCHAR);
-    *Destination = (LPWSTR)CoTaskMemAlloc(cb);
-    if (!*Destination)
-        return;
-    CopyMemory(*Destination, Source, cb);
-}
-
 CExtractIcon::CExtractIcon()
 {
     flags = 0;
-    memset(&defaultIcon, 0, sizeof(defaultIcon));
-    memset(&normalIcon, 0, sizeof(normalIcon));
-    memset(&openIcon, 0, sizeof(openIcon));
-    memset(&shortcutIcon, 0, sizeof(shortcutIcon));
 }
 
 CExtractIcon::~CExtractIcon()
 {
-    if (defaultIcon.file) CoTaskMemFree(defaultIcon.file);
-    if (normalIcon.file) CoTaskMemFree(normalIcon.file);
-    if (openIcon.file) CoTaskMemFree(openIcon.file);
-    if (shortcutIcon.file) CoTaskMemFree(shortcutIcon.file);
-}
-
-HRESULT STDMETHODCALLTYPE CExtractIcon::SetDefaultIcon(
-    LPCWSTR pszFile,
-    int iIcon)
-{
-    TRACE("(%p, %s, %d)\n", this, debugstr_w(pszFile), iIcon);
-
-    DuplicateString(pszFile, &defaultIcon.file);
-    if (!defaultIcon.file)
-        return E_OUTOFMEMORY;
-    defaultIcon.index = iIcon;
-    return S_OK;
+    defaultIcon.Free();
+    normalIcon.Free();
+    openIcon.Free();
+    shortcutIcon.Free();
 }
 
 HRESULT STDMETHODCALLTYPE CExtractIcon::SetFlags(
@@ -120,7 +129,7 @@ HRESULT STDMETHODCALLTYPE CExtractIcon::SetFlags(
 {
     TRACE("(%p, 0x%x)\n", this, uFlags);
 
-    flags = uFlags;
+    flags = uFlags; // GIL output flags, returned by GetIconLocation
     return S_OK;
 }
 
@@ -138,11 +147,7 @@ HRESULT STDMETHODCALLTYPE CExtractIcon::SetNormalIcon(
 {
     TRACE("(%p, %s, %d)\n", this, debugstr_w(pszFile), iIcon);
 
-    DuplicateString(pszFile, &normalIcon.file);
-    if (!normalIcon.file)
-        return E_OUTOFMEMORY;
-    normalIcon.index = iIcon;
-    return S_OK;
+    return normalIcon.Set(pszFile, iIcon);
 }
 
 HRESULT STDMETHODCALLTYPE CExtractIcon::SetOpenIcon(
@@ -151,11 +156,7 @@ HRESULT STDMETHODCALLTYPE CExtractIcon::SetOpenIcon(
 {
     TRACE("(%p, %s, %d)\n", this, debugstr_w(pszFile), iIcon);
 
-    DuplicateString(pszFile, &openIcon.file);
-    if (!openIcon.file)
-        return E_OUTOFMEMORY;
-    openIcon.index = iIcon;
-    return S_OK;
+    return openIcon.Set(pszFile, iIcon);
 }
 
 HRESULT STDMETHODCALLTYPE CExtractIcon::SetShortcutIcon(
@@ -164,11 +165,16 @@ HRESULT STDMETHODCALLTYPE CExtractIcon::SetShortcutIcon(
 {
     TRACE("(%p, %s, %d)\n", this, debugstr_w(pszFile), iIcon);
 
-    DuplicateString(pszFile, &shortcutIcon.file);
-    if (!shortcutIcon.file)
-        return E_OUTOFMEMORY;
-    shortcutIcon.index = iIcon;
-    return S_OK;
+    return shortcutIcon.Set(pszFile, iIcon);
+}
+
+HRESULT STDMETHODCALLTYPE CExtractIcon::SetDefaultIcon(
+    LPCWSTR pszFile,
+    int iIcon)
+{
+    TRACE("(%p, %s, %d)\n", this, debugstr_w(pszFile), iIcon);
+
+    return defaultIcon.Set(pszFile, iIcon);
 }
 
 HRESULT STDMETHODCALLTYPE CExtractIcon::GetIconLocation(
@@ -179,7 +185,6 @@ HRESULT STDMETHODCALLTYPE CExtractIcon::GetIconLocation(
     UINT *pwFlags)
 {
     const struct IconLocation *icon = NULL;
-    SIZE_T cb;
 
     TRACE("(%p, 0x%x, %s, 0x%x, %p, %p)\n", this, uFlags, debugstr_w(szIconFile), cchMax, piIndex, pwFlags);
 
@@ -198,10 +203,16 @@ HRESULT STDMETHODCALLTYPE CExtractIcon::GetIconLocation(
     if (!icon->file)
         return E_FAIL;
 
-    cb = wcslen(icon->file) + 1;
-    if (cchMax < (UINT)cb)
+    if (icon->file == g_StockIconMagic)
+    {
+        *pwFlags = flags & ~GIL_NOTFILENAME;
+        return SH32_GetStockIconLocation(icon->index, szIconFile, cchMax, piIndex);
+    }
+
+    SIZE_T cch = wcslen(icon->file) + 1;
+    if (cchMax < cch)
         return E_FAIL;
-    CopyMemory(szIconFile, icon->file, cb * sizeof(WCHAR));
+    CopyMemory(szIconFile, icon->file, cch * sizeof(WCHAR));
     *piIndex = icon->index;
     *pwFlags = flags;
     return S_OK;
@@ -216,8 +227,24 @@ HRESULT STDMETHODCALLTYPE CExtractIcon::Extract(
 {
     TRACE("(%p, %s, %u, %p, %p, %u)\n", this, debugstr_w(pszFile), nIconIndex, phiconLarge, phiconSmall, nIconSize);
 
-    /* Nothing to do, ExtractIconW::GetIconLocation should be enough */
-    return S_FALSE;
+    /*if (flags & GIL_NOTFILENAME)
+    {
+        if (pszFile[0] == L'*' && !pszFile[1]) // System Image List "path"
+        {
+            HIMAGELIST hLarge, hSmall;
+            if (Shell_GetImageLists(&hLarge, &hSmall))
+            {
+                if (phiconLarge)
+                    *phiconLarge = ImageList_GetIcon(hLarge, nIconIndex, 0);
+                if (phiconSmall)
+                    *phiconSmall = ImageList_GetIcon(hSmall, nIconIndex, 0);
+                return S_OK;
+            }
+        }
+        nIconIndex = 0; // Windows does this, presumably to make it more likely to work if GIL_NOTFILENAME was a lie
+    }
+
+    return SHDefExtractIconW(pszFile, nIconIndex, flags, phiconLarge, phiconSmall, nIconSize);*/return S_FALSE;
 }
 
 HRESULT STDMETHODCALLTYPE CExtractIcon::GetIconLocation(

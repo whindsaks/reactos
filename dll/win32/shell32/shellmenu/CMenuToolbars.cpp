@@ -30,6 +30,8 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(CMenuToolbars);
 
+EXTERN_C int WINAPI Shell_GetCachedImageIndexW(LPCWSTR pszIconPath, int iIconIndex, UINT uIconFlags);
+
 // FIXME: Enable if/when wine comctl supports this flag properly
 #define USE_TBSTYLE_EX_VERTICAL 0
 
@@ -1402,8 +1404,7 @@ HRESULT CMenuSFToolbar::FillToolbar(BOOL clearFirst)
     WCHAR szAdminTools[MAX_PATH];
     if (bMustHideAdminTools)
     {
-        LoadStringW(GetModuleHandleW(L"shell32.dll"), IDS_ADMINISTRATIVETOOLS,
-                    szAdminTools, _countof(szAdminTools));
+        LoadStringW(shell32_hInstance, IDS_ADMINISTRATIVETOOLS, szAdminTools, _countof(szAdminTools));
     }
 
     for (int i = 0; i<DPA_GetPtrCount(dpaSort);)
@@ -1430,6 +1431,15 @@ HRESULT CMenuSFToolbar::FillToolbar(BOOL clearFirst)
 
         INT index = SHMapPIDLToSystemImageListIndex(m_shellFolder, item, NULL);
         BOOL isPureFolder = GetFolderItemBaseType(m_shellFolder, item) == SFGAO_FOLDER; // Don't expand .cab/.zip
+
+#if 0 // TODO: We are supposed to display all standard folders in CSIDL_[COMMON_]PROGRAMS with a special icon
+        if (index == IDI_SHELL_FOLDER - 1 && isPureFolder && IsPidlProgramsOrChildFolder(m_idList))
+        {
+            INT smdirindex = Shell_GetCachedImageIndexW(L"shell32.dll", IDI_SHELL_PROGRAMS_FOLDER2 - 1, 0);
+            if (smdirindex != -1)
+                index = smdirindex;
+        }
+#endif
 
         // Fetch next item already, so we know if the current one is the last
         i++;
