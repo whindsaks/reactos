@@ -96,10 +96,10 @@ SHELL_GetCommandStringImpl(SIZE_T CmdId, UINT uFlags, LPSTR Buf, UINT cchBuf, co
 
 // SHExtractIconsW is a forward, use this function instead inside shell32
 inline HICON
-SHELL32_SHExtractIcon(LPCWSTR File, int Index, int cx, int cy)
+SH32_SHExtractIcon(LPCWSTR File, int Index, int cx, int cy, UINT LR)
 {
     HICON hIco;
-    int r = PrivateExtractIconsW(File, Index, cx, cy, &hIco, NULL, 1, 0);
+    int r = PrivateExtractIconsW(File, Index, cx, cy, &hIco, NULL, 1, LR);
     return r > 0 ? hIco : NULL;
 }
 
@@ -109,16 +109,26 @@ SHELL_CreateShell32DefaultExtractIcon(int IconIndex, REFIID riid, LPVOID *ppvOut
 static inline HRESULT
 SHELL_CreateFallbackExtractIconForFolder(REFIID riid, LPVOID *ppvOut)
 {
-    const int id = IDI_SHELL_FOLDER;
-    return SHELL_CreateShell32DefaultExtractIcon(id > 1 ? -id : 0, riid, ppvOut);
+    return SHELL_CreateShell32DefaultExtractIcon(SIID_FOLDER, riid, ppvOut);
 }
 
 static inline HRESULT
 SHELL_CreateFallbackExtractIconForNoAssocFile(REFIID riid, LPVOID *ppvOut)
 {
-    const int id = IDI_SHELL_DOCUMENT;
-    return SHELL_CreateShell32DefaultExtractIcon(id > 1 ? -id : 0, riid, ppvOut);
+    return SHELL_CreateShell32DefaultExtractIcon(SIID_DOCNOASSOC, riid, ppvOut);
 }
+
+static inline BOOL IsValidStockIconIdForShell32Icon(UINT SIID)
+{
+    return SIID <= SIID_RECYCLERFULL || SIID == SIID_MEDIACDAUDIO || SIID == SIID_LOCK;
+}
+
+static inline BOOL IsValidStockIconId(UINT SIID)
+{
+    return IsValidStockIconIdForShell32Icon(SIID);
+}
+
+HICON SH32_LoadStockIcon(UINT SIID, UINT Size, UINT LrFlags);
 
 typedef HDSA HDCIA; // DynamicClassIdArray
 #define DCIA_Create() ( (HDCIA)DSA_Create(sizeof(CLSID), 4) )

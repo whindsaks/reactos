@@ -397,28 +397,6 @@ SHGetShellFolderViewCB(HWND hwnd)
 /*
  * Unimplemented
  */
-EXTERN_C INT
-WINAPI
-SHLookupIconIndexA(LPCSTR lpName, INT iIndex, UINT uFlags)
-{
-    FIXME("SHLookupIconIndexA() stub\n");
-    return 0;
-}
-
-/*
- * Unimplemented
- */
-EXTERN_C INT
-WINAPI
-SHLookupIconIndexW(LPCWSTR lpName, INT iIndex, UINT uFlags)
-{
-    FIXME("SHLookupIconIndexW() stub\n");
-    return 0;
-}
-
-/*
- * Unimplemented
- */
 EXTERN_C HANDLE
 WINAPI
 PifMgr_OpenProperties(LPCWSTR lpAppPath, LPCWSTR lpPifPath, UINT hInfIndex, UINT options)

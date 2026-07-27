@@ -27,6 +27,8 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(CRecycleBin);
 
+BOOL SH32_GetRegFolderIconLocation(REFCLSID clsid, PCWSTR Name, PWSTR Path, int *pIndex);
+
 typedef struct
 {
     int column_name_id;
@@ -239,6 +241,13 @@ static BOOL IsRecycleBinEmpty(IShellFolder *pSF)
     return FAILED(hr) || spEnumFiles->Next(1, &spPidl, &itemcount) != S_OK;
 }
 
+static BOOL IsRecycleBinEmpty()
+{
+    CComHeapPtr<ITEMIDLIST> pidlBB(SHCloneSpecialIDList(NULL, CSIDL_BITBUCKET, FALSE));
+    CComPtr<IShellFolder> pSF;
+    return pidlBB && SUCCEEDED(SHBindToObject(NULL, pidlBB, NULL, IID_PPV_ARG(IShellFolder, &pSF))) && IsRecycleBinEmpty(pSF);
+}
+
 static void CRecycleBin_ChangeNotifyBBItem(_In_ LONG Event, _In_opt_ LPCITEMIDLIST BBItem)
 {
     LPITEMIDLIST pidlFolder = SHCloneSpecialIDList(NULL, CSIDL_BITBUCKET, FALSE);
@@ -281,6 +290,39 @@ EXTERN_C void CRecycleBin_NotifyRecycled(LPCWSTR OrigPath, const WIN32_FIND_DATA
 static void CRecycleBin_NotifyRemovedFromRecycleBin(LPCITEMIDLIST BBItem)
 {
     CRecycleBin_ChangeNotifyBBItem(IsFolder(BBItem) ? SHCNE_RMDIR : SHCNE_DELETE, BBItem);
+}
+
+static void UpdateRecycleBinIcon(int Full = -1)
+{
+    if (Full < 0)
+        Full = !IsRecycleBinEmpty();
+
+    PCWSTR pszName = Full ? L"Full" : L"Empty";
+    WCHAR szCurrent[MAX_PATH], szNew[MAX_PATH], szBuf[_countof(szNew) + 1 + 12];
+    int curridx = 0, newidx, sysidx;
+
+    if (!SH32_GetRegFolderIconLocation(CLSID_RecycleBin, NULL, szCurrent, &curridx))
+    {
+        *szCurrent = UNICODE_NULL;
+    }
+    if (!SH32_GetRegFolderIconLocation(CLSID_RecycleBin, pszName, szNew, &newidx))
+    {
+        lstrcpynW(szNew, swShell32Name, _countof(szNew));
+        newidx = Full ? SIID_RECYCLERFULL : SIID_RECYCLER;
+    }
+
+    if (newidx == curridx && !lstrcmpiW(szNew, szCurrent))
+        return;
+
+    HKEY hKey;
+    if (SUCCEEDED(SHRegGetCLSIDKeyW(CLSID_RecycleBin, L"DefaultIcon", TRUE, TRUE, &hKey)))
+    {
+        wsprintfW(szBuf, L"%s,%d", szNew, newidx);
+        RegSetString(hKey, NULL, szBuf, StrChrW(szBuf, L'%') ? REG_EXPAND_SZ : REG_SZ);
+        RegCloseKey(hKey);
+    }
+    if (*szCurrent && (sysidx = SHLookupIconIndexW(szCurrent, curridx, 0)) != -1)
+        SHUpdateImageW(szCurrent, curridx, 0, sysidx);
 }
 
 static HRESULT CRecyclerExtractIcon_CreateInstance(
@@ -530,15 +572,9 @@ static HRESULT CALLBACK FileOpCallback(FILEOPCALLBACKEVENT Event, LPCWSTR Src, L
             }
         }
     }
-    else if (Event == FOCE_FINISHOPERATIONS)
+    else if (Event == FOCE_FINISHOPERATIONS && IsRecycleBinEmpty())
     {
-        CComHeapPtr<ITEMIDLIST> pidlBB(SHCloneSpecialIDList(NULL, CSIDL_BITBUCKET, FALSE));
-        CComPtr<IShellFolder> pSF;
-        if (pidlBB && SUCCEEDED(SHBindToObject(NULL, pidlBB, NULL, IID_PPV_ARG(IShellFolder, &pSF))))
-        {
-            if (IsRecycleBinEmpty(pSF))
-                SHUpdateRecycleBinIcon();
-        }
+        UpdateRecycleBinIcon(false);
     }
     return S_OK;
 }
@@ -1285,13 +1321,7 @@ static void TRASH_PlayEmptyRecycleBinSound()
  */
 EXTERN_C HRESULT WINAPI SHUpdateRecycleBinIcon(void)
 {
-    FIXME("stub\n");
-
-    // HACK! This dwItem2 should be the icon index in the system image list that has changed.
-    // FIXME: Call SHMapPIDLToSystemImageListIndex
-    DWORD dwItem2 = -1;
-
-    SHChangeNotify(SHCNE_UPDATEIMAGE, SHCNF_DWORD, NULL, &dwItem2);
+    UpdateRecycleBinIcon();
     return S_OK;
 }
 

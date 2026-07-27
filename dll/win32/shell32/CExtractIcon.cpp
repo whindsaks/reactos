@@ -179,7 +179,6 @@ HRESULT STDMETHODCALLTYPE CExtractIcon::GetIconLocation(
     UINT *pwFlags)
 {
     const struct IconLocation *icon = NULL;
-    SIZE_T cb;
 
     TRACE("(%p, 0x%x, %s, 0x%x, %p, %p)\n", this, uFlags, debugstr_w(szIconFile), cchMax, piIndex, pwFlags);
 
@@ -198,12 +197,13 @@ HRESULT STDMETHODCALLTYPE CExtractIcon::GetIconLocation(
     if (!icon->file)
         return E_FAIL;
 
-    cb = wcslen(icon->file) + 1;
-    if (cchMax < (UINT)cb)
+    SIZE_T cch = wcslen(icon->file) + 1;
+    if (cchMax < cch)
         return E_FAIL;
-    CopyMemory(szIconFile, icon->file, cb * sizeof(WCHAR));
+    CopyMemory(szIconFile, icon->file, cch * sizeof(WCHAR));
     *piIndex = icon->index;
     *pwFlags = flags;
+
     return S_OK;
 }
 

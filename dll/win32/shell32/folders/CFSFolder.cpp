@@ -189,24 +189,14 @@ HRESULT GetItemCLSID(PCUIDLIST_RELATIVE pidl, CLSID *pclsid)
 static HRESULT
 getDefaultIconLocation(LPWSTR szIconFile, UINT cchMax, int *piIndex, UINT uFlags)
 {
-    if (!HLM_GetIconW(IDI_SHELL_FOLDER - 1, szIconFile, cchMax, piIndex))
+    if (!HLM_GetIconW(SIID_FOLDER, szIconFile, cchMax, piIndex))
     {
         if (!HCR_GetIconW(L"Folder", szIconFile, NULL, cchMax, piIndex))
         {
             StringCchCopyW(szIconFile, cchMax, swShell32Name);
-            *piIndex = -IDI_SHELL_FOLDER;
+            *piIndex = (uFlags & GIL_OPENICON) ? SIID_FOLDEROPEN : SIID_FOLDER;
         }
     }
-
-    if (uFlags & GIL_OPENICON)
-    {
-        // next icon
-        if (*piIndex < 0)
-            (*piIndex)--;
-        else
-            (*piIndex)++;
-    }
-
     return S_OK;
 }
 
@@ -361,31 +351,31 @@ HRESULT CFSExtractIcon_CreateInstance(IShellFolder * psf, LPCITEMIDLIST pidl, RE
         DWORD dwSize = sizeof(wTemp);
         if (hkey && !SHQueryValueExW(hkey, NULL, NULL, NULL, wTemp, &dwSize))
         {
-            WCHAR sNum[5];
-            if (ParseFieldW (wTemp, 2, sNum, 5))
-                icon_idx = _wtoi(sNum);
-            else
-                icon_idx = 0; /* sometimes the icon number is missing */
-            ParseFieldW (wTemp, 1, wTemp, MAX_PATH);
-            PathUnquoteSpacesW(wTemp);
-
-            if (!wcscmp(L"%1", wTemp)) /* icon is in the file */
+            PCWSTR pszFile = wTemp;
+            BOOL percentone = (wTemp[0] == L'%' && wTemp[1] == L'1' && !wTemp[2]) ||
+                              (wTemp[1] == L'%' && !wcscmp(L"\"%1\"", wTemp));
+            if (percentone) /* icon is in the file */
             {
+                flags |= GIL_PERINSTANCE;
                 ILGetDisplayNameExW(psf, pidl, wTemp, ILGDN_FORPARSING);
-                icon_idx = 0;
+                icon_idx = 0; // The first icon in the PE file
 
                 INT ret = PrivateExtractIconsW(wTemp, 0, 0, 0, NULL, NULL, 0, 0);
                 if (ret <= 0)
                 {
-                    StringCbCopyW(wTemp, sizeof(wTemp), swShell32Name);
+                    pszFile = swShell32Name;
                     if (lstrcmpiW(pExtension, L".exe") == 0 || lstrcmpiW(pExtension, L".scr") == 0)
-                        icon_idx = -IDI_SHELL_EXE;
+                        icon_idx = SIID_APPLICATION;
                     else
-                        icon_idx = -IDI_SHELL_DOCUMENT;
+                        icon_idx = SIID_DOCNOASSOC;
                 }
             }
+            else
+            {
+                icon_idx = PathParseIconLocationW(wTemp);
+            }
 
-            initIcon->SetNormalIcon(wTemp, icon_idx);
+            initIcon->SetNormalIcon(pszFile, icon_idx);
         }
         else
         {
@@ -395,7 +385,7 @@ HRESULT CFSExtractIcon_CreateInstance(IShellFolder * psf, LPCITEMIDLIST pidl, RE
         if (hkey)
             RegCloseKey(hkey);
     }
-
+    initIcon->SetFlags(flags);
     return initIcon->QueryInterface(iid, ppvOut);
 }
 
