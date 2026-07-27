@@ -218,6 +218,7 @@ static inline COLORREF GetViewColor(COLORREF Clr, UINT SysFallback)
 #define VID_Default ( *(const SHELLVIEWID*)&IID_CDefView )
 extern HRESULT ShellViewIdToFolderViewMode(const SHELLVIEWID *pVid);
 extern const SHELLVIEWID* FolderViewModeToShellViewId(UINT FVM);
+extern void SIC_Notify(ULONG SHCNE);
 
 class CDefView :
     public CWindowImpl<CDefView, CWindow, CControlWinTraits>,
@@ -316,6 +317,8 @@ public:
     BOOL CreateList();
     void UpdateListColors();
     BOOL InitList();
+    void SetImageLists();
+    BOOL HandleUpdateImage(int Index);
     static INT CALLBACK ListViewCompareItems(LPARAM lParam1, LPARAM lParam2, LPARAM lpData);
 
     HRESULT MapFolderColumnToListColumn(UINT FoldCol);
@@ -977,18 +980,21 @@ void CDefView::UpdateListColors()
     }
 }
 
-// adds all needed columns to the shellview
-BOOL CDefView::InitList()
+void CDefView::SetImageLists()
 {
     HIMAGELIST big_icons, small_icons;
-
-    TRACE("%p\n", this);
-
-    m_ListView.DeleteAllItems();
-
     Shell_GetImageLists(&big_icons, &small_icons);
     m_ListView.SetImageList(big_icons, LVSIL_NORMAL);
     m_ListView.SetImageList(small_icons, LVSIL_SMALL);
+}
+
+// adds all needed columns to the shellview
+BOOL CDefView::InitList()
+{
+    TRACE("%p\n", this);
+
+    m_ListView.DeleteAllItems();
+    SetImageLists();
 
     m_hMenuArrangeModes = CreateMenu();
 
@@ -2881,12 +2887,51 @@ LRESULT CDefView::OnNotify(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandl
             }
             return FALSE;
         }
+        case LVN_KEYDOWN:
+        {
+            NMLVKEYDOWN *pLVKD = (NMLVKEYDOWN*)lParam;
+            if (m_HasCutItems && pLVKD->wVKey == VK_ESCAPE)
+                OleSetClipboard(NULL);
+            else
+                SH32DbgTrigger(DvDumpPIDL)(m_pSFParent, _PidlByItem(m_ListView.GetNextItem(-1, LVIS_FOCUSED | LVIS_SELECTED)));
+            break;
+        }
         default:
             TRACE("-- %p WM_COMMAND %x unhandled\n", this, lpnmh->code);
             break;
     }
 
     return 0;
+}
+
+BOOL CDefView::HandleUpdateImage(int IconSysIndex)
+{
+    LVITEMW lvi;
+    lvi.mask = LVIF_IMAGE;
+    lvi.iSubItem = 0;
+    if (IconSysIndex == -1)
+    {
+        if (IsDesktop())
+            SIC_Notify(SHCNE_UPDATEIMAGE);
+        SetImageLists(); // The system image list size changed, apply the new HIMAGELISTs
+        lvi.iImage = I_IMAGECALLBACK;
+        for (lvi.iItem = 0;; lvi.iItem++)
+        {
+            if (!m_ListView.SetItem(&lvi) || !m_ListView.Update(lvi.iItem))
+                return TRUE;
+        }
+    }
+    for (lvi.iItem = 0;; lvi.iItem++)
+    {
+        if (!m_ListView.GetItem(&lvi))
+            return TRUE;
+        if (lvi.iImage != IconSysIndex)
+            continue;
+        lvi.iImage = I_IMAGECALLBACK;
+        if (!m_ListView.SetItem(&lvi))
+            return FALSE;
+        m_ListView.Update(lvi.iItem);
+    }
 }
 
 // This is just a quick hack to make the desktop work correctly.
@@ -2985,6 +3030,10 @@ LRESULT CDefView::OnChangeNotify(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &
                 LV_UpdateItem(child0);
             break;
         case SHCNE_UPDATEIMAGE:
+            hr = SHELL_HandleUpdateImage(Pidls[0], Pidls[1]);
+            if ((SUCCEEDED(hr) || hr == -1) && HandleUpdateImage(hr))
+                break;
+            __fallthrough;
         case SHCNE_MEDIAINSERTED:
         case SHCNE_MEDIAREMOVED:
         case SHCNE_ASSOCCHANGED:
@@ -3002,6 +3051,9 @@ LRESULT CDefView::OnChangeNotify(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &
             UpdateStatusbar();
             break;
     }
+
+    if (lEvent == SHCNE_ASSOCCHANGED)
+        SIC_Notify(lEvent);
 
     SHChangeNotification_Unlock(hLock);
     return TRUE;

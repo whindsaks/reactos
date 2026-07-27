@@ -401,19 +401,42 @@ static DWORD shgfi_get_exe_type(LPCWSTR szFullPath)
  *
  * Decide if an item id list points to a shell shortcut
  */
-BOOL SHELL_IsShortcut(LPCITEMIDLIST pidlLast)
+static BOOL SHELL_IsExtensionRegShortcut(LPCWSTR pszExt)
 {
-    WCHAR szTemp[MAX_PATH];
     HKEY keyCls;
     BOOL ret = FALSE;
-
-    if (_ILGetExtension(pidlLast, szTemp, _countof(szTemp)) &&
-        SUCCEEDED(HCR_GetProgIdKeyOfExtension(szTemp, &keyCls, FALSE)))
+    if (SUCCEEDED(HCR_GetProgIdKeyOfExtension(pszExt, &keyCls, FALSE)))
     {
         ret = RegQueryValueExW(keyCls, L"IsShortcut", NULL, NULL, NULL, NULL) == ERROR_SUCCESS;
         RegCloseKey(keyCls);
     }
     return ret;
+}
+
+BOOL SHELL_IsShortcut(LPCITEMIDLIST pidlLast)
+{
+    WCHAR szExt[MAX_PATH];
+    return _ILGetExtension(pidlLast, szExt, _countof(szExt)) && SHELL_IsExtensionRegShortcut(szExt);
+}
+
+static BOOL ResizeIcon(HICON *phIco, UINT Width, UINT Height)
+{
+    int idx, success = FALSE;
+    HIMAGELIST hIL = ImageList_Create(Width, Height, ILC_COLOR32 | ILC_MASK, 0, 1);
+    if (!hIL)
+        return FALSE;
+    idx = ImageList_ReplaceIcon(hIL, -1, *phIco);
+    if (idx >= 0)
+    {
+        HICON hNew = ImageList_GetIcon(hIL, idx, ILD_TRANSPARENT);
+        if (hNew)
+        {
+            success = DestroyIcon(*phIco);
+            *phIco = hNew;
+        }
+    }
+    ImageList_Destroy(hIL);
+    return success;
 }
 
 #define SHGFI_KNOWN_FLAGS \
@@ -430,17 +453,15 @@ BOOL SHELL_IsShortcut(LPCITEMIDLIST pidlLast)
 DWORD_PTR WINAPI SHGetFileInfoW(LPCWSTR path,DWORD dwFileAttributes,
                                 SHFILEINFOW *psfi, UINT sizeofpsfi, UINT flags )
 {
-    WCHAR szLocation[MAX_PATH], szFullPath[MAX_PATH];
-    int iIndex;
+    WCHAR szFullPath[MAX_PATH + MAX_PATH];
     DWORD_PTR ret = TRUE;
     DWORD dwAttributes = 0;
     IShellFolder * psfParent = NULL;
     IExtractIconW * pei = NULL;
     LPITEMIDLIST pidlLast = NULL, pidl = NULL, pidlFree = NULL;
     HRESULT hr = S_OK;
-    BOOL IconNotYetLoaded=TRUE;
     UINT uGilFlags = 0;
-    HIMAGELIST big_icons, small_icons;
+    HIMAGELIST hSIL;
 
     TRACE("%s fattr=0x%x sfi=%p(attr=0x%08x) size=0x%x flags=0x%x\n",
           (flags & SHGFI_PIDL)? "pidl" : debugstr_w(path), dwFileAttributes,
@@ -462,20 +483,20 @@ DWORD_PTR WINAPI SHGetFileInfoW(LPCWSTR path,DWORD dwFileAttributes,
         /* SHGetFileInfo should work with absolute and relative paths */
         if (PathIsRelativeW(path))
         {
-            GetCurrentDirectoryW(MAX_PATH, szLocation);
-            PathCombineW(szFullPath, szLocation, path);
-        }
-        else
-        {
-            lstrcpynW(szFullPath, path, MAX_PATH);
+            if (flags & SHGFI_USEFILEATTRIBUTES)
+                GetSystemDirectoryW(szFullPath, MAX_PATH); // Short and always exists
+            else
+                GetCurrentDirectory(MAX_PATH, szFullPath);
+            PathAppend(szFullPath, path);
+            path = szFullPath;
         }
 
-        if ((flags & SHGFI_TYPENAME) && !PathIsRootW(szFullPath))
+        if ((flags & SHGFI_TYPENAME) && !PathIsRootW(path))
         {
             HRESULT hr2;
             if (!(flags & SHGFI_USEFILEATTRIBUTES))
             {
-                dwFileAttributes = GetFileAttributesW(szFullPath);
+                dwFileAttributes = GetFileAttributesW(path);
                 if (dwFileAttributes == INVALID_FILE_ATTRIBUTES)
                     dwFileAttributes = 0;
             }
@@ -491,7 +512,7 @@ DWORD_PTR WINAPI SHGetFileInfoW(LPCWSTR path,DWORD dwFileAttributes,
             }
         }
     }
-    else
+    else if (flags & SHGFI_EXETYPE)
     {
         SHGetPathFromIDListW((LPITEMIDLIST)path, szFullPath);
     }
@@ -504,9 +525,9 @@ DWORD_PTR WINAPI SHGetFileInfoW(LPCWSTR path,DWORD dwFileAttributes,
             {
                 return TRUE;
             }
-            else if (GetFileAttributesW(szFullPath) != INVALID_FILE_ATTRIBUTES)
+            else if (GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES)
             {
-                return shgfi_get_exe_type(szFullPath);
+                return shgfi_get_exe_type(path);
             }
         }
     }
@@ -533,12 +554,12 @@ DWORD_PTR WINAPI SHGetFileInfoW(LPCWSTR path,DWORD dwFileAttributes,
     {
         if (flags & SHGFI_USEFILEATTRIBUTES)
         {
-            pidl = SHELL32_CreateSimpleIDListFromPath(szFullPath, dwFileAttributes);
+            pidl = SHELL32_CreateSimpleIDListFromPath(path, dwFileAttributes);
             hr = pidl ? S_OK : E_FAIL;
         }
         else
         {
-            hr = SHILCreateFromPathW(szFullPath, &pidl, &dwAttributes);
+            hr = SHILCreateFromPathW(path, &pidl, &dwAttributes);
         }
         pidlFree = pidl;
     }
@@ -586,80 +607,36 @@ DWORD_PTR WINAPI SHGetFileInfoW(LPCWSTR path,DWORD dwFileAttributes,
     }
 
     /* ### icons ###*/
-
-    Shell_GetImageLists( &big_icons, &small_icons );
-
     if (flags & SHGFI_OPENICON)
         uGilFlags |= GIL_OPENICON;
 
     if (flags & SHGFI_LINKOVERLAY)
-        uGilFlags |= GIL_FORSHORTCUT;
+        uGilFlags |= GIL_FORSHORTCUT; // FIXME: Incorrect, use overlay
     else if ((flags&SHGFI_ADDOVERLAYS) ||
              (flags&(SHGFI_ICON|SHGFI_SMALLICON))==SHGFI_ICON)
     {
         if (SHELL_IsShortcut(pidlLast))
-            uGilFlags |= GIL_FORSHORTCUT;
+            uGilFlags |= GIL_FORSHORTCUT; // FIXME: Incorrect, use overlay
     }
 
     if (flags & SHGFI_OVERLAYINDEX)
         FIXME("SHGFI_OVERLAYINDEX unhandled\n");
 
-    if (flags & SHGFI_SELECTED)
-        FIXME("set icon to selected, stub\n");
-
     /* get the iconlocation */
-    if (SUCCEEDED(hr) && (flags & SHGFI_ICONLOCATION ))
+    if (SUCCEEDED(hr) && (flags & SHGFI_ICONLOCATION))
     {
-        UINT uDummy,uFlags;
-
-        if (flags & SHGFI_USEFILEATTRIBUTES && !(flags & SHGFI_PIDL))
+        hr = IShellFolder_GetUIObjectOf(psfParent, 0, 1, (LPCITEMIDLIST*)&pidlLast,
+                                        &IID_IExtractIconW, NULL, (LPVOID*)&pei);
+        if (SUCCEEDED(hr))
         {
-            if (dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+            UINT GilOut = 0;
+            IExtractIconW_GetIconLocation(pei, uGilFlags, psfi->szDisplayName, MAX_PATH, &psfi->iIcon, &GilOut);
+            IExtractIconW_Release(pei);
+            if (GilOut & GIL_NOTFILENAME)
             {
-                lstrcpyW(psfi->szDisplayName, swShell32Name);
-                psfi->iIcon = -IDI_SHELL_FOLDER;
-            }
-            else
-            {
-                WCHAR* szExt;
-                WCHAR sTemp [MAX_PATH];
-
-                szExt = PathFindExtensionW(szFullPath);
-                TRACE("szExt=%s\n", debugstr_w(szExt));
-                if ( szExt &&
-                     HCR_MapTypeToValueW(szExt, sTemp, MAX_PATH, TRUE) &&
-                     HCR_GetIconW(sTemp, sTemp, NULL, MAX_PATH, &psfi->iIcon))
-                {
-                    if (lstrcmpW(L"%1", sTemp))
-                        strcpyW(psfi->szDisplayName, sTemp);
-                    else
-                    {
-                        /* the icon is in the file */
-                        strcpyW(psfi->szDisplayName, szFullPath);
-                    }
-                }
-                else
-                    ret = FALSE;
-            }
-        }
-        else if (psfParent)
-        {
-            hr = IShellFolder_GetUIObjectOf(psfParent, 0, 1,
-                (LPCITEMIDLIST*)&pidlLast, &IID_IExtractIconW,
-                &uDummy, (LPVOID*)&pei);
-            if (SUCCEEDED(hr))
-            {
-                hr = IExtractIconW_GetIconLocation(pei, uGilFlags,
-                    szLocation, MAX_PATH, &iIndex, &uFlags);
-
-                if (uFlags & GIL_NOTFILENAME)
-                    ret = FALSE;
-                else
-                {
-                    lstrcpyW (psfi->szDisplayName, szLocation);
-                    psfi->iIcon = iIndex;
-                }
-                IExtractIconW_Release(pei);
+                if (psfi->szDisplayName[0] != L'*')
+                    psfi->iIcon = 0; // Not a valid system image list index
+                psfi->szDisplayName[0] = UNICODE_NULL;
             }
         }
     }
@@ -667,95 +644,56 @@ DWORD_PTR WINAPI SHGetFileInfoW(LPCWSTR path,DWORD dwFileAttributes,
     /* get icon index (or load icon)*/
     if (SUCCEEDED(hr) && (flags & (SHGFI_ICON | SHGFI_SYSICONINDEX)))
     {
-        if (flags & SHGFI_USEFILEATTRIBUTES && !(flags & SHGFI_PIDL))
+        int SysIndex;
+        HIMAGELIST hSILSmall, hSILSysSmall;
+        Shell_GetImageLists(&hSIL, &hSILSmall);
+        if (flags & SHGFI_SMALLICON)
+            hSIL = hSILSmall;
+
+        if (!PidlToSicIndex(psfParent, pidlLast, uGilFlags, &SysIndex))
+            SysIndex = -1;
+
+        if (flags & SHGFI_SYSICONINDEX)
         {
-            WCHAR sTemp [MAX_PATH];
-            WCHAR * szExt;
-            int icon_idx=0;
+            ret = (DWORD_PTR)hSIL;
+            psfi->iIcon = SysIndex >= 0 ? SysIndex : 0;
+        }
 
-            lstrcpynW(sTemp, szFullPath, MAX_PATH);
+        if (flags & SHGFI_ICON)
+        {
+            UINT SysW, SysH;
+            UINT uILFlags = (flags & SHGFI_SELECTED) ? ILD_SELECTED : ILD_NORMAL;
+            // TODO: SHELL_GetItemAttributes(psfParent, pidlLast, SFGAO_LINK) and overlay handling
 
-            if (dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-                psfi->iIcon = SIC_GetIconIndex(swShell32Name, -IDI_SHELL_FOLDER, 0);
-            else
+            if ((flags & (SHGFI_SHELLICONSIZE | SHGFI_SMALLICON)) == SHGFI_SMALLICON && SysIndex >= 0)
             {
-                psfi->iIcon = 0;
-                szExt = PathFindExtensionW(sTemp);
-                if ( szExt &&
-                     HCR_MapTypeToValueW(szExt, sTemp, MAX_PATH, TRUE) &&
-                     HCR_GetIconW(sTemp, sTemp, NULL, MAX_PATH, &icon_idx))
+                if ((hSILSysSmall = SIC_GetList(SHIL_SYSSMALL)) != NULL) // Can we just use the system list?
                 {
-                    if (!lstrcmpW(L"%1",sTemp))            /* icon is in the file */
-                        strcpyW(sTemp, szFullPath);
-
-                    if (flags & SHGFI_SYSICONINDEX) 
-                    {
-                        psfi->iIcon = SIC_GetIconIndex(sTemp,icon_idx,0);
-                        if (psfi->iIcon == -1)
-                            psfi->iIcon = 0;
-                    }
-                    else 
-                    {
-                        UINT ret;
-                        INT cxIcon, cyIcon;
-
-                        /* Get icon size */
-                        if (flags & SHGFI_SHELLICONSIZE)
-                        {
-                            if (flags & SHGFI_SMALLICON)
-                                cxIcon = cyIcon = ShellSmallIconSize;
-                            else
-                                cxIcon = cyIcon = ShellLargeIconSize;
-                        }
-                        else
-                        {
-                            if (flags & SHGFI_SMALLICON)
-                            {
-                                cxIcon = GetSystemMetrics(SM_CXSMICON);
-                                cyIcon = GetSystemMetrics(SM_CYSMICON);
-                            }
-                            else
-                            {
-                                cxIcon = GetSystemMetrics(SM_CXICON);
-                                cyIcon = GetSystemMetrics(SM_CYICON);
-                            }
-                        }
-
-                        ret = PrivateExtractIconsW(sTemp, icon_idx, cxIcon, cyIcon,
-                                                   &psfi->hIcon, 0, 1, 0);
-                        if (ret != 0 && ret != (UINT)-1)
-                        {
-                            IconNotYetLoaded=FALSE;
-                            psfi->iIcon = icon_idx;
-                        }
-                    }
+                    hSIL = hSILSysSmall; // Note: This is not returned to the caller on purpose.
+                    flags |= SHGFI_SHELLICONSIZE; // Now the correct size
                 }
             }
-        }
-        else if (psfParent)
-        {
-            if (!(PidlToSicIndex(psfParent, pidlLast, !(flags & SHGFI_SMALLICON),
-                uGilFlags, &(psfi->iIcon))))
+
+            if (!(flags & SHGFI_SHELLICONSIZE))
             {
-                ret = FALSE;
+                SysW = GetSystemMetrics((flags & SHGFI_SMALLICON) ? SM_CXSMICON : SM_CXICON);
+                SysH = GetSystemMetrics((flags & SHGFI_SMALLICON) ? SM_CYSMICON : SM_CYICON);
+                if (SIC_GetIconSize((flags & SHGFI_SMALLICON) ? SHIL_SMALL : SHIL_LARGE) == SysW &&
+                    SysW == SysH && SysIndex >= 0)
+                {
+                    flags |= SHGFI_SHELLICONSIZE; // Already the correct size
+                }
+            }
+
+            psfi->hIcon = ImageList_GetIcon(hSIL, SysIndex, uILFlags);
+            if (!(flags & SHGFI_SHELLICONSIZE) && psfi->hIcon)
+            {
+                // Note: We could use IExtractIcon to extract an icon at the correct size but NT5 seems to just stretch
+                // FIXME: Switch to CopyImage when it gains the ability to resize:
+                // psfi->hIcon = (HICON)CopyImage(psfi->hIcon, IMAGE_ICON, SysW, SysH, LR_COPYDELETEORG | LR_COPYRETURNORG);
+                ResizeIcon(&psfi->hIcon, SysW, SysH);
             }
         }
-        if (ret && (flags & SHGFI_SYSICONINDEX))
-        {
-            if (flags & SHGFI_SMALLICON)
-                ret = (DWORD_PTR)small_icons;
-            else
-                ret = (DWORD_PTR)big_icons;
-        }
-    }
-
-    /* icon handle */
-    if (SUCCEEDED(hr) && (flags & SHGFI_ICON) && IconNotYetLoaded)
-    {
-        if (flags & SHGFI_SMALLICON)
-            psfi->hIcon = ImageList_GetIcon( small_icons, psfi->iIcon, ILD_NORMAL);
-        else
-            psfi->hIcon = ImageList_GetIcon( big_icons, psfi->iIcon, ILD_NORMAL);
     }
 
     if (flags & ~SHGFI_KNOWN_FLAGS)

@@ -591,9 +591,9 @@
 #define IDD_LOG_OFF_FANCY        600
 
 /* Icons */
-#define IDI_SHELL_DOCUMENT           1
-#define IDI_SHELL_RICH_TEXT          2
-#define IDI_SHELL_EXE                3
+#define IDI_SHELL_DOCUMENT           1 // NT5 default for SIID_DOCNOASSOC
+#define IDI_SHELL_RICH_TEXT          2 // NT5 default for SIID_DOCASSOC
+#define IDI_SHELL_EXE                3 // NT5 default for SIID_APPLICATION
 #define IDI_SHELL_FOLDER             4
 #define IDI_SHELL_FOLDER_OPEN        5
 #define IDI_SHELL_5_12_FLOPPY        6

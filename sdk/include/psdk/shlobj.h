@@ -2317,6 +2317,21 @@ SHDefExtractIconW(
 
 #define SHDefExtractIcon WINELIB_NAME_AW(SHDefExtractIcon)
 
+/****************************************************************************
+ * SHCreateDefaultExtractIcon API
+ */
+HRESULT WINAPI
+SHCreateDefaultExtractIcon(
+  REFIID riid,
+  void **ppv);
+
+BOOL WINAPI Shell_GetImageLists(_Out_opt_ HIMAGELIST *phiml, _Out_opt_ HIMAGELIST *phimlSmall);
+int WINAPI Shell_GetCachedImageIndex(_In_ PCTSTR pwszIconPath, _In_ int iIconIndex, _In_ UINT uIconFlags);
+#if (NTDDI_VERSION >= NTDDI_VISTA) || defined(_SHELL32_)
+int WINAPI Shell_GetCachedImageIndexA(_In_ LPCSTR pszIconPath, _In_ int iIconIndex, _In_ UINT uIconFlags);
+int WINAPI Shell_GetCachedImageIndexW(_In_ LPCWSTR pszIconPath, _In_ int iIconIndex, _In_ UINT uIconFlags);
+#endif
+
 /*
  * DROPFILES for CF_HDROP and CF_PRINTERS
  */
@@ -2637,14 +2652,6 @@ CDefFolderMenu_Create2(
 #define DFM_CMD_MODALPROP       ((UINT)-12)
 #define DFM_CMD_RENAME          ((UINT)-13)
 
-/****************************************************************************
- * SHCreateDefaultExtractIcon API
- */
-
-HRESULT WINAPI
-SHCreateDefaultExtractIcon(
-  REFIID riid,
-  void **ppv);
 /****************************************************************************
  * SHCreateDataObject API
  */
