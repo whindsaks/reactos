@@ -187,8 +187,7 @@ HRESULT CSendToMenu::LoadAllItems(HWND hwnd)
         pidlAbsolute.Attach(ILCombine(pidlSendTo, pidlChild));
 
         SHFILEINFOW fi = { NULL };
-        const UINT uFlags = SHGFI_PIDL | SHGFI_TYPENAME |
-                            SHGFI_ICON | SHGFI_SMALLICON;
+        UINT uFlags = SHGFI_PIDL | SHGFI_TYPENAME | SHGFI_ICON | GetFileInfoIconSizeFlags();
         SHGetFileInfoW(reinterpret_cast<LPWSTR>(static_cast<PIDLIST_ABSOLUTE>(pidlAbsolute)), 0,
                        &fi, sizeof(fi), uFlags);
 
@@ -364,9 +363,6 @@ STDMETHODIMP
 CSendToMenu::HandleMenuMsg2(UINT uMsg, WPARAM wParam, LPARAM lParam,
                             LRESULT *plResult)
 {
-    UINT cxSmall = GetSystemMetrics(SM_CXSMICON);
-    UINT cySmall = GetSystemMetrics(SM_CYSMICON);
-
     switch (uMsg)
     {
     case WM_MEASUREITEM:
@@ -375,12 +371,7 @@ CSendToMenu::HandleMenuMsg2(UINT uMsg, WPARAM wParam, LPARAM lParam,
             if (!lpmis || lpmis->CtlType != ODT_MENU)
                 break;
 
-            UINT cxMenuCheck = GetSystemMetrics(SM_CXMENUCHECK);
-            if (lpmis->itemWidth < cxMenuCheck)
-                lpmis->itemWidth = cxMenuCheck;
-            if (lpmis->itemHeight < cySmall)
-                lpmis->itemHeight = cySmall;
-
+            MeasureIconCallback(*lpmis);
             if (plResult)
                 *plResult = TRUE;
             break;
@@ -398,13 +389,7 @@ CSendToMenu::HandleMenuMsg2(UINT uMsg, WPARAM wParam, LPARAM lParam,
             if (!hIcon)
                 break;
 
-            const RECT& rcItem = lpdis->rcItem;
-            INT x = 4;
-            INT y = lpdis->rcItem.top;
-            y += (rcItem.bottom - rcItem.top - cySmall) / 2;
-            DrawIconEx(lpdis->hDC, x, y, hIcon, cxSmall, cySmall,
-                       0, NULL, DI_NORMAL);
-
+            DrawIconCallbackIcon(*lpdis, hIcon);
             if (plResult)
                 *plResult = TRUE;
         }
@@ -419,4 +404,65 @@ CSendToMenu::Initialize(PCIDLIST_ABSOLUTE pidlFolder,
 {
     m_pDataObject = pdtobj;
     return S_OK;
+}
+
+template<> UINT
+CShellIconMenuSizeHelper<>::GetIconSize()
+{
+    if (!m_IconSize)
+    {
+        const UINT flags = GetFileInfoIconSizeFlags();
+        const UINT shil = (flags & SHGFI_SMALLICON) ? SHIL_SMALL : SHIL_LARGE;
+        if (flags & SHGFI_SHELLICONSIZE)
+        {
+            m_IconSize = SIC_GetIconSize(shil);
+            if (!m_IconSize)
+            {
+                FileIconInit(FALSE);
+                m_IconSize = SIC_GetIconSize(shil);
+            }
+        }
+        if (!m_IconSize)
+        {
+            m_IconSize = GetSystemMetrics((flags & SHGFI_SMALLICON) ? SM_CXSMICON : SM_CXICON);
+        }
+    }
+    return m_IconSize;
+}
+
+static inline UINT GetIconPadding()
+{
+    const UINT Border = GetSystemMetrics(SM_CXBORDER);
+    return max(1, Border) * 2;
+}
+
+template<> void
+CShellIconMenuSizeHelper<>::MeasureIconCallback(MEASUREITEMSTRUCT &MIS)
+{
+    const UINT IcoSize = GetIconSize();
+    UINT Width = (GetIconPadding() * 2) + IcoSize - GetSystemMetrics(SM_CXMENUCHECK);
+    if (MIS.itemWidth < Width)
+        MIS.itemWidth = Width;
+    if (MIS.itemHeight < IcoSize)
+        MIS.itemHeight = IcoSize;
+}
+
+template<> SIZE
+CShellIconMenuSizeHelper<>::GetDrawIconCallbackPos(const DRAWITEMSTRUCT &DIS)
+{
+    const UINT IcoSize = GetIconSize();
+    const RECT &r = DIS.rcItem;
+    INT x = GetIconPadding();
+    INT y = r.top;
+    y += (r.bottom - r.top - IcoSize) / 2;
+    SIZE ret = { x, y };
+    return ret;
+}
+
+template<> BOOL
+CShellIconMenuSizeHelper<>::DrawIconCallbackIcon(const DRAWITEMSTRUCT &DIS, HICON hIco)
+{
+    const UINT IcoSize = GetIconSize();
+    SIZE pos = GetDrawIconCallbackPos(DIS);
+    return DrawIconEx(DIS.hDC, pos.cx, pos.cy, hIco, IcoSize, IcoSize, 0, NULL, DI_NORMAL);
 }

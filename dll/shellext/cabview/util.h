@@ -146,11 +146,3 @@ inline bool IncludeInEnumIDList(SHCONTF contf, SFGAOF att)
         return false;
     return true;
 }
-
-inline int MapPIDLToSystemImageListIndex(IShellFolder *pSF, PCUITEMID_CHILD pidl, UINT GilFlags = 0)
-{
-    int normal, open;
-    BOOL qopen = GilFlags & GIL_OPENICON;
-    normal = SHMapPIDLToSystemImageListIndex(pSF, pidl, qopen ? &open : NULL);
-    return qopen && open != -1 ? open : normal;
-}

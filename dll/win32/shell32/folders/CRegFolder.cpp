@@ -138,6 +138,17 @@ struct CRegFolderInfo
     const REQUIREDREGITEM& GetAt(size_t i) const { return m_pInfo->Items[i]; }
 };
 
+BOOL SH32_GetRegFolderIconLocation(REFCLSID clsid, PCWSTR Name, PWSTR Path, int *pIndex)
+{
+    WCHAR KeyName[MAX_PATH];
+    FormatGUIDKey(KeyName, _countof(KeyName), L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\CLSID\\%s", &clsid);
+    if (HCU_GetIconW(KeyName, Path, Name, MAX_PATH, pIndex))
+        return TRUE;
+    /* Failed, load default system-wide icon */
+    FormatGUIDKey(KeyName, _countof(KeyName), L"CLSID\\%s", &clsid);
+    return HCR_GetIconW(KeyName, Path, Name, MAX_PATH, pIndex);
+}
+
 HRESULT CGuidItemExtractIcon_CreateInstance(LPCITEMIDLIST pidl, REFIID iid, LPVOID * ppvOut)
 {
     CComPtr<IDefaultExtractIconInit>    initIcon;
@@ -161,7 +172,7 @@ HRESULT CGuidItemExtractIcon_CreateInstance(LPCITEMIDLIST pidl, REFIID iid, LPVO
         return E_FAIL;
 
     /* Choose a correct icon for Recycle Bin (full or empty) */
-    const WCHAR* iconname = NULL;
+    /*const WCHAR* iconname = NULL;
     if (_ILIsBitBucket(pidl))
     {
         CComPtr<IEnumIDList> EnumIDList;
@@ -185,8 +196,10 @@ HRESULT CGuidItemExtractIcon_CreateInstance(LPCITEMIDLIST pidl, REFIID iid, LPVO
         } else {
             iconname = L"Empty";
         }
-    }
+    }*/
 
+
+#if 0
     /* Prepare registry path for loading icons of My Computer and other shell extensions */
     WCHAR KeyName[MAX_PATH];
 
@@ -207,8 +220,9 @@ HRESULT CGuidItemExtractIcon_CreateInstance(LPCITEMIDLIST pidl, REFIID iid, LPVO
 
         ret = HCR_GetIconW(KeyName, wTemp, iconname, _countof(wTemp), &icon_idx);
     }
+#endif
 
-    if (ret)
+    if (SH32_GetRegFolderIconLocation(*riid, NULL, wTemp, &icon_idx))
     {
         /* Success, set loaded icon */
         initIcon->SetNormalIcon(wTemp, icon_idx);

@@ -110,6 +110,8 @@ SHELL32_PropertySheet(LPPROPSHEETHEADERW ppsh, IDataObject *pDO)
         MessageBoxW(NULL, szMessage, NULL, MB_ICONERROR);
     }
     stub.DestroyWindow();
+
+    SH32DbgTrigger(ViewSIL());
     return Result;
 }
 
