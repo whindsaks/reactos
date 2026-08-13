@@ -989,6 +989,10 @@ static inline void DumpIdListOneLine(LPCITEMIDLIST pidl)
         {
             wsprintfA(buf, " [%.2x ThisPC?]", type); /* "?" because we did not check the full GUID */
         }
+        else if (depth == 0 && type == 0x1f && pidl->mkid.cb == 20 && *(UINT*)(&data[2]) == 0x645FF040)
+        {
+            wsprintfA(buf, " [%.2x Recycle?]", type); /* "?" because we did not check the full GUID */
+        }
         else if (depth == 1 && type >= 0x20 && type < 0x30 && type != 0x2E && pidl->mkid.cb > 4)
         {
             drive = data[1];

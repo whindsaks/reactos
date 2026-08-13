@@ -47,6 +47,7 @@ class CRecycleBin :
         ~CRecycleBin();
         static inline REFCLSID GetClassID() { return CLSID_RecycleBin; }
 
+        bool IsValidItem(PITEMID_CHILD pidlChild);
         HRESULT ParseRecycleBinPath(LPCWSTR lpszPath, LPBC pbc, PIDLIST_RELATIVE *ppidl, DWORD *pdwAttributes);
 
         // IPersistFolder

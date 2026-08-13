@@ -638,6 +638,11 @@ CRecycleBin::~CRecycleBin()
     }
 }
 
+bool CRecycleBin::IsValidItem(PITEMID_CHILD pidlChild)
+{
+    return ValidateItem(pidlChild) != NULL;
+}
+
 IShellFolder* CRecycleBin::GetFSFolderForItem(LPCITEMIDLIST pidl)
 {
     int drive = GetItemDriveNumber(pidl);

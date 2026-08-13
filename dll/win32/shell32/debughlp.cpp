@@ -456,3 +456,179 @@ const char * shdebugstr_guid( const struct _GUID *id )
                  id->Data4[0], id->Data4[1], id->Data4[2], id->Data4[3],
                  id->Data4[4], id->Data4[5], id->Data4[6], id->Data4[7], name ? name : "unknown" );
 }
+
+#if DBG
+static inline CHAR GetSafeDumpChar(BYTE Ch, BYTE DefChar = '.')
+{
+    return Ch >= ' ' && Ch < 127 ? Ch : DefChar;
+}
+
+static void EditAppend(HWND hEdit, PCWSTR String)
+{
+    SendMessageW(hEdit, EM_SETSEL, -1, -1);
+    SendMessageW(hEdit, EM_REPLACESEL, FALSE, (LPARAM)String);
+}
+
+static void HexDumpToEditControl(HWND hEdit, LPCVOID Data, SIZE_T Size)
+{
+    const BYTE *p = (BYTE*)Data;
+    const UINT BytesPerRow = 8, cchGap = 1;
+    WCHAR buf[(BytesPerRow * 3) + cchGap + BytesPerRow + 1];
+    for (SIZE_T i = 0, j, cch; i < Size; i += BytesPerRow)
+    {
+        for (j = 0; j < BytesPerRow; ++j)
+        {
+            if (i + j < Size)
+                wsprintfW(buf + (j * 3), L"%.2X ", p[i + j]);
+            else
+                wsprintfW(buf + (j * 3), L".. ");
+        }
+        cch = BytesPerRow * 3;
+        for (j = 0; j < cchGap; ++j)
+            buf[cch++] = ' ';
+        for (j = 0; j < BytesPerRow && i + j < Size; ++j)
+            buf[cch++] = GetSafeDumpChar(p[i + j]);
+        buf[cch++] = '\n';
+        buf[cch] = UNICODE_NULL;
+        EditAppend(hEdit, buf);
+    }
+}
+
+static BOOL SH32Dbg_IsTriggerEnabled(PCWSTR Id)
+{
+    WCHAR szPath[255];
+    return SHRegGetBoolUSValueW(PathCombineW(szPath, L"Software\\ReactOS\\Debug", L"shell32.dll"), Id, FALSE, FALSE);
+}
+
+static BOOL SH32Dbg_IsTrigger(PCWSTR Id)
+{
+    return GetKeyState(VK_CONTROL) < 0 && GetKeyState(VK_SHIFT) < 0 && SH32Dbg_IsTriggerEnabled(Id);
+}
+
+typedef struct _SH32DBGWINDOWINITDATA
+{
+    WNDPROC WndProc;
+    LPCVOID Param;
+    PCWSTR Title;
+    UINT Style;
+} SH32DBGWINDOWINITDATA;
+
+static DWORD CALLBACK SH32DbgWindowThreadProcInit(LPVOID Param)
+{
+    SH32DBGWINDOWINITDATA *p = (SH32DBGWINDOWINITDATA*)Param;
+    HWND hWnd = CreateWindowExW(0, WC_STATIC, p->Title, p->Style & ~WS_VISIBLE,
+                                CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+                                NULL, NULL, NULL, NULL);
+    SetWindowLongPtrW(hWnd, GWLP_USERDATA, (LONG_PTR)p->Param);
+    SetWindowLongPtrW(hWnd, GWLP_WNDPROC, (LONG_PTR)p->WndProc);
+    p->WndProc(hWnd, WM_CREATE, (LONG_PTR)p->Param, (LONG_PTR)p->Param);
+    ShowWindow(hWnd, !!(p->Style & WS_VISIBLE));
+    return 0;
+}
+
+static DWORD CALLBACK SH32DbgWindowThreadProc(LPVOID Param)
+{
+    MSG msg;
+    while ((int)GetMessageW(&msg, 0, 0, 0) > 0)
+    {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+    }
+    return 0;
+}
+
+static void SH32Dbg_Window(WNDPROC WndProc, LPCVOID Param, PCWSTR Title, UINT Style)
+{
+    SH32DBGWINDOWINITDATA data = { WndProc, Param, Title, Style };
+    SHCreateThread(SH32DbgWindowThreadProc, &data, CTF_COINIT | CTF_PROCESS_REF | CTF_FREELIBANDEXIT,
+                   SH32DbgWindowThreadProcInit);
+}
+
+static LRESULT CALLBACK DumpPIDLWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+    HWND hEdit = GetDlgItem(hWnd, 1);
+    switch (uMsg)
+    {
+        case WM_CREATE:
+        {
+            hEdit = CreateWindowExW(WS_EX_CLIENTEDGE, WC_EDIT, NULL, WS_CHILD | WS_VISIBLE |
+                                    WS_HSCROLL | WS_VSCROLL | ES_MULTILINE | ES_READONLY | ES_AUTOHSCROLL,
+                                    0, 0, 0, 0, hWnd, (HMENU)1, NULL, NULL);
+            NONCLIENTMETRICSW ncm;
+            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, ncm.cbSize = sizeof(ncm), &ncm, 0);
+            ncm.lfMessageFont.lfPitchAndFamily = FIXED_PITCH | FF_DONTCARE;
+            SendMessageW(hEdit, WM_SETFONT, (WPARAM)CreateFontIndirectW(&ncm.lfMessageFont), 0);
+
+            LPCITEMIDLIST pidl = (LPCITEMIDLIST)wParam;
+            WCHAR buf[MAX_PATH];
+            WORD SHGDNs[] = { SHGDN_NORMAL, SHGDN_FOREDITING, SHGDN_FORADDRESSBAR, SHGDN_FORPARSING,
+                              SHGDN_INFOLDER, SHGDN_FOREDITING | SHGDN_INFOLDER, SHGDN_FORPARSING | SHGDN_INFOLDER };
+            for (UINT i = 0; i < _countof(SHGDNs); ++i)
+            {
+                PWSTR str;
+                if (FAILED(SHELL_DisplayNameOf(NULL, pidl, SHGDNs[i], &str)))
+                    continue;
+                wsprintfW(buf, L"%#.4x: ", SHGDNs[i]);
+                EditAppend(hEdit, buf), EditAppend(hEdit, str), EditAppend(hEdit, L"\n");
+                SHFree(str);
+            }
+
+            UINT parent = ~0UL;
+            for (UINT depth = 0; pidl && pidl->mkid.cb; ++depth, pidl = ILGetNext(pidl))
+            {
+                EditAppend(hEdit, L"\n");
+                UINT size = pidl->mkid.cb, type = _ILGetType(pidl);
+                wsprintfW(buf, L"#%u %ub", depth + 1, size);
+                EditAppend(hEdit, buf);
+                *buf = UNICODE_NULL;
+                if (depth == 0 && type == PT_DESKTOP_REGITEM) guid:
+                {
+                    if (size >= sizeof(WORD) + 2 + sizeof(GUID))
+                    {
+                        GUID *pGuid = (GUID*)((char*)pidl + size - sizeof(GUID));
+                        buf[0] = ' ';
+                        StringFromGUID2(*pGuid, &buf[1], _countof(buf) - 1);
+                    }
+                }
+                else if (depth == 1 && type == PT_COMPUTER_REGITEM && parent == PT_DESKTOP_REGITEM)
+                {
+                    goto guid;
+                }
+                EditAppend(hEdit, buf);
+                EditAppend(hEdit, L"\n");
+                HexDumpToEditControl(hEdit, pidl, size);
+                parent = type;
+            }
+            SendMessageW(hEdit, EM_SETSEL, 0, 0);
+            break;
+        }
+        case WM_DESTROY:
+            DeleteObject((HFONT)SendMessage(hEdit, WM_GETFONT, 0, 0));
+            break;
+        case WM_SIZE:
+            SetWindowPos(hEdit, hEdit, 0, 0, LOWORD(lParam), HIWORD(lParam), SWP_NOZORDER | SWP_NOACTIVATE);
+            break;
+        case WM_SETFOCUS:
+            return (LRESULT)SetFocus(hEdit);
+    }
+    return DefWindowProcW(hWnd, uMsg, wParam, lParam);
+}
+
+static void SH32Dbg_DumpFolderPIDL(IShellFolder* pSF, LPCITEMIDLIST pidl)
+{
+    PIDLIST_ABSOLUTE pidlFree = NULL, pidlFolder;
+    if (pSF && SUCCEEDED(SHGetIDListFromObject(pSF, &pidlFolder)))
+    {
+        pidl = pidlFree = ILCombine(pidlFolder, pidl);
+        ILFree(pidlFolder);
+    }
+    SH32Dbg_Window(DumpPIDLWndProc, pidl, L"PIDL", WS_OVERLAPPEDWINDOW | WS_VISIBLE);
+    ILFree(pidlFree);
+}
+
+EXTERN_C void SH32DbgTrigger_DvDumpPIDL(IShellFolder* pSF, LPCITEMIDLIST pidl)
+{
+    if (GetAsyncKeyState(VK_CAPITAL) < 0 && SH32Dbg_IsTrigger(L"DVPIDL"))
+        SH32Dbg_DumpFolderPIDL(pSF, pidl);
+}
+#endif // DBG

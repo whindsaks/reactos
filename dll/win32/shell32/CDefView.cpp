@@ -277,7 +277,7 @@ private:
     BOOL                      m_isEditing;
     signed char               m_SpecialFolder;
     bool                      m_isFullStatusBar;
-    bool                      m_ScheduledStatusbarUpdate;
+    signed char               m_ScheduledStatusbarUpdate;
     bool                      m_HasCutItems;
 
     CLSID m_Category;
@@ -312,6 +312,7 @@ public:
     HRESULT OnStateChange(UINT uFlags);
     void UpdateStatusbar();
     void UpdateStatusbarLocation();
+    void ScheduleStatusBarUpdate(UINT Reason = 0);
     void CheckToolbar();
     BOOL CreateList();
     void UpdateListColors();
@@ -835,9 +836,18 @@ void CDefView::UpdateStatusbarLocation()
     m_pShellBrowser->SendControlMsg(FCW_STATUS, SB_SETTEXT, 2, (LPARAM)szPartText, &lResult);
 }
 
+void CDefView::ScheduleStatusBarUpdate(UINT Reason)
+{
+    if (m_ScheduledStatusbarUpdate)
+        return;
+    m_ScheduledStatusbarUpdate = true;
+    PostMessage(SHV_UPDATESTATUSBAR, 0, 0);
+}
+
 LRESULT CDefView::OnUpdateStatusbar(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled)
 {
-    m_ScheduledStatusbarUpdate = false;
+    if (m_ScheduledStatusbarUpdate > 0)
+        m_ScheduledStatusbarUpdate = false;
     UpdateStatusbar();
     return 0;
 }
@@ -2694,12 +2704,14 @@ LRESULT CDefView::OnNotify(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandl
             TRACE("-- LVN_DELETEITEM %p\n", this);
             /*delete the pidl because we made a copy of it*/
             SHFree(reinterpret_cast<LPVOID>(lpnmlv->lParam));
+            ScheduleStatusBarUpdate(lpnmh->code);
             break;
         case LVN_DELETEALLITEMS:
             TRACE("-- LVN_DELETEALLITEMS %p\n", this);
             return FALSE;
         case LVN_INSERTITEM:
             TRACE("-- LVN_INSERTITEM (STUB)%p\n", this);
+            ScheduleStatusBarUpdate(lpnmh->code);
             break;
         case LVN_ITEMACTIVATE:
             TRACE("-- LVN_ITEMACTIVATE %p\n", this);
@@ -2758,11 +2770,8 @@ LRESULT CDefView::OnNotify(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandl
             {
                 OnStateChange(CDBOSC_SELCHANGE); // browser will get the IDataObject
                 // FIXME: Use LVIS_DROPHILITED instead in drag_notify_subitem
-                if (!m_ScheduledStatusbarUpdate && (m_iDragOverItem == -1 || m_pCurDropTarget == NULL))
-                {
-                    m_ScheduledStatusbarUpdate = true;
-                    PostMessage(SHV_UPDATESTATUSBAR, 0, 0);
-                }
+                if (m_iDragOverItem == -1 || m_pCurDropTarget == NULL)
+                    ScheduleStatusBarUpdate(lpnmh->code);
                 _DoFolderViewCB(SFVM_SELECTIONCHANGED, NULL/* FIXME */, NULL/* FIXME */);
             }
             break;
@@ -2881,6 +2890,15 @@ LRESULT CDefView::OnNotify(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandl
             }
             return FALSE;
         }
+        case LVN_KEYDOWN:
+        {
+            NMLVKEYDOWN *pLVKD = (NMLVKEYDOWN*)lParam;
+            if (m_HasCutItems && pLVKD->wVKey == VK_ESCAPE)
+                OleSetClipboard(NULL);
+            else
+                SH32DbgTrigger(DvDumpPIDL)(m_pSFParent, _PidlByItem(m_ListView.GetNextItem(-1, LVIS_FOCUSED | LVIS_SELECTED)));
+            break;
+        }
         default:
             TRACE("-- %p WM_COMMAND %x unhandled\n", this, lpnmh->code);
             break;
@@ -2991,15 +3009,17 @@ LRESULT CDefView::OnChangeNotify(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &
             LV_RefreshItems();
             break;
         case SHCNE_UPDATEDIR:
+            if (LV_FindItemByPidl(child0) < 0)
+                child0 = NULL;
         case SHCNE_ATTRIBUTES:
             if (child0)
                 LV_UpdateItem(child0);
             else
                 Refresh();
-            UpdateStatusbar();
+            ScheduleStatusBarUpdate(LVN_ITEMCHANGED);
             break;
         case SHCNE_FREESPACE:
-            UpdateStatusbar();
+            ScheduleStatusBarUpdate();
             break;
     }
 
@@ -3213,6 +3233,7 @@ HRESULT WINAPI CDefView::DestroyViewWindow()
 
     /* Make absolutely sure all our UI is cleaned up */
     UIActivate(SVUIA_DEACTIVATE);
+    m_ScheduledStatusbarUpdate = -1;
 
     if (m_hAccel)
     {
@@ -4003,7 +4024,7 @@ HRESULT STDMETHODCALLTYPE CDefView::RemoveObject(PITEMID_CHILD pidl, UINT *item)
         m_ListView.DeleteAllItems();
     }
 
-    return S_OK;
+    return (int)*item >= 0 ? S_OK : E_INVALIDARG;
 }
 
 HRESULT STDMETHODCALLTYPE CDefView::GetObjectCount(UINT *count)

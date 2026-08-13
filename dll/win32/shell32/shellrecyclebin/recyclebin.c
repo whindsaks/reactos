@@ -361,3 +361,9 @@ GetRecycleBinPathFromDriveNumber(UINT Drive, LPWSTR Path)
     }
     return hr;
 }
+
+EXTERN_C BOOL
+IsRecycleBinInternalFile(PCWSTR pszName)
+{
+    return !_wcsnicmp(pszName, RECYCLE_BIN_FILE_NAME_V1, _countof(RECYCLE_BIN_FILE_NAME_V1) - 1);
+}

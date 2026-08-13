@@ -18,8 +18,26 @@ class CRecycleBinFolderViewCB
     CComHeapPtr<ITEMIDLIST> m_pidls[2];
 
     HRESULT RegisterChangeNotify(HWND hwndView);
-    HRESULT TranslatePidl(LPITEMIDLIST *ppidlNew, LPCITEMIDLIST pidl);
-    void TranslateTwoPIDLs(PIDLIST_ABSOLUTE* pidls);
+    HRESULT ParsePidl(PIDLIST_ABSOLUTE pidlAbs, PITEMID_CHILD &pidlChild);
+    HRESULT TranslatePidl(LPITEMIDLIST *ppidlNew, PIDLIST_ABSOLUTE pidl);
+    HRESULT TranslateTwoPIDLs(PIDLIST_ABSOLUTE* pidls);
+    HRESULT HandleFSNotify(UINT Event, PIDLIST_ABSOLUTE *pidls);
+
+    HRESULT AddObject(PITEMID_CHILD pidlChild)
+    {
+        CComPtr<IShellFolderView> pSFV;
+        HRESULT hr = m_pShellView ? m_pShellView->QueryInterface(IID_PPV_ARG(IShellFolderView, &pSFV)) : E_UNEXPECTED;
+        UINT idx;
+        return SUCCEEDED(hr) ? pSFV->AddObject(pidlChild, &idx) : hr;
+    }
+
+    HRESULT RemoveObject(PITEMID_CHILD pidlChild)
+    {
+        CComPtr<IShellFolderView> pSFV;
+        HRESULT hr = m_pShellView ? m_pShellView->QueryInterface(IID_PPV_ARG(IShellFolderView, &pSFV)) : E_UNEXPECTED;
+        UINT idx;
+        return SUCCEEDED(hr) ? pSFV->RemoveObject(pidlChild, &idx) : hr;
+    }
 
 public:
     CRecycleBinFolderViewCB();
