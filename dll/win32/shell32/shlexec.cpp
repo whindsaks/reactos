@@ -27,6 +27,7 @@
 WINE_DEFAULT_DEBUG_CHANNEL(exec);
 
 EXTERN_C BOOL PathIsExeW(LPCWSTR lpszPath);
+EXTERN_C BOOL DefaultBrowserHook(SHELLEXECUTEINFOW &srcsei);
 
 #define SEE_MASK_CLASSALL (SEE_MASK_CLASSNAME | SEE_MASK_CLASSKEY)
 
@@ -2251,6 +2252,12 @@ static BOOL SHELL_execute(LPSHELLEXECUTEINFOW sei, SHELL_ExecuteW32 execfunc)
         }
         SetLastError(err);
         return FALSE;
+    }
+
+    if (sei->lpFile && (sei->lpFile[0] | 32) == L'h' && DefaultBrowserHook(*sei))
+    {
+        sei->hInstApp = (HINSTANCE)UlongToHandle(42);
+        return TRUE;
     }
 
     /* make copies of all path/command strings */

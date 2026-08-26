@@ -1602,3 +1602,54 @@ SHOpenWithDialog(HWND hwndParent, const OPENASINFO *poainfo)
 
     return S_OK;
 }
+
+static BOOL IsGeckoInstalled()
+{
+    return RegKeyExists(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{43E91AE4-1065-4255-B035-3035D5287CF8}");
+}
+
+static HRESULT GetDefaultBrowserApp(PWSTR pszPath, DWORD cch)
+{
+    HRESULT hr = AssocQueryStringW(ASSOCF_NOTRUNCATE | ASSOCF_NOFIXUPS | ASSOCF_INIT_IGNOREUNKNOWN /*| ASSOCF_IS_PROTOCOL*/,
+                                   ASSOCSTR_EXECUTABLE, L"http", NULL, pszPath, &cch);
+    if (FAILED(hr))
+        return hr;
+    PCWSTR pszApp = PathFindFileNameW(pszPath);
+    return (lstrcmpi(pszApp, L"iexplore.exe") || IsGeckoInstalled()) ? S_OK : S_FALSE;
+}
+
+EXTERN_C BOOL DefaultBrowserHook(SHELLEXECUTEINFOW &srcsei)
+{
+    BOOL ShowBrowserChoiceDialog = FALSE;
+    PARSEDURLW pu;
+    pu.cbSize = sizeof(pu);
+    if (FAILED(ParseURLW(srcsei.lpFile, &pu)))
+        return FALSE;
+
+    WCHAR buf[MAX_PATH];
+    SHELLEXECUTEINFOW sei = { sizeof(sei), SEE_MASK_FLAG_NO_UI | SEE_MASK_FLAG_DDEWAIT, srcsei.hwnd };
+    sei.lpFile = buf;
+    sei.nShow = SW_SHOW;
+    PCWSTR p = pu.pszSuffix;
+    while (*p == L'/') ++p;
+    if (p == StrStrIW(p, L"reactos.org/DefaultBrowser/"))
+    {
+        if (GetDefaultBrowserApp(buf, _countof(buf)) == S_OK && ShellExecuteExW(&sei))
+            return TRUE;
+        ShowBrowserChoiceDialog = TRUE;
+    }
+#if 0 // Nobody needs this?
+    else
+    {
+        ShowBrowserChoiceDialog = p == StrStrIW(p, L"reactos.org/BrowserChoice/");
+    }
+#endif
+
+    if (ShowBrowserChoiceDialog)
+    {
+        GetSystemDirectory(buf, _countof(buf));
+        PathAppendW(buf, L"browserchoice.exe");
+        return PathFileExistsW(buf) && ShellExecuteExW(&sei);
+    }
+    return FALSE;
+}
