@@ -317,6 +317,8 @@ PIDLIST_ABSOLUTE SHELL_DataObject_ILCloneFullItem(_In_ IDataObject *pDO, _In_ UI
 HRESULT SHELL_CloneDataObject(_In_ IDataObject *pDO, _Out_ IDataObject **ppDO);
 DWORD DataObj_GetDWORD(IDataObject *pdtobj, UINT cf, DWORD dwDefault);
 HRESULT DataObj_SetDWORD(IDataObject *pdtobj, UINT cf, DWORD dwValue);
+HRESULT DataObj_GetTargetCLSID(IDataObject *pdtobj, CLSID *pclsid);
+HRESULT DataObj_SetTargetCLSID(IDataObject *pdtobj, REFCLSID clsid);
 
 EXTERN_C HRESULT
 IUnknown_InitializeCommand(

@@ -149,6 +149,7 @@ class CRecyclerDropTarget :
 
             FORMATETC fmt;
             TRACE("(%p)->(DataObject=%p)\n", this, pDataObject);
+            DataObj_SetTargetCLSID(pDataObject, CLSID_RecycleBin); // learn.microsoft.com/en-us/windows/win32/shell/clipboard#cfstr_targetclsid
             InitFormatEtc (fmt, cfShellIDList, TYMED_HGLOBAL);
 
             /* Handle cfShellIDList Drop objects here, otherwise send the appropriate message to other software */

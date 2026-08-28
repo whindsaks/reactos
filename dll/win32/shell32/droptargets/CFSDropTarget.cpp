@@ -71,12 +71,37 @@ static void GetDefaultCopyMoveEffect()
 }
 
 UINT g_cf_FileOpFlags = 0;
+UINT g_cf_FileNameMapW = 0;
 
 static inline DWORD GetDefaultFileOpFlags(IDataObject *pDO, DWORD fDefault = FOF_ALLOWUNDO | FOF_NOCONFIRMMKDIR)
 {
 	if (!g_cf_FileOpFlags)
 		g_cf_FileOpFlags = RegisterClipboardFormatW(L"FileOpFlags"); // github.com/dotnet/winforms/issues/5884?timeline_page=1
 	return DataObj_GetDWORD(pDO, g_cf_FileOpFlags, fDefault);
+}
+
+static HRESULT PerformFileOperation(IDataObject *pDO, SHFILEOPSTRUCTW &fo)
+{
+    PWSTR pszzDest = NULL;
+    if (pDO && (fo.wFunc == FO_COPY || fo.wFunc == FO_MOVE) && !(fo.fFlags & FOF_MULTIDESTFILES))
+    {
+        if (!g_cf_FileNameMapW)
+            g_cf_FileNameMapW = RegisterClipboardFormatW(L"FileNameMapW");
+        STGMEDIUM stgNameMap;
+        LPVOID pNameMapBase;
+        if (SUCCEEDED(DataObject_GetLockedGlobal(pDO, g_cf_FileNameMapW, &stgNameMap, &pNameMapBase)))
+        {
+            //todo: check if source is a recycler
+        }
+        //DataObject_GetData(pdtobj, (CLIPFORMAT)cf, pdwOut, sizeof(*pdwOut));
+
+        //HRESULT DataObj_GetTargetCLSID(IDataObject *pdtobj, CLSID *pclsid);
+    }
+
+    // FIXME: Use callback func when recycler & FOF_MULTIDESTFILES & MOVE, if copy, just set the names
+    int ret = SHFileOperationW(&fo);
+    SHFree(pszzDest);
+    return !ret ? S_OK : ret == DE_OPCANCELLED ? HRESULT_FROM_WIN32(ERROR_CANCELLED) : E_FAIL;
 }
 
 /****************************************************************************
@@ -141,14 +166,7 @@ HRESULT CFSDropTarget::_CopyItems(IDataObject *pDO, IShellFolder * pSFFrom,
     if (bRenameOnCollision)
         fop.fFlags |= FOF_RENAMEONCOLLISION;
 
-    ret = S_OK;
-
-    if (SHFileOperationW(&fop))
-    {
-        ERR("SHFileOperationW failed\n");
-        ret = E_FAIL;
-    }
-
+    ret = PerformFileOperation(pDO, fop);
 cleanup:
     HeapFree(GetProcessHeap(), 0, pwszSrcPathsList);
     return ret;
@@ -764,14 +782,7 @@ HRESULT CFSDropTarget::_DoDrop(IDataObject *pDataObject,
             op.hwnd = m_hwndSite;
             op.wFunc = bCopy ? FO_COPY : FO_MOVE;
             op.fFlags = GetDefaultFileOpFlags(pDataObject);
-            int res = SHFileOperationW(&op);
-            if (res)
-            {
-                ERR("SHFileOperationW failed with 0x%x\n", res);
-                hr = E_FAIL;
-            }
-
-            return hr;
+            return hr = PerformFileOperation(pDataObject, op);
         }
         ERR("Error calling GetData\n");
         hr = E_FAIL;

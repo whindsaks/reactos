@@ -159,3 +159,25 @@ HRESULT DataObj_SetDWORD(IDataObject *pdtobj, UINT cf, DWORD dwValue)
 {
     return DataObject_SetData(pdtobj, cf, &dwValue, sizeof(dwValue));
 }
+
+CLIPFORMAT g_cfTargetCLSID = 0;
+
+HRESULT DataObj_SetTargetCLSID(IDataObject *pdtobj, REFCLSID clsid)
+{
+    if (!g_cfTargetCLSID)
+    {
+        if ((g_cfTargetCLSID = (CLIPFORMAT)RegisterClipboardFormatW(L"TargetCLSID")) == 0)
+            return E_FAIL;
+    }
+    return DataObject_SetData(pdtobj, g_cfTargetCLSID, &clsid, sizeof(clsid));
+}
+
+HRESULT DataObj_GetTargetCLSID(IDataObject *pdtobj, CLSID *pclsid)
+{
+    if (!g_cfTargetCLSID)
+    {
+        if ((g_cfTargetCLSID = (CLIPFORMAT)RegisterClipboardFormatW(L"TargetCLSID")) == 0)
+            return E_FAIL;
+    }
+    return DataObject_GetData(pdtobj, g_cfTargetCLSID, pclsid, sizeof(*pclsid));
+}

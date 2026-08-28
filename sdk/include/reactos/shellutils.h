@@ -866,6 +866,23 @@ public:
 };
 
 inline
+HRESULT DataObject_GetLockedGlobal(IDataObject *pDataObject, UINT cf, STGMEDIUM *pStgm, LPVOID *ppData)
+{
+    FORMATETC fmt = { (CLIPFORMAT)cf, NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+    HRESULT hr = pDataObject->GetData(&fmt, pStgm);
+    if (SUCCEEDED(hr))
+    {
+        *ppData = GlobalLock(pStgm->hGlobal);
+        if (!*ppData)
+        {
+            ReleaseStgMedium(pStgm);
+            hr = STG_E_INVALIDHANDLE;
+        }
+    }
+    return hr;
+}
+
+inline
 HRESULT DataObject_GetData(IDataObject* pDataObject, CLIPFORMAT clipformat, PVOID pBuffer, SIZE_T dwBufferSize)
 {
     FORMATETC fmt = { clipformat, NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
@@ -900,7 +917,7 @@ HRESULT DataObject_GetData(IDataObject* pDataObject, CLIPFORMAT clipformat, PVOI
 }
 
 inline
-HRESULT DataObject_SetData(IDataObject* pDataObject, CLIPFORMAT clipformat, PVOID pBuffer, SIZE_T dwBufferSize)
+HRESULT DataObject_SetData(IDataObject* pDataObject, CLIPFORMAT clipformat, LPCVOID pBuffer, SIZE_T dwBufferSize)
 {
     STGMEDIUM medium = { TYMED_HGLOBAL };
 

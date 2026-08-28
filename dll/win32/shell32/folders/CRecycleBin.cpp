@@ -212,6 +212,42 @@ static HRESULT GetItemTypeName(PCUITEMID_CHILD pidl, const BBITEMDATA &Data, SHF
     return E_FAIL;
 }
 
+static HRESULT AddFileNameMapEntries(IDataObject &DO, UINT cidl, PCUITEMID_CHILD_ARRAY apidl)
+{
+    // learn.microsoft.com/en-us/windows/win32/shell/clipboard#cfstr_filenamemap
+    FORMATETC fmte = { (CLIPFORMAT)RegisterClipboardFormatW(L"FileNameMapW"), NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+    STGMEDIUM stgm = { TYMED_HGLOBAL };
+    SIZE_T cch = 1, i; // 1 for double terminator
+    for (i = 0; i < cidl; ++i)
+    {
+        const BBITEMDATA *pData = ValidateItem(apidl[i]);
+        if (!pData)
+            return E_INVALIDARG;
+        cch += lstrlenW(GetItemOriginalFileName(*pData)) + 1;
+    }
+    if (cch * sizeof(WCHAR) < cch)
+        return HRESULT_FROM_WIN32(ERROR_BUFFER_OVERFLOW);
+    stgm.hGlobal = GlobalAlloc(GMEM_MOVEABLE | GMEM_SHARE | GMEM_ZEROINIT, cch * sizeof(WCHAR));
+    if (!stgm.hGlobal)
+        return E_OUTOFMEMORY;
+    HRESULT hr = E_FAIL;
+    PWSTR pNames = (PWSTR)GlobalLock(stgm.hGlobal);
+    if (pNames)
+    {
+        for (i = 0; i < cidl; ++i, pNames += cch)
+        {
+            PCWSTR pszName = GetItemOriginalFileName(*ValidateItem(apidl[i]));
+            cch = lstrlenW(pszName) + 1;
+            CopyMemory(pNames, pszName, cch * sizeof(WCHAR));
+        }
+        hr = DO.SetData(&fmte, &stgm, TRUE);
+        GlobalUnlock(stgm.hGlobal);
+    }
+    if (FAILED(hr))
+        GlobalFree(stgm.hGlobal);
+    return hr;
+}
+
 /*
  * Recycle Bin folder
  */
@@ -900,6 +936,12 @@ HRESULT WINAPI CRecycleBin::GetUIObjectOf(HWND hwndOwner, UINT cidl, PCUITEMID_C
             hr = CRecyclerExtractIcon_CreateInstance(*pSF, apidl[0], riid, &pObj);
             pSF->Release();
         }
+    }
+    else if (IsEqualIID (riid, IID_IDataObject) && cidl)
+    {
+        hr = IDataObject_Constructor(hwndOwner, this->pidl, apidl, cidl, TRUE, (IDataObject **)&pObj);
+        if (SUCCEEDED(hr) && FAILED(hr = AddFileNameMapEntries(*(IDataObject*)pObj, cidl, apidl)))
+            ((IDataObject*)pObj)->Release();
     }
     else
         hr = E_NOINTERFACE;
