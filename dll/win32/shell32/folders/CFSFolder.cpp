@@ -41,6 +41,14 @@ static BOOL IsRealItem(const ITEMIDLIST &idl)
     return fsitem.dwFileSize | fsitem.uFileDate;
 }
 
+static BOOL HasCLSIDKey(const CLSID &clsid)
+{
+    HKEY hKey;
+    if (FAILED(SHRegGetCLSIDKeyW(clsid, NULL, FALSE, FALSE, &hKey) && FAILED(SHRegGetCLSIDKeyW(clsid, NULL, TRUE, FALSE, &hKey))))
+        return FALSE;
+    return !RegCloseKey(hKey);
+}
+
 static void GetItemDescription(PCUITEMID_CHILD pidl, LPWSTR Buf, UINT cchMax)
 {
     HRESULT hr = E_FAIL;
@@ -171,6 +179,13 @@ HRESULT GetCLSIDForFileType(PCUIDLIST_RELATIVE pidl, LPCWSTR KeyName, CLSID* pcl
     return GetCLSIDForFileTypeFromExtension(pExtension, KeyName, pclsid);
 }
 
+static HRESULT GetJunctionExtensionCLSID(_In_ LPCWSTR pszExt, _Out_ CLSID *pclsid)
+{
+    if (pszExt[0] != L'.' || pszExt[1] != L'{')
+        return E_UNEXPECTED;
+    return CLSIDFromString(pszExt + 1, pclsid);
+}
+
 HRESULT GetItemCLSID(PCUIDLIST_RELATIVE pidl, CLSID *pclsid)
 {
     WCHAR buf[256];
@@ -181,8 +196,8 @@ HRESULT GetItemCLSID(PCUIDLIST_RELATIVE pidl, CLSID *pclsid)
     if (!ItemIsFolder(pidl))
         hr = GetCLSIDForFileTypeFromExtension(pExt, L"CLSID", pclsid);
     // TODO: Should we handle folders with desktop.ini here?
-    if (hr != S_OK && pExt[0] == '.' && pExt[1] == '{')
-        hr = CLSIDFromString(pExt + 1, pclsid);
+    if (hr != S_OK)
+        hr = GetJunctionExtensionCLSID(pExt, pclsid);
     return hr;
 }
 
@@ -1444,45 +1459,41 @@ HRESULT WINAPI CFSFolder::GetUIObjectOf(HWND hwndOwner,
 BOOL SHELL_FS_HideExtension(LPCWSTR szPath)
 {
     HKEY hKey;
-    BOOL doHide = FALSE; /* The default value is FALSE (win98 at least) */
-    LONG lError;
+    LPCWSTR pszDotExt = PathFindExtensionW(szPath);
+#if 0 // TODO: Can "File.{GUID}" be hidden?
+    if (IsJunctionExtensionCLSID(pszDotExt) && !SHELL_ShowSuperHidden())
+        return TRUE;
+#endif
+    if (FAILED(HCR_GetProgIdKeyOfExtension(pszDotExt, &hKey, TRUE)))
+        return FALSE; // Unknown type, always show
 
-    doHide = !SHELL_GetSetting(SSF_SHOWEXTENSIONS, fShowExtensions);
-
-    if (!doHide)
-    {
-        LPCWSTR DotExt = PathFindExtensionW(szPath);
-        if (*DotExt != 0)
-        {
-            WCHAR classname[MAX_PATH];
-            LONG classlen = sizeof(classname);
-            lError = RegQueryValueW(HKEY_CLASSES_ROOT, DotExt, classname, &classlen);
-            if (lError == ERROR_SUCCESS)
-            {
-                lError = RegOpenKeyW(HKEY_CLASSES_ROOT, classname, &hKey);
-                if (lError == ERROR_SUCCESS)
-                {
-                    lError = RegQueryValueExW(hKey, L"NeverShowExt", NULL, NULL, NULL, NULL);
-                    if (lError == ERROR_SUCCESS)
-                        doHide = TRUE;
-
-                    RegCloseKey(hKey);
-                }
-            }
-        }
-    }
-    // TODO: else if "AlwaysShowExt"
-
-    return doHide;
+    BOOL hide = !SHELL_GetSetting(SSF_SHOWEXTENSIONS, fShowExtensions);
+    if (hide)
+        hide = !RegValueExists(hKey, L"AlwaysShowExt");
+    else
+        hide = RegValueExists(hKey, L"NeverShowExt");
+    RegCloseKey(hKey);
+    return hide;
 }
 
-void SHELL_FS_ProcessDisplayFilename(LPWSTR szPath, DWORD dwFlags)
+static BOOL SHELL_FS_HideDirExtension(LPCWSTR pszName)
+{
+    CLSID clsid;
+    PCWSTR pszDotExt = PathFindExtensionW(pszName);
+    if (GetJunctionExtensionCLSID(pszDotExt, &clsid) == S_OK && pszDotExt > pszName && !SHELL_ShowSuperHidden())
+        return LOBYTE(GetVersion()) < 6 || HasCLSIDKey(clsid);
+    return FALSE;
+}
+
+void SHELL_FS_ProcessDisplayName(LPWSTR pszName, DWORD SHGDN, BOOL fIsFolder)
 {
     /*FIXME: MSDN also mentions SHGDN_FOREDITING which is not yet handled. */
-    if (!(dwFlags & SHGDN_FORPARSING) &&
-        ((dwFlags & SHGDN_INFOLDER) || (dwFlags == SHGDN_NORMAL))) {
-            if (SHELL_FS_HideExtension(szPath) && szPath[0] != '.')
-                PathRemoveExtensionW(szPath);
+    if (!(SHGDN & SHGDN_FORPARSING) && ((SHGDN & SHGDN_INFOLDER) || (SHGDN == SHGDN_NORMAL)))
+    {
+        if (fIsFolder && SHELL_FS_HideDirExtension(pszName))
+            PathRemoveExtensionW(pszName);
+        else if (!fIsFolder && SHELL_FS_HideExtension(pszName) && pszName[0] != '.')
+            PathRemoveExtensionW(pszName);
     }
 }
 
@@ -1536,7 +1547,8 @@ HRESULT WINAPI CFSFolder::GetDisplayNameOf(PCUITEMID_CHILD pidl,
         len = wcslen(pszPath);
     }
     _ILSimpleGetTextW(pidl, pszPath + len, MAX_PATH + 1 - len);
-    if (!_ILIsFolder(pidl)) SHELL_FS_ProcessDisplayFilename(pszPath, dwFlags);
+    LPWSTR pszFilename = pszPath + len;
+    SHELL_FS_ProcessDisplayName(pszFilename, dwFlags, _ILIsFolder(pidl));
 
     strRet->uType = STRRET_WSTR;
     strRet->pOleStr = pszPath;

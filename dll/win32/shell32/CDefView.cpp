@@ -1557,7 +1557,7 @@ HRESULT CDefView::FillList(BOOL IsRefreshCommand)
         dFlags |= SHCONTF_INCLUDEHIDDEN;
         m_ListView.SendMessageW(LVM_SETCALLBACKMASK, LVIS_CUT, 0);
     }
-    if (shellstate.fShowSuperHidden)
+    if (shellstate.fShowSuperHidden && !SHRestricted(REST_DONTSHOWSUPERHIDDEN))
     {
         dFlags |= SHCONTF_INCLUDESUPERHIDDEN;
         m_ListView.SendMessageW(LVM_SETCALLBACKMASK, LVIS_CUT, 0);

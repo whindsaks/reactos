@@ -93,3 +93,33 @@ PathToIDList(LPCWSTR pszPath, ITEMIDLIST** ppidl)
 }
 
 // - Adapted from https://devblogs.microsoft.com/oldnewthing/20130503-00/?p=4463
+
+static HRESULT
+GetDisplayNameOf(IShellFolder *pFolder, PCUITEMID_CHILD pidl, UINT SHGDN, PWSTR Output, UINT cchMax)
+{
+    STRRET sr;
+    sr.uType = STRRET_CSTR;
+    HRESULT hr = pFolder ? pFolder->GetDisplayNameOf(pidl, (SHGDNF)SHGDN, &sr) : E_INVALIDARG;
+    return FAILED(hr) ? hr : StrRetToBufW(&sr, pidl, Output, cchMax);
+}
+
+static HRESULT
+GetDisplayNameOf(PIDLIST_ABSOLUTE pidl, UINT SHGDN, PWSTR Output, UINT cchMax)
+{
+    PCUITEMID_CHILD pidlItem;
+    CComPtr<IShellFolder> pFolder;
+    HRESULT hr = SHBindToParent(pidl, IID_IShellFolder, (void**)&pFolder, &pidlItem);
+    return FAILED(hr) ? hr : GetDisplayNameOf(pFolder, pidlItem, SHGDN, Output, cchMax);
+}
+
+HRESULT
+GetDisplayNameOf(PCWSTR pszPath, UINT SHGDN, PWSTR Output, UINT cchMax)
+{
+    PIDLIST_ABSOLUTE pidl;
+    HRESULT hr = SHParseDisplayName(pszPath, NULL, &pidl, 0, NULL);
+    if (FAILED(hr))
+        return hr;
+    hr = GetDisplayNameOf(pidl, SHGDN, Output, cchMax);
+    ILFree(pidl);
+    return hr;
+}

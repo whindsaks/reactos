@@ -78,6 +78,12 @@ HRESULT CRegFolder_CreateInstance(PREGFOLDERINITDATA pInit, LPCITEMIDLIST pidlRo
 #define IS_SHGDN_FOR_PARSING(flags) ( ((flags) & (SHGDN_FORADDRESSBAR | SHGDN_FORPARSING)) == SHGDN_FORPARSING)
 #define IS_SHGDN_DESKTOPABSOLUTEPARSING(flags) ( ((flags) & (SHGDN_FORADDRESSBAR | SHGDN_FORPARSING | 0xFF)) == SHGDN_FORPARSING)
 
+static inline BOOL
+SHELL_ShowSuperHidden()
+{
+    return SHELL_GetSetting(SSF_SHOWSUPERHIDDEN, fShowSuperHidden) && !SHRestricted(REST_DONTSHOWSUPERHIDDEN);
+}
+
 static inline SFGAOF 
 SHELL_CreateFolderEnumItemAttributeQuery(SHCONTF Flags, BOOL ForRegItem)
 {
@@ -177,7 +183,7 @@ static __inline int SHELL32_GUIDToStringW (REFGUID guid, LPWSTR str)
             guid.Data4[4], guid.Data4[5], guid.Data4[6], guid.Data4[7]);
 }
 
-void SHELL_FS_ProcessDisplayFilename(LPWSTR szPath, DWORD dwFlags);
+void SHELL_FS_ProcessDisplayName(LPWSTR pszName, DWORD SHGDN, BOOL fIsFolder);
 BOOL SHELL_FS_HideExtension(LPCWSTR pwszPath);
 
 static inline BOOL IsIllegalFsFileName(PCWSTR Name)

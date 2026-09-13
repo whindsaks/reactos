@@ -13,6 +13,31 @@
 #include <shellutils.h>
 #include <versionhelpers.h>
 
+#define TESTFILE L"shell32_test"
+#define GUID1 L"{1F1B6E5F-4818-4709-8BC6-B85D5D386942}"
+#define GUID2 L"{2254058E-77D7-46BC-A301-E6249D84910D}"
+#define GUID3 L"{322168B3-5C6E-4756-A00F-9EAF3C88ADC6}"
+#define GUID4 L"{417DDEC4-6462-4907-9F3D-27B5638A7B83}"
+
+/*
+#define GUID1 L"{0B9CB801-5998-4EFE-AA16-F47E6A77852F}"
+{A7B5C776-18A2-473C-9917-4F74205C3A42}
+{D2645B31-BFBD-482F-AFB6-855F4F53190E}
+{619628C7-6605-4E96-AF8D-8240E092912E}
+{857E9B9C-9B95-4FCF-801F-4A138FC209E7}
+{27026446-6637-4442-9F36-A990D9F06A89}*/
+
+VOID ResetPath(PWSTR pszPath, PCWSTR pszExt = NULL)
+{
+    if (pszExt)
+        PathAddExtensionW(pszPath, pszExt);
+    DWORD Attr = GetFileAttributesW(pszPath);
+    if (!(Attr & FILE_ATTRIBUTE_DIRECTORY))
+        DeleteFileW(pszPath);
+    else if (Attr != INVALID_FILE_ATTRIBUTES)
+        RemoveDirectoryW(pszPath);
+}
+
 LPITEMIDLIST _CreateDummyPidl()
 {
     /* Create a tiny pidl with no contents */
@@ -186,11 +211,115 @@ VOID TestGetUIObjectOf()
     ok(hr == E_INVALIDARG, "hr = %lx\n", hr);
 }
 
+VOID TestGetDisplayNameOf()
+{
+    HRESULT hr;
+    WCHAR szPath[MAX_PATH + 42], szBuf[MAX_PATH];
+    DWORD cch = GetTempPathW(MAX_PATH, szPath);
+    if (!cch || cch > MAX_PATH)
+    {
+        skip("Unable to initialize\n");
+        return;
+    }
+    PathAppendW(szPath, TESTFILE);
+    cch = lstrlenW(szPath);
+
+    const bool OrgHideExt = SHELL_GetSetting(SSF_SHOWEXTENSIONS, fShowExtensions) == FALSE; // (Inverted)
+    const bool OrgSuperHidden = SHELL_GetSetting(SSF_SHOWSUPERHIDDEN, fShowSuperHidden) != FALSE;
+    RegSetDWORD(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", L"HideFileExt", TRUE);
+    RegSetDWORD(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", L"ShowSuperHidden", TRUE);
+    SHGetSetSettings(NULL, 0, TRUE); // Invalidate SHELLSTATE cache
+
+    // Note: Windows caches ProgId/Class info so each check needs a unique GUID
+    szPath[cch] = UNICODE_NULL;
+    ResetPath(szPath, L"." GUID1);
+    CreateDirectoryW(szPath, NULL);
+    hr = GetDisplayNameOf(szPath, SHGDN_INFOLDER, szBuf, _countof(szBuf));
+    ok(hr == S_OK && !lstrcmpiW(szBuf, TESTFILE L"." GUID1), "Folder junction-extension visible with ShowSuperHidden\n");
+    ResetPath(szPath);
+
+    szPath[cch] = UNICODE_NULL;
+    ResetPath(szPath, L"." GUID2);
+    CloseHandle(CreateFileW(szPath, 0, FILE_SHARE_READ, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL));
+    hr = GetDisplayNameOf(szPath, SHGDN_INFOLDER, szBuf, _countof(szBuf));
+    ok(hr == S_OK && !lstrcmpiW(szBuf, TESTFILE L"." GUID2), "File junction-extension visible with ShowSuperHidden\n");
+    ResetPath(szPath);
+
+    RegSetDWORD(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", L"ShowSuperHidden", FALSE);
+    SHGetSetSettings(NULL, 0, TRUE); // Invalidate SHELLSTATE cache
+
+    szPath[cch] = UNICODE_NULL;
+    ResetPath(szPath, L"." GUID3);
+    CreateDirectoryW(szPath, NULL);
+    RegSetDWORD(HKEY_CURRENT_USER, L"Software\\Classes\\CLSID\\" GUID3, NULL, 0); // The class key needs to exist on NT6
+    hr = GetDisplayNameOf(szPath, SHGDN_INFOLDER, szBuf, _countof(szBuf));
+    ok(hr == S_OK && !lstrcmpiW(szBuf, TESTFILE), "Folder junction-extension\n");
+    // TODO: NoFileFolderJunction value will force the extension on?
+    SHDeleteKeyW(HKEY_CURRENT_USER, L"Software\\Classes\\CLSID\\" GUID3);
+    ResetPath(szPath);
+
+    szPath[cch] = UNICODE_NULL;
+    ResetPath(szPath, L"." GUID4);
+    CloseHandle(CreateFileW(szPath, 0, FILE_SHARE_READ, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL));
+    hr = GetDisplayNameOf(szPath, SHGDN_INFOLDER, szBuf, _countof(szBuf));
+    ok(hr == S_OK && !lstrcmpiW(szBuf, TESTFILE L"." GUID4), "File junction-extension always visible?\n");
+    ResetPath(szPath);
+
+    szPath[cch] = UNICODE_NULL;
+    ResetPath(szPath, L".lnk");
+    CloseHandle(CreateFileW(szPath, 0, FILE_SHARE_READ, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL));
+    hr = GetDisplayNameOf(szPath, SHGDN_INFOLDER, szBuf, _countof(szBuf));
+    ok(hr == S_OK && !lstrcmpiW(szBuf, TESTFILE), "File with NeverShowExt extension\n");
+    DeleteFileW(szPath);
+    CreateDirectoryW(szPath, NULL);
+    hr = GetDisplayNameOf(szPath, SHGDN_INFOLDER, szBuf, _countof(szBuf));
+    ok(hr == S_OK && !lstrcmpiW(szBuf, TESTFILE L".lnk"), "Folder with NeverShowExt extension\n");
+    ResetPath(szPath);
+
+    szPath[cch] = UNICODE_NULL;
+    ResetPath(szPath, L".NotRegistered");
+    CloseHandle(CreateFileW(szPath, 0, FILE_SHARE_READ, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL));
+    hr = GetDisplayNameOf(szPath, SHGDN_INFOLDER, szBuf, _countof(szBuf));
+    ok(hr == S_OK && !lstrcmpiW(szBuf, TESTFILE L".NotRegistered"), "File with unknown extension\n");
+    ResetPath(szPath);
+
+    szPath[cch] = UNICODE_NULL;
+    ResetPath(szPath, L".exe");
+    CloseHandle(CreateFileW(szPath, 0, FILE_SHARE_READ, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL));
+    hr = GetDisplayNameOf(szPath, SHGDN_INFOLDER, szBuf, _countof(szBuf));
+    ok(hr == S_OK && !lstrcmpiW(szBuf, TESTFILE), "File with known extension %#x\n", SHGDN_INFOLDER);
+    hr = GetDisplayNameOf(szPath, SHGDN_INFOLDER | SHGDN_FORPARSING, szBuf, _countof(szBuf));
+    ok(hr == S_OK && !lstrcmpiW(szBuf, TESTFILE L".exe"), "File with known extension %#x\n", SHGDN_INFOLDER | SHGDN_FORPARSING);
+    ResetPath(szPath);
+
+    RegSetDWORD(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", L"HideFileExt", FALSE);
+    SHGetSetSettings(NULL, 0, TRUE); // Invalidate SHELLSTATE cache
+
+    szPath[cch] = UNICODE_NULL;
+    ResetPath(szPath, L".exe");
+    CloseHandle(CreateFileW(szPath, 0, FILE_SHARE_READ, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL));
+    hr = GetDisplayNameOf(szPath, SHGDN_INFOLDER, szBuf, _countof(szBuf));
+    ok(hr == S_OK && !lstrcmpiW(szBuf, TESTFILE L".exe"), "File with known extension\n");
+    ResetPath(szPath);
+
+    szPath[cch] = UNICODE_NULL;
+    ResetPath(szPath, L".lnk");
+    CloseHandle(CreateFileW(szPath, 0, FILE_SHARE_READ, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL));
+    hr = GetDisplayNameOf(szPath, SHGDN_INFOLDER, szBuf, _countof(szBuf));
+    ok(hr == S_OK && !lstrcmpiW(szBuf, TESTFILE), "File with NeverShowExt extension\n");
+    ResetPath(szPath);
+
+    RegSetDWORD(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", L"HideFileExt", OrgHideExt); // Reset
+    RegSetDWORD(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", L"ShowSuperHidden", OrgSuperHidden); // Reset
+    SHGetSetSettings(NULL, 0, TRUE); // Invalidate SHELLSTATE cache
+}
+
 START_TEST(CFSFolder)
 {
-    CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+    CCoInit ComStaInit;
 
     TestUninitialized();
     TestInitialize();
     TestGetUIObjectOf();
+    TestGetDisplayNameOf();
 }

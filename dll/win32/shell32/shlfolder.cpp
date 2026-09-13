@@ -33,7 +33,7 @@ SHCONTF SHELL_GetDefaultFolderEnumSHCONTF()
     SHGetSetSettings(&ss, SSF_SHOWALLOBJECTS | SSF_SHOWSUPERHIDDEN, FALSE);
     if (ss.fShowAllObjects)
         Flags |= SHCONTF_INCLUDEHIDDEN;
-    if (ss.fShowSuperHidden)
+    if (ss.fShowSuperHidden && !SHRestricted(REST_DONTSHOWSUPERHIDDEN))
         Flags |= SHCONTF_INCLUDESUPERHIDDEN;
      return Flags;
 }

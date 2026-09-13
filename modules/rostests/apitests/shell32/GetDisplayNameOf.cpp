@@ -13,7 +13,7 @@
 START_TEST(GetDisplayNameOf)
 {
     HRESULT hr;
-    CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+    CCoInit ComStaInit;
 
     CComPtr<IShellFolder> spPanel;
 

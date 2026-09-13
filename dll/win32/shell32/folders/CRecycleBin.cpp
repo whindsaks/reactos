@@ -937,8 +937,7 @@ HRESULT WINAPI CRecycleBin::GetDisplayNameOf(PCUITEMID_CHILD pidl, SHGDNF uFlags
     if (pName->pOleStr)
     {
         pName->uType = STRRET_WSTR;
-        if (!IsFolder(pidl))
-            SHELL_FS_ProcessDisplayFilename(pName->pOleStr, uFlags);
+        SHELL_FS_ProcessDisplayName(pName->pOleStr, uFlags, IsFolder(pidl));
         return S_OK;
     }
     pName->uType = STRRET_CSTR;

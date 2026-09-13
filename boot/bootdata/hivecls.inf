@@ -157,6 +157,7 @@ HKCR,"dllfile","",0x00000000,"Application Extension"
 HKCR,"dllfile","EditFlags",0x00010001,0x00000001
 HKCR,"dllfile","FriendlyTypeName",0x00020000,"@%SystemRoot%\system32\shell32.dll,-206"
 HKCR,"dllfile","NoOpen",0x00000000,""
+HKCR,"dllfile","AlwaysShowExt",0x00000000,""
 HKCR,"dllfile\DefaultIcon","",0x00020000,"%SystemRoot%\system32\shell32.dll,-154"
 
 ; Device Drivers
