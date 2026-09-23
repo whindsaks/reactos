@@ -69,6 +69,28 @@ IsInstalledEnum(INT x)
     return (x >= ENUM_INSTALLED_MIN && x <= ENUM_INSTALLED_MAX);
 }
 
+struct AppCategoryList
+{
+    UINT32 m_List; // Packed, one per byte
+
+    explicit AppCategoryList(UINT Init = 0) : m_List(Init) {}
+
+    void Set(UINT One, UINT Two = 0, UINT Three = 0, UINT Four = 0)
+    {
+        m_List = MAKELONG(MAKEWORD(One, Two), MAKEWORD(Three, Four));
+    }
+
+    bool IsCategory(AppsCategories Query)
+    {
+        for (UINT Temp = m_List; Temp; Temp >>= 8)
+        {
+            if (LOBYTE(Temp) == Query)
+                return true;
+        }
+        return false;
+    }
+};
+
 enum UninstallCommandFlags
 {
     UCF_NONE        = 0x00,
@@ -117,7 +139,7 @@ class CAppInfo
     virtual ~CAppInfo();
 
     const CStringW szIdentifier; // PkgName or KeyName
-    const AppsCategories iCategory;
+    AppsCategories iCategory;
 
     CStringW szDisplayIcon;
     CStringW szDisplayName;
@@ -144,6 +166,11 @@ class CAppInfo
     GetInstallerInfo(CStringW &SilentParameters) const { return GetInstallerType(); }
     virtual BOOL
     UninstallApplication(UninstallCommandFlags Flags) = 0;
+
+    inline BOOL
+    IsInstalledCategory() const { return IsInstalledEnum(iCategory); }
+    inline BOOL
+    IsCategory(AppsCategories Cat) { return IsInstalledCategory() ? Cat == iCategory : AppCategoryList(iCategory).IsCategory(Cat); }
 };
 
 class CAvailableApplicationInfo : public CAppInfo

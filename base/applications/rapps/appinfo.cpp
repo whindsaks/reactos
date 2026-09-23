@@ -18,6 +18,25 @@ ClampAvailableCategory(AppsCategories Category)
     return ENUM_CAT_OTHER; // Treat future categories we don't know as Other
 }
 
+static AppsCategories
+ValidateAvailableCategories(AppsCategories Category)
+{
+    if (Category <= 255)
+        return ClampAvailableCategory(Category);
+
+    UINT32 Packed = 0;
+    for (UINT Temp = Category, Shift = 0; Temp; Temp >>= 8)
+    {
+        UINT Cat = LOBYTE(Temp);
+        if (ClampAvailableCategory((AppsCategories)Cat) != ENUM_CAT_OTHER)
+        {
+            Packed |= Cat << Shift;
+            Shift += 8;
+        }
+    }
+    return Packed ? (AppsCategories)Packed : ENUM_CAT_OTHER;
+}
+
 CAppInfo::CAppInfo(const CStringW &Identifier, AppsCategories Category)
     : szIdentifier(Identifier), iCategory(Category)
 {
@@ -32,8 +51,10 @@ CAvailableApplicationInfo::CAvailableApplicationInfo(
     const CStringW &PkgName,
     AppsCategories Category,
     const CPathW &BasePath)
-    : CAppInfo(PkgName, ClampAvailableCategory(Category)), m_Parser(Parser), m_ScrnshotRetrieved(false), m_LanguagesLoaded(false)
+    : CAppInfo(PkgName, Category), m_Parser(Parser), m_ScrnshotRetrieved(false), m_LanguagesLoaded(false)
 {
+    iCategory = ValidateAvailableCategories(Category);
+
     m_Parser->GetString(L"Name", szDisplayName);
     m_Parser->GetString(L"Version", szDisplayVersion);
     m_Parser->GetString(L"URLDownload", m_szUrlDownload);

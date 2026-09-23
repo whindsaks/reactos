@@ -78,6 +78,25 @@ ClearList(CAtlList<CAppInfo *> &list)
     list.RemoveAll();
 }
 
+static AppsCategories
+GetCategory(CConfigParser &Parser)
+{
+    CStringW Buffer;
+    if (!Parser.GetString(DB_CATEGORY, Buffer) || Buffer.IsEmpty())
+        return ENUM_INVALID;
+
+    LPCWSTR p = Buffer.GetString();
+    UINT32 Packed = 0;
+    for (UINT Shift = 0; Shift < 32; Shift += 8)
+    {
+        UINT Cat = wcstol(p, const_cast<WCHAR**>(&p), 10);
+        Packed |= Cat << Shift;
+        if (*p++ != '|')
+            break;
+    }
+    return Packed ? static_cast<AppsCategories>(Packed) : ENUM_INVALID;
+}
+
 CAppDB::CAppDB(const CStringW &path) : m_BasePath(path)
 {
     m_BasePath.Canonicalize();
@@ -113,9 +132,7 @@ CAppDB::CreateAvailableAppInstance(const CStringW &PkgName, PCWSTR DBPath)
     CPathW AppsPath = DBPath ? CPathW(DBPath) : (CPathW(GetDefaultPath()) += RAPPS_DATABASE_SUBDIR);
     CPathW ManifestPath = CPathW(AppsPath) += PkgName + MANIFEST_DOTEXT;
     CConfigParser *Parser = new CConfigParser(ManifestPath);
-    int Cat;
-    if (!Parser->GetInt(DB_CATEGORY, Cat))
-        Cat = ENUM_INVALID;
+    AppsCategories Cat = GetCategory(*Parser);
 
     pAppInfo = new CAvailableApplicationInfo(Parser, PkgName, static_cast<AppsCategories>(Cat), AppsPath);
     if (pAppInfo->Valid())
@@ -136,7 +153,7 @@ CAppDB::GetApps(CAtlList<CAppInfo *> &List, AppsCategories Type) const
     {
         CAppInfo *Info = list.GetNext(CurrentListPosition);
 
-        if (IncludeAll || Type == Info->iCategory)
+        if (IncludeAll || Info->IsCategory(Type))
         {
             List.AddTail(Info);
         }
@@ -355,8 +372,8 @@ DWORD
 CAppDB::RemoveInstalledAppFromRegistry(const CAppInfo *Info)
 {
     // Validate that this is actually an installed app / update
-    ATLASSERT(Info->iCategory == ENUM_INSTALLED_APPLICATIONS || Info->iCategory == ENUM_UPDATES);
-    if (Info->iCategory != ENUM_INSTALLED_APPLICATIONS && Info->iCategory != ENUM_UPDATES)
+    ATLASSERT(Info->IsInstalledCategory());
+    if (!Info->IsInstalledCategory())
         return ERROR_INVALID_PARAMETER;
 
     const CInstalledApplicationInfo *InstalledInfo = static_cast<const CInstalledApplicationInfo *>(Info);
