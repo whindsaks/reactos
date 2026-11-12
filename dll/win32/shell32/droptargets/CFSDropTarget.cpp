@@ -222,7 +222,7 @@ BOOL CFSDropTarget::_QueryDrop(DWORD dwKeyState, LPDWORD pdwEffect)
     *pdwEffect = DROPEFFECT_NONE;
 
     if (m_fAcceptFmt) { /* Does our interpretation of the keystate ... */
-        *pdwEffect = KeyStateToDropEffect(dwKeyState);
+        *pdwEffect = KeyStateToDropEffect(dwKeyState, m_dwDefaultEffect);
 
         // Transform disallowed move to a copy
         if ((*pdwEffect & D_MOVE) && (m_AllowedEffects & (D_MOVE | D_COPY)) == D_COPY)
@@ -376,6 +376,7 @@ HRESULT WINAPI CFSDropTarget::DragEnter(IDataObject *pDataObject,
 
     const BOOL bAnyKeyMod = dwKeyState & (MK_SHIFT | MK_CONTROL);
     m_AllowedEffects = *pdwEffect;
+    m_dwDefaultEffect = DROPEFFECT_NONE;
 
     if (*pdwEffect == DROPEFFECT_NONE)
         return S_OK;
@@ -433,12 +434,12 @@ HRESULT WINAPI CFSDropTarget::DragEnter(IDataObject *pDataObject,
         WCHAR wstrFirstFile[MAX_PATH];
         if (DragQueryFileW((HDROP)medium.hGlobal, 0, wstrFirstFile, _countof(wstrFirstFile)))
         {
-            if (!PathIsSameDrive(wstrFirstFile, m_sPathTarget) && m_dwDefaultEffect != D_LINK)
+            if (m_dwDefaultEffect != D_LINK && !PathIsSameDrive(wstrFirstFile, m_sPathTarget))
             {
                 m_dwDefaultEffect = DROPEFFECT_COPY;
             }
 
-            if (!bAnyKeyMod && PathIsDriveRoot(wstrFirstFile) && (m_AllowedEffects & DROPEFFECT_LINK))
+            if (!bAnyKeyMod && (m_AllowedEffects & DROPEFFECT_LINK) && PathIsDriveRoot(wstrFirstFile))
             {
                 m_dwDefaultEffect = DROPEFFECT_LINK; // Don't copy a drive by default
             }
@@ -520,19 +521,24 @@ HRESULT WINAPI CFSDropTarget::Drop(IDataObject *pDataObject,
     {
         if (SUCCEEDED(pAsyncOperation->GetAsyncMode(&fIsOpAsync)) && fIsOpAsync)
         {
-            _DoDropData *data = static_cast<_DoDropData*>(HeapAlloc(GetProcessHeap(), 0, sizeof(_DoDropData)));
+            _DoDropData *data = static_cast<_DoDropData*>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(_DoDropData)));
+            if (!data)
+                return E_OUTOFMEMORY;
             data->This = this;
             // Need to maintain this class in case the window is closed or the class exists temporarily (when dropping onto a folder).
-            pDataObject->AddRef();
+            this->AddRef();
+            pDataObject->AddRef(); /* FIXME: Who releases this? */
             pAsyncOperation->StartOperation(NULL);
             CoMarshalInterThreadInterfaceInStream(IID_IDataObject, pDataObject, &data->pStream);
-            this->AddRef();
             data->dwKeyState = dwKeyState;
             data->pt = pt;
-            // Need to dereference as pdweffect gets freed.
-            data->pdwEffect = *pdwEffect;
-            SHCreateThread(CFSDropTarget::_DoDropThreadProc, data, CTF_COINIT | CTF_PROCESS_REF, NULL);
-            return S_OK;
+            data->pdwEffect = *pdwEffect; // Need to dereference as pdweffect gets freed.
+            if (SHCreateThread(CFSDropTarget::_DoDropThreadProc, data, CTF_COINIT | CTF_PROCESS_REF, NULL))
+                return S_OK;
+            if (data->pStream)
+                data->pStream->Release();
+            FreeDropThreadData(data);
+            return E_FAIL;
         }
     }
     return this->_DoDrop(pDataObject, dwKeyState, pt, pdwEffect);
@@ -784,6 +790,14 @@ HRESULT CFSDropTarget::_DoDrop(IDataObject *pDataObject,
     return hr;
 }
 
+void CFSDropTarget::FreeDropThreadData(struct _DoDropData *data)
+{
+    //Release the CFSFolder and data object holds in the copying thread.
+    data->This->Release();
+    //Release the parameter from the heap.
+    HeapFree(GetProcessHeap(), 0, data);
+}
+
 DWORD WINAPI CFSDropTarget::_DoDropThreadProc(LPVOID lpParameter)
 {
     _DoDropData *data = static_cast<_DoDropData*>(lpParameter);
@@ -799,10 +813,7 @@ DWORD WINAPI CFSDropTarget::_DoDropThreadProc(LPVOID lpParameter)
             pAsyncOperation->EndOperation(hr, NULL, data->pdwEffect);
         }
     }
-    //Release the CFSFolder and data object holds in the copying thread.
-    data->This->Release();
-    //Release the parameter from the heap.
-    HeapFree(GetProcessHeap(), 0, data);
+    FreeDropThreadData(data);
     return 0;
 }
 
